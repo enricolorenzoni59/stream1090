@@ -271,6 +271,43 @@ If you want to run stream1090 as a service, it makes sense to disable the statis
 cmake .. -DENABLE_STATS=OFF && cmake --build .
 ```
 
+#### Reducing CPU usage
+Stream1090 spends nearly all of its time in a handful of tight loops, so the
+options the compiler gets make a real difference. The defaults already do the
+right thing in most cases, these are the knobs:
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `ENABLE_NATIVE_ARCH` | `ON` | Builds for the CPU it is compiled on (`-mcpu=native` on ARM). Turn it off if you build on one machine and run on another. |
+| `STREAM1090_CPU` | *(empty)* | Explicit CPU when native tuning is not possible, e.g. `cortex-a76` (Pi 5), `cortex-a72` (Pi 4), `cortex-a53` (Pi 3 / Zero 2 W). |
+| `ENABLE_LTO` | `ON` | Link time optimization. |
+| `ENABLE_UNROLL` | `ON` | `-funroll-loops`, which GCC does not switch on by itself at `-O3`. |
+| `ENABLE_SIMD` | `ON` | The hand written NEON kernels for the FIR filter and the shift registers. Switching it off keeps the plain C++ versions, which produce the same output. |
+| `ENABLE_PGO` | `off` | Profile guided optimization, see below. |
+
+Building on the box that will run it is the normal case and needs nothing:
+```
+cmake ../ --fresh && make
+```
+Cross compiling, or building an image for a different board:
+```
+cmake ../ --fresh -DENABLE_NATIVE_ARCH=OFF -DSTREAM1090_CPU=cortex-a72 && make
+```
+
+##### Profile guided optimization
+The demodulator is full of branches that no compiler can guess. Letting it
+watch a real recording first is worth a few more percent. Record a few seconds
+of IQ from your device, then:
+```
+cmake ../ --fresh -DENABLE_PGO=generate && make
+./stream1090 -s 2.4 -u 8 -q < recording.iq > /dev/null
+cmake ../ -DENABLE_PGO=use && make
+```
+The profile stays in `build/pgo`, so the last step can be repeated after code
+changes without recording again. With Clang the raw counters have to be indexed
+first, which the build does for you as long as `llvm-profdata` is installed
+(`sudo apt install llvm`).
+
 ## Experimental Features
 ### SIGHUP support
 
