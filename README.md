@@ -208,7 +208,7 @@ For example:
 ```
 ./build/stream1090 -s 6 -u 24 --dc-removal -d ./configs/airspy.ini > /dev/null
 ```
-This is useful when the receiver has a measurable DC offset but the additional CPU cost of the FIR filter is not desired. The Airspy `-q` and `-f` pipelines already include DC offset removal, so `--dc-removal` does not need to be combined with either option.
+This is useful when the receiver has a measurable DC offset but the additional CPU cost of the FIR filter is not desired. The Airspy `-q` and `-f` pipelines already include DC offset removal, so `--dc-removal` does not need to be combined with either option. For RTL-SDR, `--dc-removal` can also be combined with `-q` or `-f` when both DC removal and FIR filtering are desired.
 
 ## Stack Integration
 In order to utilize the output of Stream1090, we will send it to a decoder like readsb or dump1090-fa via TCP. This has one big advantage: You do not have to modify anything in the remaining stack.
