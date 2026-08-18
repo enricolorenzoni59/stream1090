@@ -168,6 +168,7 @@ if(BUILD_TESTING)
     stream1090_add_test(mode_s_altitude_test tests/ModeSAltitudeTest.cpp)
     stream1090_add_test(mode_s_position_test tests/ModeSPositionTest.cpp)
     stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
+    stream1090_add_test(df17_first_frame_test tests/DF17FirstFrameTest.cpp)
 endif()
 
 # ------------------------------------------------------------
