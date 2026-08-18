@@ -166,6 +166,7 @@ if(BUILD_TESTING)
     stream1090_add_test(low_pass_filter_test tests/LowPassFilterTest.cpp)
     stream1090_add_test(sampler_test tests/SamplerTest.cpp)
     stream1090_add_test(mode_s_altitude_test tests/ModeSAltitudeTest.cpp)
+    stream1090_add_test(mode_s_position_test tests/ModeSPositionTest.cpp)
 endif()
 
 # ------------------------------------------------------------
