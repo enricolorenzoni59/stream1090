@@ -161,6 +161,10 @@ if(BUILD_TESTING)
     stream1090_add_test(crc_error_table_test tests/CRCErrorTableTest.cpp)
     stream1090_add_test(icao_cache_test tests/ICAOCacheTest.cpp)
     stream1090_add_test(df11_interrogator_test tests/DF11InterrogatorTest.cpp)
+    target_compile_definitions(df11_interrogator_test PRIVATE
+        STREAM1090_MIN_SNR=2
+        STREAM1090_PREAMBLE_GATE=1
+        STREAM1090_PREAMBLE_THRESHOLD=1)
     stream1090_add_test(ring_buffer_test tests/RingBufferTest.cpp)
     stream1090_add_test(erasure_repair_test tests/ErasureRepairTest.cpp)
     stream1090_add_test(low_pass_filter_test tests/LowPassFilterTest.cpp)
