@@ -294,6 +294,7 @@ public:
 			
 			// if we know this plane
 			if (e.isValid()) {
+				noteCleanPosition(e, frame, m_currTime);
 				m_cache.markAsTrustedSeen(e);
 				// and send the 112 bit message to the output
 				return sendFrameLongAligned(streamIndex, downlinkFormat, crc, frame, e);
@@ -313,9 +314,11 @@ public:
 					// the entry had expired since the first sighting, so the
 					// second sighting does not reach the known branch
 					m_cache.markAsTrustedSeen(it);
+					noteCleanPosition(it, frame, m_currTime);
 					return sendFrameLongAligned(streamIndex, downlinkFormat, crc, frame, it);
 				}
 				m_cache.markAsSeen(it);
+				noteCleanPosition(it, frame, m_currTime);
 				return false;
 			}
 		} else {
@@ -339,7 +342,7 @@ public:
 				if (!e.isValid())
 					return false;
 
-				if (m_cache.isTrusted(e)) {
+				if (m_cache.isTrusted(e) && repairPositionPlausible(e, toRepair)) {
 					// log that fixing the message was a success
 					logStats(Stats::DF17_REPAIR_SUCCESS);
 					// and keep the trusted entry alive
@@ -418,6 +421,8 @@ public:
 		const auto icaoWithCA = ModeS::extractICAOWithCA_Long(repaired);
 		const auto e = m_cache.findWithCA(icaoWithCA);
 		if (!e.isValid() || !m_cache.isTrusted(e))
+			return false;
+		if (!repairPositionPlausible(e, repaired))
 			return false;
 
 		logStats(Stats::DF17_REPAIR_SUCCESS);
@@ -591,6 +596,81 @@ public:
 
 
 private:
+	static constexpr uint64_t CprPairWindowTicks { 10'000'000ull * NumStreams };
+	static constexpr uint64_t PositionMaxAgeTicks { 60'000'000ull * NumStreams };
+	static constexpr double RepairDistanceLimitKm { 100.0 };
+
+	static bool isAirbornePosition(uint8_t typeCode) noexcept {
+		return (typeCode >= 9 && typeCode <= 18)
+			|| (typeCode >= 20 && typeCode <= 22);
+	}
+
+	void noteCleanPosition(const ICAOTable::Iterator& entry, const Bits128& frame,
+			uint64_t sampleTime) noexcept {
+		if (!isAirbornePosition(ModeS::extractMEType(frame)))
+			return;
+		m_cache.noteCprClean(entry,
+			ModeS::extractAirbornePositionCprOdd(frame),
+			ModeS::extractAirbornePositionCprLat(frame),
+			ModeS::extractAirbornePositionCprLon(frame), sampleTime,
+			CprPairWindowTicks);
+	}
+
+	static void decodeCprRelative(double refLat, double refLon, bool odd,
+			uint32_t latCpr, uint32_t lonCpr, double& lat, double& lon) noexcept {
+		const double dlat = odd ? 360.0 / 59.0 : 360.0 / 60.0;
+		const double normalizedLat = double(latCpr) / 131072.0;
+		// DO-260C A.1.7.5: the zone index nearest the reference. Sign-safe: a
+		// floor/fmod decomposition is off by one zone whenever the reference is
+		// negative, because fmod keeps the dividend's sign.
+		lat = dlat * (std::floor(0.5 + refLat / dlat - normalizedLat)
+			+ normalizedLat);
+		if (lat > 90.0) lat -= 180.0;
+		if (lat < -90.0) lat += 180.0;
+
+		const int zones = ModeS::cprNl(lat) - (odd ? 1 : 0);
+		const int ni = zones > 1 ? zones : 1;
+		const double dlon = 360.0 / double(ni);
+		const double normalizedLon = double(lonCpr) / 131072.0;
+			lon = dlon * (std::floor(0.5 + refLon / dlon - normalizedLon)
+			+ normalizedLon);
+		if (lon > 180.0) lon -= 360.0;
+		if (lon < -180.0) lon += 360.0;
+	}
+
+	static double distanceKm(double lat1, double lon1, double lat2, double lon2) noexcept {
+		constexpr double EarthRadiusKm = 6371.0;
+		constexpr double DegreesToRadians = 3.14159265358979323846 / 180.0;
+		const double deltaLat = (lat2 - lat1) * DegreesToRadians;
+		const double deltaLon = (lon2 - lon1) * DegreesToRadians;
+		const double a = std::sin(deltaLat * 0.5) * std::sin(deltaLat * 0.5)
+			+ std::cos(lat1 * DegreesToRadians) * std::cos(lat2 * DegreesToRadians)
+			* std::sin(deltaLon * 0.5) * std::sin(deltaLon * 0.5);
+		return 2.0 * EarthRadiusKm * std::asin(std::sqrt(a));
+	}
+
+	bool repairPositionPlausible(const ICAOTable::Iterator& entry,
+			const Bits128& frame) const noexcept {
+		if (!isAirbornePosition(ModeS::extractMEType(frame)))
+			return true;
+
+		int32_t refLatE5 = 0;
+		int32_t refLonE5 = 0;
+		if (!m_cache.cachedPosition(entry, refLatE5, refLonE5,
+				m_currTime, PositionMaxAgeTicks))
+			return true;
+
+		const double refLat = refLatE5 * 1e-5;
+		const double refLon = refLonE5 * 1e-5;
+		double lat = 0.0;
+		double lon = 0.0;
+		decodeCprRelative(refLat, refLon,
+			ModeS::extractAirbornePositionCprOdd(frame),
+			ModeS::extractAirbornePositionCprLat(frame),
+			ModeS::extractAirbornePositionCprLon(frame), lat, lon);
+		return distanceKm(refLat, refLon, lat, lon) <= RepairDistanceLimitKm;
+	}
+
 	const void* m_confidenceCtx = nullptr;
 	ConfidenceFn m_confidenceFn = nullptr;
 	const void* m_preambleCtx = nullptr;
