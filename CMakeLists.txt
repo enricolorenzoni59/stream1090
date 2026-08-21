@@ -23,6 +23,16 @@ option(ENABLE_RTLSDR_BLOG    "Enable vendored RTL-SDR Blog fork" OFF)
 option(ENABLE_TOO_MUCH_CPU   "Unlocks the 40 and 48 Msps speeds" OFF)
 option(BUILD_TESTING         "Build tests" OFF)
 set(INTERPOLATION_KERNEL "6" CACHE STRING "RTL-SDR interpolation kernel (1 linear, 6 sharpening cubic)")
+option(ENABLE_NATIVE_ARCH "Tune the binary for the CPU it is built on" ON)
+option(ENABLE_LTO         "Link time optimization" ON)
+option(ENABLE_UNROLL      "Ask the compiler to unroll the DSP loops" ON)
+set(ENABLE_PGO "off" CACHE STRING "Profile guided optimization: off, generate or use")
+set_property(CACHE ENABLE_PGO PROPERTY STRINGS off generate use)
+
+# Explicit CPU to tune for. Only used when ENABLE_NATIVE_ARCH cannot be applied
+# (cross compiling, or a compiler that does not understand -mcpu=native).
+# Useful values on ARM: cortex-a76 (Pi 5), cortex-a72 (Pi 4), cortex-a53 (Pi 3 / Zero 2 W)
+set(STREAM1090_CPU "" CACHE STRING "Explicit CPU for -mcpu=/-mtune= (e.g. cortex-a76)")
 
 set(STATS_DEF        STATS_ENABLED=$<BOOL:${ENABLE_STATS}>)
 set(STATS_END_DEF    STATS_END_ONLY=$<BOOL:${END_STATS}>)
@@ -44,6 +54,175 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(DEFAULT_COMPILE_OPTIONS
     -Wall -Wextra -Wunused-function -O3 -ffast-math
 )
+
+# ------------------------------------------------------------
+# CPU tuning
+#
+# The default aarch64 baseline (armv8-a, generic scheduling) leaves a good
+# chunk of performance on the table on the boards this usually runs on.
+# Tuning for the actual core mostly changes instruction selection and
+# scheduling, which is exactly what the tight DSP loops care about.
+# ------------------------------------------------------------
+include(CheckCXXCompilerFlag)
+
+# Adds a flag to DEFAULT_COMPILE_OPTIONS if the compiler accepts it.
+function(stream1090_try_flag flag resultVar)
+    string(MAKE_C_IDENTIFIER "HAVE${flag}" cacheVar)
+    check_cxx_compiler_flag("${flag}" ${cacheVar})
+    if(${cacheVar})
+        set(DEFAULT_COMPILE_OPTIONS ${DEFAULT_COMPILE_OPTIONS} ${flag} PARENT_SCOPE)
+    endif()
+    set(${resultVar} ${${cacheVar}} PARENT_SCOPE)
+endfunction()
+
+set(CPU_FLAG_APPLIED FALSE)
+
+if(ENABLE_NATIVE_ARCH AND NOT CMAKE_CROSSCOMPILING)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm)")
+        stream1090_try_flag(-mcpu=native CPU_FLAG_APPLIED)
+    else()
+        stream1090_try_flag(-march=native CPU_FLAG_APPLIED)
+        if(CPU_FLAG_APPLIED)
+            stream1090_try_flag(-mtune=native _unused)
+        endif()
+    endif()
+
+    if(CPU_FLAG_APPLIED)
+        message(STATUS "[stream1090] Tuning for the build host CPU")
+    else()
+        message(STATUS "[stream1090] Compiler rejects native tuning, falling back")
+    endif()
+endif()
+
+# Either the user pinned a CPU, or native tuning was unavailable
+if(NOT CPU_FLAG_APPLIED AND STREAM1090_CPU)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm)")
+        stream1090_try_flag(-mcpu=${STREAM1090_CPU} CPU_FLAG_APPLIED)
+    else()
+        stream1090_try_flag(-mtune=${STREAM1090_CPU} CPU_FLAG_APPLIED)
+    endif()
+    if(CPU_FLAG_APPLIED)
+        message(STATUS "[stream1090] Tuning for ${STREAM1090_CPU}")
+    else()
+        message(WARNING "[stream1090] Compiler does not accept CPU '${STREAM1090_CPU}'")
+    endif()
+endif()
+
+if(NOT CPU_FLAG_APPLIED)
+    message(STATUS "[stream1090] Generic CPU tuning. Consider -DSTREAM1090_CPU=cortex-a76 or similar")
+endif()
+
+# ------------------------------------------------------------
+# Loop unrolling
+#
+# GCC does not enable -funroll-loops at -O3. The FIR and the resampler are
+# short trip count loops over compile time constant tap tables, which is
+# precisely the case where unrolling pays for itself.
+# ------------------------------------------------------------
+if(ENABLE_UNROLL)
+    stream1090_try_flag(-funroll-loops _unused)
+endif()
+
+# ------------------------------------------------------------
+# Link time optimization
+# ------------------------------------------------------------
+set(DEFAULT_LINK_OPTIONS "")
+
+if(ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT LTO_SUPPORTED OUTPUT LTO_ERROR)
+    if(LTO_SUPPORTED)
+        message(STATUS "[stream1090] Link time optimization enabled")
+    else()
+        message(STATUS "[stream1090] Link time optimization unavailable: ${LTO_ERROR}")
+    endif()
+else()
+    set(LTO_SUPPORTED FALSE)
+endif()
+
+# ------------------------------------------------------------
+# Profile guided optimization
+#
+# The demodulator is a wall of hard to predict branches, which is the case
+# PGO helps with most. Workflow:
+#   cmake ../ --fresh -DENABLE_PGO=generate && make
+#   ./stream1090 -s 2.4 -u 8 -q < recording.iq > /dev/null
+#   cmake ../ -DENABLE_PGO=use && make
+# ------------------------------------------------------------
+set(PGO_DIR "${CMAKE_BINARY_DIR}/pgo" CACHE PATH "Where the PGO profile data lives")
+
+if(ENABLE_PGO STREQUAL "generate")
+    file(MAKE_DIRECTORY "${PGO_DIR}")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        list(APPEND DEFAULT_COMPILE_OPTIONS -fprofile-generate=${PGO_DIR})
+        list(APPEND DEFAULT_LINK_OPTIONS    -fprofile-generate=${PGO_DIR})
+    else()
+        list(APPEND DEFAULT_COMPILE_OPTIONS -fprofile-generate -fprofile-dir=${PGO_DIR})
+        list(APPEND DEFAULT_LINK_OPTIONS    -fprofile-generate -fprofile-dir=${PGO_DIR})
+    endif()
+    message(STATUS "[stream1090] PGO instrumentation build, profile goes to ${PGO_DIR}")
+
+elseif(ENABLE_PGO STREQUAL "use")
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        # The instrumented run drops raw counter files. Clang cannot read those
+        # directly, they have to be indexed into a .profdata first.
+        set(PGO_PROFILE "${PGO_DIR}/default.profdata")
+        file(GLOB PGO_RAW_FILES "${PGO_DIR}/*.profraw")
+
+        if(PGO_RAW_FILES)
+            find_program(LLVM_PROFDATA
+                NAMES llvm-profdata
+                      llvm-profdata-21 llvm-profdata-20 llvm-profdata-19
+                      llvm-profdata-18 llvm-profdata-17 llvm-profdata-16
+                      llvm-profdata-15 llvm-profdata-14)
+
+            if(NOT LLVM_PROFDATA)
+                message(FATAL_ERROR
+                    "[stream1090] Found raw profiles in ${PGO_DIR} but no llvm-profdata to index them.\n"
+                    "             Install it (apt install llvm) or build the PGO step with GCC.")
+            endif()
+
+            execute_process(
+                COMMAND ${LLVM_PROFDATA} merge -output=${PGO_PROFILE} ${PGO_RAW_FILES}
+                RESULT_VARIABLE PGO_MERGE_RESULT
+                ERROR_VARIABLE  PGO_MERGE_ERROR)
+
+            if(NOT PGO_MERGE_RESULT EQUAL 0)
+                message(FATAL_ERROR "[stream1090] llvm-profdata merge failed: ${PGO_MERGE_ERROR}")
+            endif()
+
+            message(STATUS "[stream1090] Indexed the recorded profile into ${PGO_PROFILE}")
+        endif()
+
+        if(NOT EXISTS "${PGO_PROFILE}")
+            message(FATAL_ERROR
+                "[stream1090] No profile found in ${PGO_DIR}.\n"
+                "             Build with -DENABLE_PGO=generate and run stream1090 on a recording first.")
+        endif()
+
+        list(APPEND DEFAULT_COMPILE_OPTIONS
+            -fprofile-use=${PGO_PROFILE}
+            # a profile recorded before the last edit is still worth using
+            -Wno-profile-instr-out-of-date
+            -Wno-profile-instr-unprofiled)
+
+        message(STATUS "[stream1090] PGO optimized build, reading profile from ${PGO_PROFILE}")
+    else()
+        if(NOT EXISTS "${PGO_DIR}")
+            message(FATAL_ERROR
+                "[stream1090] No profile found in ${PGO_DIR}.\n"
+                "             Build with -DENABLE_PGO=generate and run stream1090 on a recording first.")
+        endif()
+
+        list(APPEND DEFAULT_COMPILE_OPTIONS
+            -fprofile-use -fprofile-dir=${PGO_DIR} -fprofile-correction -Wno-missing-profile)
+
+        message(STATUS "[stream1090] PGO optimized build, reading profile from ${PGO_DIR}")
+    endif()
+
+elseif(NOT ENABLE_PGO STREQUAL "off")
+    message(FATAL_ERROR "[stream1090] ENABLE_PGO must be off, generate or use")
+endif()
 
 # ------------------------------------------------------------
 # Device backend detection
@@ -136,6 +315,14 @@ target_include_directories(stream1090 PRIVATE
 
 target_compile_options(stream1090 PRIVATE ${DEFAULT_COMPILE_OPTIONS})
 
+if(DEFAULT_LINK_OPTIONS)
+    target_link_libraries(stream1090 PRIVATE ${DEFAULT_LINK_OPTIONS})
+endif()
+
+if(LTO_SUPPORTED)
+    set_property(TARGET stream1090 PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
 target_compile_definitions(stream1090 PRIVATE
     ${STATS_DEF}
     ${STATS_END_DEF}
@@ -223,4 +410,7 @@ include(CPack)
 add_executable(table_gen table_gen.cpp)
 target_include_directories(table_gen PRIVATE include)
 target_compile_options(table_gen PRIVATE ${DEFAULT_COMPILE_OPTIONS})
+if(DEFAULT_LINK_OPTIONS)
+    target_link_libraries(table_gen PRIVATE ${DEFAULT_LINK_OPTIONS})
+endif()
 set_target_properties(table_gen PROPERTIES EXCLUDE_FROM_ALL TRUE)
