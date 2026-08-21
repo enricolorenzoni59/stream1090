@@ -1,6 +1,42 @@
 # Stream1090
 Mode-S demodulator written in C++ with CRC-based message framing.
 
+> [!IMPORTANT]
+> This fork's `enrico-dev` branch is an experimental integration branch. Its
+> purpose is to let users build and test a cumulative preview of changes that
+> are being proposed to [upstream Stream1090](https://github.com/mgrone/stream1090),
+> and to collect real-world feedback before those changes are merged. It is not
+> an upstream release, and individual changes may still be revised or rejected.
+
+Compared with upstream `main`, `enrico-dev` currently previews these open pull
+requests:
+
+- Decoder correctness and recovery: airborne CPR utilities
+  ([#48](https://github.com/mgrone/stream1090/pull/48)), ICAO cache state
+  preservation ([#49](https://github.com/mgrone/stream1090/pull/49)), DF11
+  SNR/preamble gating ([#50](https://github.com/mgrone/stream1090/pull/50)),
+  repaired-position validation ([#51](https://github.com/mgrone/stream1090/pull/51)),
+  and confirmation of newly seen aircraft
+  ([#52](https://github.com/mgrone/stream1090/pull/52)).
+- Runtime and tooling improvements: parallel and bounded filter optimisation
+  ([#36](https://github.com/mgrone/stream1090/pull/36)), batched AVR output
+  ([#42](https://github.com/mgrone/stream1090/pull/42)), a CRC miss bitmap
+  ([#45](https://github.com/mgrone/stream1090/pull/45)), and simpler CMake test
+  declarations ([#47](https://github.com/mgrone/stream1090/pull/47)).
+- SDR, DSP, and portability work: sharpening cubic RTL-SDR interpolation
+  ([#41](https://github.com/mgrone/stream1090/pull/41)), warning-free preamble
+  gate builds ([#53](https://github.com/mgrone/stream1090/pull/53)), and correct
+  vendored RTL-SDR Blog linking on macOS
+  ([#54](https://github.com/mgrone/stream1090/pull/54)).
+
+The branch also carries fork-only work that is not yet represented by upstream
+pull requests: an experimental linear-time SNR noise-floor test that avoids
+sorting the sample window, pinned clang-format tooling, and the RTL-SDR Blog
+source as a Git subtree, including a macOS `CLOCK_MONOTONIC_RAW` comparison in
+`rtl_test`. Keeping these items separate from the list above makes their review
+status explicit; successful experiments can later be submitted upstream as
+focused pull requests.
+
 Stream1090 is a proof of concept implementation taking a different approach in order to identify mode-s messages in an SDR signal stream.
 Most implementations look for the so-called preamble (a sequence of pulses anounncing a message). Stream1090 skips this step and maintains
 directly a set of shift registers. Based on the CRC sum and other criteria, messages are being identified. The hope is that in high traffic
