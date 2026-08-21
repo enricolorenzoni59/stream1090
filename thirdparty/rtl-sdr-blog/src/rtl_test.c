@@ -29,6 +29,7 @@
 
 #ifdef __APPLE__
 #include <sys/time.h>
+#include <time.h>
 #else
 #include <time.h>
 #endif
@@ -170,6 +171,19 @@ static int ppm_gettime(struct time_generic *tg)
 }
 #endif
 
+#ifdef __APPLE__
+static int ppm_gettime_raw(struct time_generic *tg)
+{
+	struct timespec ts;
+	int rv;
+
+	rv = clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+	tg->tv_sec = ts.tv_sec;
+	tg->tv_nsec = ts.tv_nsec;
+	return rv;
+}
+#endif
+
 #ifdef _WIN32
 static int ppm_gettime(struct time_generic *tg)
 {
@@ -204,6 +218,12 @@ static void ppm_test(uint32_t len)
 	static uint64_t interval_total = 0;
 	struct time_generic ppm_now;
 	static struct time_generic ppm_recent;
+#ifdef __APPLE__
+	static uint64_t interval_raw = 0;
+	static uint64_t interval_total_raw = 0;
+	struct time_generic ppm_now_raw;
+	static struct time_generic ppm_recent_raw;
+#endif
 	static enum {
 		PPM_INIT_NO,
 		PPM_INIT_DUMP,
@@ -211,6 +231,9 @@ static void ppm_test(uint32_t len)
 	} ppm_init = PPM_INIT_NO;
 
 	ppm_gettime(&ppm_now);
+#ifdef __APPLE__
+	ppm_gettime_raw(&ppm_now_raw);
+#endif
 
 	if (ppm_init != PPM_INIT_RUN) {
 		/*
@@ -228,6 +251,9 @@ static void ppm_test(uint32_t len)
 		if (ppm_init == PPM_INIT_DUMP && ppm_recent.tv_sec < ppm_now.tv_sec)
 			return;
 		ppm_recent = ppm_now;
+#ifdef __APPLE__
+		ppm_recent_raw = ppm_now_raw;
+#endif
 		ppm_init = PPM_INIT_RUN;
 		return;
 	}
@@ -238,12 +264,30 @@ static void ppm_test(uint32_t len)
 		return;
 	interval *= 1000000000UL;
 	interval += (int64_t)(ppm_now.tv_nsec - ppm_recent.tv_nsec);
+#ifdef __APPLE__
+	interval_raw = (uint64_t)(ppm_now_raw.tv_sec - ppm_recent_raw.tv_sec);
+	interval_raw *= 1000000000UL;
+	interval_raw += (int64_t)(ppm_now_raw.tv_nsec - ppm_recent_raw.tv_nsec);
+#endif
 	nsamples_total += nsamples;
 	interval_total += interval;
+#ifdef __APPLE__
+	interval_total_raw += interval_raw;
+	printf("real sample rate: %i current PPM: %i cumulative PPM: %i | "
+		"monotonic raw sample rate: %i current PPM: %i cumulative PPM: %i\n",
+		(int)((1000000000UL * nsamples) / interval),
+		ppm_report(nsamples, interval),
+		ppm_report(nsamples_total, interval_total),
+		(int)((1000000000UL * nsamples) / interval_raw),
+		ppm_report(nsamples, interval_raw),
+		ppm_report(nsamples_total, interval_total_raw));
+	ppm_recent_raw = ppm_now_raw;
+#else
 	printf("real sample rate: %i current PPM: %i cumulative PPM: %i\n",
 		(int)((1000000000UL * nsamples) / interval),
 		ppm_report(nsamples, interval),
 		ppm_report(nsamples_total, interval_total));
+#endif
 	ppm_recent = ppm_now;
 	nsamples = 0;
 }

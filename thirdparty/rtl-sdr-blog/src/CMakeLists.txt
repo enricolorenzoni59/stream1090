@@ -77,7 +77,7 @@ add_library(convenience_static STATIC
     convenience/convenience.c
 )
 target_include_directories(convenience_static
-  PRIVATE ${CMAKE_SOURCE_DIR}/include)
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
 if(WIN32)
 add_library(libgetopt_static STATIC
     getopt/getopt.c
@@ -180,4 +180,3 @@ install(TARGETS rtl_sdr rtl_tcp rtl_test rtl_fm rtl_eeprom rtl_adsb rtl_power rt
   DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 endif()
-

@@ -175,6 +175,8 @@ or if your hardware supports 10 Msps sample rate
 #### A note on RTL-SDR devices and 2.56 MHz
 In general it is assumed that 2.4 MHz is the highest reliable sample rate for an RTL-SDR device. However, after experiments with different sticks, it turned out that at 2.56 MHz, samples are dropped only once at the beginning. Afterwards, no sample loss has been observed.
 
+On macOS, the vendored `rtl_test -p` prints PPM estimates from both the wall clock used by upstream `rtl_test` and `CLOCK_MONOTONIC_RAW`. This makes clock corrections applied by macOS visible without changing the Homebrew-installed `rtl_test` executable. Configure with `-DBUILD_UTILS_RTLSDR=ON` to build the vendored command-line tools.
+
 
 ## Low-Pass Filter
 Stream1090 offers the option to apply a low-pass filter to the IQ-pairs coming from the SDR device. It turned out that this increases the message output significantly in many cases at the cost of higher CPU usage.
