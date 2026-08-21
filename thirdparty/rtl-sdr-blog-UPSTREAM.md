@@ -12,9 +12,9 @@ The subtree was initialized from upstream commit:
 aed0ea19f3a273370a13c9009b96313c75d54c7b
 ```
 
-Stream1090 keeps its CMake integration and R82xx per-stage gain controls as
-normal commits on top of that import. Do not replace the directory with a
-manually copied checkout.
+Stream1090 keeps its CMake integration, macOS libusb link fix, and R82xx
+per-stage gain controls as normal commits on top of that import. Do not replace
+the directory with a manually copied checkout.
 
 To update from the upstream `master` branch, start with a clean working tree
 and run:
