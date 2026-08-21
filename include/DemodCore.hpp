@@ -53,7 +53,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         m_preambleFn = fn;
     }
 
-    using SnrFn = float (*)(const void*, uint8_t);
+    using SnrFn = bool (*)(const void*, uint8_t, float);
     void setSnrSource(const void* ctx, SnrFn fn) noexcept {
         m_snrCtx = ctx;
         m_snrFn = fn;
@@ -71,7 +71,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             return false;
         if (m_snrFn == nullptr)
             return false;
-        return m_snrFn(m_snrCtx, 56) < MinSnr;
+        return m_snrFn(m_snrCtx, 56, MinSnr);
     }
 
     /// True when the preamble in front of this candidate is strong enough to be

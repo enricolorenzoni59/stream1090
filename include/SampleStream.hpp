@@ -120,11 +120,11 @@ template <typename Sampler> class SampleStream {
         return (gap > 0.0f) ? (pulse / gap) : 0.0f;
     }
 
-    /// Signal-to-noise ratio of a frame: the peak magnitude across the frame's
-    /// data region over the median magnitude of a quiet window before it. This
-    /// is a ratio, so it is independent of receiver gain. A real transmission
-    /// sits well above its local noise floor; a fabricated frame is at it.
-    float snr(size_t frameBit) const noexcept {
+    /// True when the frame's peak does not clear `minSnr` times the local
+    /// noise floor, the low percentile of a quiet window before the preamble.
+    /// Only this comparison is needed: count samples on the relevant side of
+    /// the threshold instead of materialising and sorting the whole window.
+    bool atNoiseFloor(size_t frameBit, float minSnr) const noexcept {
         const auto offsetInBlock = size_t(m_demodPos - m_sampleRingBuffer.readPos());
 
         int32_t peak = 0;
@@ -134,29 +134,25 @@ template <typename Sampler> class SampleStream {
                 peak = std::max(peak, m_sampleRingBuffer.lookBack(delay - s, offsetInBlock));
         }
 
-        // noise floor: a low percentile of magnitudes over a quiet window
-        // before the preamble. The low percentile ignores any other
-        // transmission that happens to fall in the window, so the estimate is
-        // the receiver's own noise level and the ratio transfers between sites.
+        // The noise floor is a low percentile so another transmission in the
+        // window cannot raise it. For a sorted window, window[n / 4] is above
+        // peak / minSnr exactly when at most n / 4 samples are at or below that
+        // threshold.
         constexpr size_t NoiseBits = 64;
         constexpr size_t StartBit = 200;
-        std::array<int32_t, NoiseBits * Sampler::NumStreams> window{};
-        size_t n = 0;
+        constexpr size_t Total = NoiseBits * Sampler::NumStreams;
+        const int32_t threshold = int32_t(float(peak) / minSnr);
+
+        size_t atOrBelow = 0;
         for (size_t b = 0; b < NoiseBits; b++) {
             const size_t delay = (size_t(StartBit) + b) * Sampler::NumStreams;
             for (size_t s = 0; s < Sampler::NumStreams; s++) {
-                window[n++] = m_sampleRingBuffer.lookBack(delay - s, offsetInBlock);
-                if (n == window.size())
-                    break;
+                const int32_t sample = m_sampleRingBuffer.lookBack(delay - s, offsetInBlock);
+                atOrBelow += sample <= threshold;
             }
-            if (n == window.size())
-                break;
         }
-        std::sort(window.begin(), window.begin() + n);
-        const float noise = float(window[n / 4]);
-        if (noise <= 0.0f)
-            return 0.0f;
-        return float(peak) / noise;
+
+        return atOrBelow <= Total / 4;
     }
 
   private:
@@ -187,8 +183,8 @@ inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& m
         return static_cast<const SampleStream<Sampler>*>(ctx)->preambleScore(stream);
     };
     demodCore.setPreambleSource(this, preambleSource);
-    const auto snrSource = [](const void* ctx, uint8_t frameBit) -> float {
-        return static_cast<const SampleStream<Sampler>*>(ctx)->snr(frameBit);
+    const auto snrSource = [](const void* ctx, uint8_t frameBit, float minSnr) -> bool {
+        return static_cast<const SampleStream<Sampler>*>(ctx)->atNoiseFloor(frameBit, minSnr);
     };
     demodCore.setSnrSource(this, snrSource);
 
