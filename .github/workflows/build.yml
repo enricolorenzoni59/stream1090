@@ -61,3 +61,27 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  # Exercise the in-tree RTL-SDR Blog library on the platform whose static
+  # libusb linking differs from Linux. The regular matrix uses the system
+  # librtlsdr package and would not catch regressions in this path.
+  build-vendored-rtlsdr-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install dependencies
+        run: brew install cmake pkgconf libusb
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DENABLE_RTLSDR_BLOG=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
