@@ -19,7 +19,7 @@ jobs:
       matrix:
         compiler: [gcc, clang]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Install dependencies
         run: |
@@ -45,7 +45,7 @@ jobs:
   build-without-device-backends:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - name: Install dependencies
         run: |
