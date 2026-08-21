@@ -5,6 +5,9 @@ on:
     branches: [main, enrico-dev]
   pull_request:
 
+env:
+  CXXFLAGS: -Werror
+
 jobs:
   # Build the way a user would, with both device backends present, and run
   # the test suite. Tests are opt-in in CMakeLists.txt, so -DBUILD_TESTING=ON
