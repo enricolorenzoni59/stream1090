@@ -38,8 +38,7 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
 
     int index = rtlsdr_get_index_by_serial(serial.c_str());
     if (index < 0) {
-        Log::error("RtlSdrDevice") << "No RTL-SDR device found with serial '"
-                  << serial << "'";
+        Log::error("RtlSdrDevice") << "No RTL-SDR device found with serial '" << serial << "'";
         return false;
     }
 
@@ -52,27 +51,22 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
 
     auto check = [&](const char* name, int rc) {
         if (rc != 0) {
-            Log::error("RtlSdrDevice") << "ERROR: " << name
-                    << " failed with code " << rc;
+            Log::error("RtlSdrDevice") << "ERROR: " << name << " failed with code " << rc;
             return false;
         }
         return true;
     };
 
-    if (!check("rtlsdr_set_direct_sampling(0)",
-            rtlsdr_set_direct_sampling(m_dev, 0)))
+    if (!check("rtlsdr_set_direct_sampling(0)", rtlsdr_set_direct_sampling(m_dev, 0)))
         return false;
 
-    if (!check("rtlsdr_set_sample_rate",
-            rtlsdr_set_sample_rate(m_dev, getSampleRate())))
+    if (!check("rtlsdr_set_sample_rate", rtlsdr_set_sample_rate(m_dev, getSampleRate())))
         return false;
 
-    if (!check("rtlsdr_set_center_freq",
-            rtlsdr_set_center_freq(m_dev, 1090000000)))
+    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
         return false;
 
-    if (!check("rtlsdr_reset_buffer",
-            rtlsdr_reset_buffer(m_dev)))
+    if (!check("rtlsdr_reset_buffer", rtlsdr_reset_buffer(m_dev)))
         return false;
     return true;
 }
@@ -108,31 +102,25 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
     char buf[256];
     rtlsdr_get_device_usb_strings(index, nullptr, nullptr, buf);
     m_actualSerial = std::strtoull(buf, nullptr, 0);
-    
-    
+
     auto check = [&](const char* name, int rc) {
         if (rc != 0) {
-            Log::error("RtlSdrDevice") << "ERROR: " << name
-                    << " failed with code " << rc;
+            Log::error("RtlSdrDevice") << "ERROR: " << name << " failed with code " << rc;
             return false;
         }
         return true;
     };
 
-    if (!check("rtlsdr_set_direct_sampling(0)",
-            rtlsdr_set_direct_sampling(m_dev, 0)))
-        return false;
-    
-    if (!check("rtlsdr_set_sample_rate",
-            rtlsdr_set_sample_rate(m_dev, getSampleRate())))
+    if (!check("rtlsdr_set_direct_sampling(0)", rtlsdr_set_direct_sampling(m_dev, 0)))
         return false;
 
-    if (!check("rtlsdr_set_center_freq",
-            rtlsdr_set_center_freq(m_dev, 1090000000)))
+    if (!check("rtlsdr_set_sample_rate", rtlsdr_set_sample_rate(m_dev, getSampleRate())))
         return false;
 
-    if (!check("rtlsdr_reset_buffer",
-            rtlsdr_reset_buffer(m_dev)))
+    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
+        return false;
+
+    if (!check("rtlsdr_reset_buffer", rtlsdr_reset_buffer(m_dev)))
         return false;
     return true;
 }
@@ -151,13 +139,7 @@ bool RtlSdrDevice::start() {
     m_running.store(true, std::memory_order_relaxed);
 
     m_thread = std::thread([this]() {
-        int rc = rtlsdr_read_async(
-            m_dev,
-            rtlsdr_callback,
-            this,
-            0,
-            0
-        );
+        int rc = rtlsdr_read_async(m_dev, rtlsdr_callback, this, 0, 0);
 
         if (rc != 0)
             Log::error("RtlSdrDevice") << "rtlsdr_read_async failed: " << rc;
@@ -211,7 +193,6 @@ int RtlSdrDevice::nearestGain(int requested) {
     return best;
 }
 
-
 // ----------------------
 // Shadow-aware setters with change logging
 // ----------------------
@@ -221,8 +202,7 @@ bool RtlSdrDevice::setFrequency(uint32_t hz) {
         return true;
 
     if (rtlsdr_set_center_freq(m_dev, hz) == 0) {
-        Log::info("RtlSdrDevice") << "frequency: "
-                  << m_state.frequency << " -> " << hz;
+        Log::info("RtlSdrDevice") << "frequency: " << m_state.frequency << " -> " << hz;
         m_state.frequency = hz;
         return true;
     }
@@ -239,9 +219,8 @@ bool RtlSdrDevice::setGain(float gainDb) {
     int nearest = nearestGain(gainTenths);
 
     if (rtlsdr_set_tuner_gain(m_dev, nearest) == 0) {
-        Log::info("RtlSdrDevice") << "gain: "
-                  << m_state.gain_db << " dB -> " << gainDb << " dB"
-                  << " (nearest step = " << nearest/10.0f << " dB)";
+        Log::info("RtlSdrDevice") << "gain: " << m_state.gain_db << " dB -> " << gainDb << " dB"
+                                  << " (nearest step = " << nearest / 10.0f << " dB)";
         m_state.gain_db = gainDb;
         return true;
     }
@@ -253,9 +232,7 @@ bool RtlSdrDevice::setAgc(bool enabled) {
         return true;
 
     if (rtlsdr_set_agc_mode(m_dev, enabled ? 1 : 0) == 0) {
-        Log::info("RtlSdrDevice") << "agc: "
-                  << (m_state.agc ? "on" : "off")
-                  << " -> " << (enabled ? "on" : "off");
+        Log::info("RtlSdrDevice") << "agc: " << (m_state.agc ? "on" : "off") << " -> " << (enabled ? "on" : "off");
         m_state.agc = enabled;
         return true;
     }
@@ -267,9 +244,8 @@ bool RtlSdrDevice::setBiasTee(bool enabled) {
         return true;
 
     if (rtlsdr_set_bias_tee(m_dev, enabled ? 1 : 0) == 0) {
-        Log::info("RtlSdrDevice") << "bias_tee: "
-                  << (m_state.bias_tee ? "on" : "off")
-                  << " -> " << (enabled ? "on" : "off");
+        Log::info("RtlSdrDevice") << "bias_tee: " << (m_state.bias_tee ? "on" : "off") << " -> "
+                                  << (enabled ? "on" : "off");
         m_state.bias_tee = enabled;
         return true;
     }
@@ -281,8 +257,7 @@ bool RtlSdrDevice::setPpm(int ppm) {
         return true;
 
     if (rtlsdr_set_freq_correction(m_dev, ppm) == 0) {
-        Log::info("RtlSdrDevice") << "ppm: "
-                  << m_state.ppm << " -> " << ppm;
+        Log::info("RtlSdrDevice") << "ppm: " << m_state.ppm << " -> " << ppm;
         m_state.ppm = ppm;
         return true;
     }
@@ -294,9 +269,8 @@ bool RtlSdrDevice::setOffsetTuning(bool enabled) {
         return true;
 
     if (rtlsdr_set_offset_tuning(m_dev, enabled ? 1 : 0) == 0) {
-        Log::info("RtlSdrDevice") << "offset_tuning: "
-                  << (m_state.offset_tuning ? "on" : "off")
-                  << " -> " << (enabled ? "on" : "off");
+        Log::info("RtlSdrDevice") << "offset_tuning: " << (m_state.offset_tuning ? "on" : "off") << " -> "
+                                  << (enabled ? "on" : "off");
         m_state.offset_tuning = enabled;
         return true;
     }
@@ -308,8 +282,7 @@ bool RtlSdrDevice::setTunerBandwidth(uint32_t bw) {
         return true;
 
     if (rtlsdr_set_tuner_bandwidth(m_dev, bw) == 0) {
-        Log::info("RtlSdrDevice") << "tuner_bandwidth: "
-                  << m_state.tuner_bandwidth << " -> " << bw;
+        Log::info("RtlSdrDevice") << "tuner_bandwidth: " << m_state.tuner_bandwidth << " -> " << bw;
         m_state.tuner_bandwidth = bw;
         return true;
     }
@@ -328,8 +301,7 @@ bool RtlSdrDevice::setLnaGain(int gain) {
     if (rtlsdr_r82xx_set_lna_gain(m_dev, gain) != 0)
         return false;
 
-    Log::info("RtlSdrDevice") << "LNA gain: "
-              << m_state.lna_gain << " -> " << gain;
+    Log::info("RtlSdrDevice") << "LNA gain: " << m_state.lna_gain << " -> " << gain;
 
     m_state.lna_gain = gain;
     return true;
@@ -346,8 +318,7 @@ bool RtlSdrDevice::setMixerGain(int gain) {
     if (rtlsdr_r82xx_set_mixer_gain(m_dev, gain) != 0)
         return false;
 
-    Log::info("RtlSdrDevice") << "Mixer gain: "
-              << m_state.mixer_gain << " -> " << gain;
+    Log::info("RtlSdrDevice") << "Mixer gain: " << m_state.mixer_gain << " -> " << gain;
 
     m_state.mixer_gain = gain;
     return true;
@@ -364,22 +335,23 @@ bool RtlSdrDevice::setVgaGain(int gain) {
     if (rtlsdr_r82xx_set_vga_gain(m_dev, gain) != 0)
         return false;
 
-    Log::info("RtlSdrDevice") << "VGA gain: "
-              << m_state.vga_gain << " -> " << gain;
+    Log::info("RtlSdrDevice") << "VGA gain: " << m_state.vga_gain << " -> " << gain;
 
     m_state.vga_gain = gain;
     return true;
 }
 
 #else
-bool RtlSdrDevice::setLnaGain(int) { return false; }
-bool RtlSdrDevice::setMixerGain(int) { return false; }
-bool RtlSdrDevice::setVgaGain(int) { return false; }
+bool RtlSdrDevice::setLnaGain(int) {
+    return false;
+}
+bool RtlSdrDevice::setMixerGain(int) {
+    return false;
+}
+bool RtlSdrDevice::setVgaGain(int) {
+    return false;
+}
 #endif
-
-
-
-
 
 // ----------------------
 // applySetting()
@@ -389,22 +361,31 @@ bool RtlSdrDevice::applySetting(const std::string& key, const std::string& value
         return false;
 
     // Core controls
-    if (key == "frequency")        return setFrequency(std::stoul(value));
-    if (key == "gain")             return setGain(std::stof(value));
-    if (key == "agc")              return setAgc(value == "1" || value == "true" || value == "on");
-    if (key == "bias_tee")         return setBiasTee(value == "1" || value == "true" || value == "on");
-    if (key == "ppm")              return setPpm(std::stoi(value));
-    if (key == "offset_tuning")    return setOffsetTuning(value == "1" || value == "true" || value == "on");
-    if (key == "tuner_bandwidth")  return setTunerBandwidth(std::stoul(value));
+    if (key == "frequency")
+        return setFrequency(std::stoul(value));
+    if (key == "gain")
+        return setGain(std::stof(value));
+    if (key == "agc")
+        return setAgc(value == "1" || value == "true" || value == "on");
+    if (key == "bias_tee")
+        return setBiasTee(value == "1" || value == "true" || value == "on");
+    if (key == "ppm")
+        return setPpm(std::stoi(value));
+    if (key == "offset_tuning")
+        return setOffsetTuning(value == "1" || value == "true" || value == "on");
+    if (key == "tuner_bandwidth")
+        return setTunerBandwidth(std::stoul(value));
 
     // Advanced per‑stage gain controls (R820T manual mode)
-    if (key == "lna_gain")         return setLnaGain(std::stoi(value));
-    if (key == "mixer_gain")       return setMixerGain(std::stoi(value));
-    if (key == "vga_gain")         return setVgaGain(std::stoi(value));
+    if (key == "lna_gain")
+        return setLnaGain(std::stoi(value));
+    if (key == "mixer_gain")
+        return setMixerGain(std::stoi(value));
+    if (key == "vga_gain")
+        return setVgaGain(std::stoi(value));
 
     return false;
 }
-
 
 void RtlSdrDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
     for (auto& [key, value] : cfg) {

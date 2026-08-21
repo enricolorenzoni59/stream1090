@@ -9,24 +9,23 @@
 #include <iostream>
 
 namespace hex_detail {
-    // LUT construction for byte => 2 hex digits
-    consteval std::array<char, 512> make_hex_table() {
-        std::array<char, 512> t{};
-        for (int i = 0; i < 256; ++i) {
-            unsigned hi = (i >> 4) & 0xF;
-            unsigned lo = i & 0xF;
-            t[i*2]     = hi < 10 ? '0' + hi : 'A' + (hi - 10);
-            t[i*2 + 1] = lo < 10 ? '0' + lo : 'A' + (lo - 10);
-        }
-        return t;
+// LUT construction for byte => 2 hex digits
+consteval std::array<char, 512> make_hex_table() {
+    std::array<char, 512> t{};
+    for (int i = 0; i < 256; ++i) {
+        unsigned hi = (i >> 4) & 0xF;
+        unsigned lo = i & 0xF;
+        t[i * 2] = hi < 10 ? '0' + hi : 'A' + (hi - 10);
+        t[i * 2 + 1] = lo < 10 ? '0' + lo : 'A' + (lo - 10);
     }
-
-    inline constexpr auto ByteToHex = make_hex_table();
+    return t;
 }
 
+inline constexpr auto ByteToHex = make_hex_table();
+}
 
 class AVRWriter {
-public:
+  public:
     AVRWriter(std::ostream& out) : m_out(out) {
         std::ios::sync_with_stdio(false);
     }
@@ -100,9 +99,8 @@ public:
         m_out.write(m_buf, p - m_buf);
     }
 
-private:
-    template<int DIGITS>
-    static inline char* write_hex_fixed(char* out, uint64_t value) {
+  private:
+    template <int DIGITS> static inline char* write_hex_fixed(char* out, uint64_t value) {
         static_assert(DIGITS > 0);
         static_assert(DIGITS % 2 == 0);
 
@@ -126,6 +124,3 @@ private:
     // the stream to write ot
     std::ostream& m_out;
 };
-
-
-

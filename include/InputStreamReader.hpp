@@ -16,29 +16,25 @@
 #include <unistd.h>
 
 #include "InputReaderBase.hpp"
-template<typename RawFormat, size_t InputBufferSize, typename Pipeline>
+template <typename RawFormat, size_t InputBufferSize, typename Pipeline>
 class InputStdStreamReader : public InputReaderBase<RawFormat, InputBufferSize, Pipeline> {
-public:
+  public:
     using RawType = typename RawFormat::RawType;
 
     InputStdStreamReader(Pipeline& pipeline, std::istream& stream)
-        : InputReaderBase<RawFormat, InputBufferSize, Pipeline>(pipeline),
-          m_stream(&stream), m_fd(-1)
-    {
+        : InputReaderBase<RawFormat, InputBufferSize, Pipeline>(pipeline), m_stream(&stream), m_fd(-1) {
         allocateBuffer();
     }
 
     InputStdStreamReader(Pipeline& pipeline, int fd)
-        : InputReaderBase<RawFormat, InputBufferSize, Pipeline>(pipeline),
-          m_stream(nullptr), m_fd(fd)
-    {
+        : InputReaderBase<RawFormat, InputBufferSize, Pipeline>(pipeline), m_stream(nullptr), m_fd(fd) {
         allocateBuffer();
     }
 
     inline void readMagnitude(int32_t* out) {
         constexpr size_t N = InputBufferSize;
         constexpr size_t NumValuesToRead = 2 * N;
-        constexpr size_t NumBytesToRead  = NumValuesToRead * sizeof(RawType);
+        constexpr size_t NumBytesToRead = NumValuesToRead * sizeof(RawType);
 
         std::streamsize bytesRead = 0;
         if (m_fd >= 0) {
@@ -62,9 +58,7 @@ public:
         }
 
         if (bytesRead < std::streamsize(NumBytesToRead)) {
-            std::memset(reinterpret_cast<char*>(m_buffer.get()) + bytesRead,
-                        0,
-                        NumBytesToRead - bytesRead);
+            std::memset(reinterpret_cast<char*>(m_buffer.get()) + bytesRead, 0, NumBytesToRead - bytesRead);
             m_eof = true;
         }
 
@@ -75,7 +69,7 @@ public:
         return m_eof || ProcessSignals::shutdownRequested();
     }
 
-private:
+  private:
     void allocateBuffer() {
         constexpr size_t NumValuesToRead = 2 * InputBufferSize;
         m_buffer = std::make_unique<RawType[]>(NumValuesToRead);
@@ -87,4 +81,3 @@ private:
     std::unique_ptr<RawType[]> m_buffer;
     bool m_eof = false;
 };
-

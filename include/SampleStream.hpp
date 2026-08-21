@@ -14,13 +14,13 @@
 
 // the main stream class. This class manages reading from the input stream
 // and also manages the buffers
-template<typename Sampler>
-class SampleStream {
-public:
+template <typename Sampler> class SampleStream {
+  public:
     static constexpr size_t NumInputBuffers = 2;
     // for now we will keep one extra sample buffer as history
     static constexpr size_t NumSampleBuffers = 2;
-    static constexpr size_t TotalSampleBufferLength = NumSampleBuffers * Sampler::SampleBufferSize + Sampler::SampleBufferOverlap;
+    static constexpr size_t TotalSampleBufferLength =
+        NumSampleBuffers * Sampler::SampleBufferSize + Sampler::SampleBufferOverlap;
 
     // How long a decoded frame may sit in the output buffer before it is
     // pushed out. Ten milliseconds is below anything downstream notices - a
@@ -30,13 +30,12 @@ public:
     static constexpr size_t FlushIntervalMicros = 10000;
     // a block is SampleBufferSize / NumStreams bit periods, i.e. microseconds
     static constexpr size_t BlockMicros = Sampler::SampleBufferSize / Sampler::NumStreams;
-    static constexpr size_t FlushEveryBlocks =
-        (FlushIntervalMicros + BlockMicros - 1) / BlockMicros;
+    static constexpr size_t FlushEveryBlocks = (FlushIntervalMicros + BlockMicros - 1) / BlockMicros;
 
-    SampleStream() : m_inputRingBuffer(0), m_sampleRingBuffer(0) { }
-   
+    SampleStream() : m_inputRingBuffer(0), m_sampleRingBuffer(0) {}
+
     // the main method that streams from InputStream using inputReader
-    template<typename InputReaderType, MessageHandler Handler>
+    template <typename InputReaderType, MessageHandler Handler>
     void read(InputReaderType& inputReader, Handler& messageHandler);
 
     /// Recompute the demodulator's confidence in a single frame bit, straight
@@ -50,9 +49,9 @@ public:
         const size_t delay = (size_t(16) + frameBit) * Sampler::NumStreams;
         const auto offsetInBlock = size_t(m_demodPos - m_sampleRingBuffer.readPos());
         // the ring holds linear magnitudes scaled by MagScale
-        const float first  = float(m_sampleRingBuffer.lookBack(delay - stream, offsetInBlock));
-        const float second = float(m_sampleRingBuffer.lookBack(delay - stream - (Sampler::NumStreams >> 1),
-                                                               offsetInBlock));
+        const float first = float(m_sampleRingBuffer.lookBack(delay - stream, offsetInBlock));
+        const float second =
+            float(m_sampleRingBuffer.lookBack(delay - stream - (Sampler::NumStreams >> 1), offsetInBlock));
         return std::fabs(first - second) * (1.0f / MagScale);
     }
 
@@ -65,7 +64,7 @@ public:
         // We therefore iterate and take the maximum. Even if stream 3 got a hit, we start at 0
         int32_t peak = 0;
         for (size_t s = 0; s < Sampler::NumStreams; s++) {
-            const int32_t v  = m_sampleRingBuffer.lookBack(delay - s, offsetInBlock);
+            const int32_t v = m_sampleRingBuffer.lookBack(delay - s, offsetInBlock);
             peak = std::max(peak, v);
         }
         // conversion to float
@@ -110,8 +109,7 @@ public:
                 for (size_t k = 0; k < Half; ++k)
                     sum += m_sampleRingBuffer.lookBack(off - k, offsetInBlock);
 
-                const bool isPulse = (h == 0 && (slot == 0 || slot == 1))
-                                  || (h == 1 && (slot == 3 || slot == 4));
+                const bool isPulse = (h == 0 && (slot == 0 || slot == 1)) || (h == 1 && (slot == 3 || slot == 4));
                 if (isPulse)
                     pulse = std::min(pulse, sum);
                 else
@@ -161,7 +159,7 @@ public:
         return float(peak) / noise;
     }
 
-private:
+  private:
     // Samples reach the ring as ((I*I) >> 2) + ((Q*Q) >> 2) with I and Q in
     // Q14, so the stored value is the squared magnitude times (SampleOne/2)^2
     // and a linear magnitude comes back as stored / MagScale.
@@ -169,7 +167,7 @@ private:
 
     uint32_t m_newBits[Sampler::NumStreams];
     // we have one ring buffer for the IQ pipeline
-    BlockRing<int32_t, Sampler::InputBufferSize,  NumInputBuffers,  Sampler::InputBufferOverlap>  m_inputRingBuffer;
+    BlockRing<int32_t, Sampler::InputBufferSize, NumInputBuffers, Sampler::InputBufferOverlap> m_inputRingBuffer;
     // and one for the upsampled magnitudes
     BlockRing<int32_t, Sampler::SampleBufferSize, NumSampleBuffers, Sampler::SampleBufferOverlap> m_sampleRingBuffer;
     // not nice. Will change
@@ -177,10 +175,9 @@ private:
     size_t m_blocksSinceFlush = 0;
 };
 
-
-template<typename Sampler>
-template<typename InputReaderType, MessageHandler Handler>
-inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& messageHandler) {  
+template <typename Sampler>
+template <typename InputReaderType, MessageHandler Handler>
+inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& messageHandler) {
     // the core logic for message recognition
     DemodCore<Sampler::NumStreams, Handler> demodCore(messageHandler);
     demodCore.setConfidenceSource(this, [](const void* ctx, uint8_t bit, size_t stream) -> float {
@@ -195,13 +192,13 @@ inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& m
     };
     demodCore.setSnrSource(this, snrSource);
 
-     // the main loop for reading the stream
+    // the main loop for reading the stream
     while (!inputReader.eof()) {
         // the read and write positions for the current sample buffer based its index.
-        // we start reading at 0 + i * size           
-        // however, new values will be written NumStream / 2 later which is the overlap. 
+        // we start reading at 0 + i * size
+        // however, new values will be written NumStream / 2 later which is the overlap.
         // check if actually we need the sampler to resample, or if this is a 1:1 sampling
-        if constexpr(Sampler::isPassthrough) {
+        if constexpr (Sampler::isPassthrough) {
             // tell the input reader to get us some data. Directly as magnitude. Since this is a passthrough sampler
             // we will directly read into the samples buffer. There is no need for using the sampler at all.
             // This works because the amount the input reader is getting us in this particular case is exactly the ChunkSize
@@ -220,7 +217,6 @@ inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& m
                 m_sampleRingBuffer.advanceWritePos();
             }
         }
-        
 
         if (m_sampleRingBuffer.isReadable()) {
             m_demodPos = m_sampleRingBuffer.readPos();
@@ -228,15 +224,15 @@ inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& m
             for (size_t i = 0; i < Sampler::SampleBufferSize; i += Sampler::NumStreams) {
                 for (size_t j = 0; j < Sampler::NumStreams; j++) {
                     // Think of having a sample stream of 2Mhz (so what we get from the planes)
-                    // stream 0 << compare 0 and 1 
+                    // stream 0 << compare 0 and 1
                     // stream 1 << compare 1 and 2
-                    // 
+                    //
                     // stream 0 << compare 2 and 3
                     // stream 1 << compare 3 and 4
                     // ....
                     // because the message might be shifted by one symbol
-                    m_newBits[j] = m_demodPos[j] > m_demodPos[j + (Sampler::NumStreams >> 1)]; 
-                    //m_sampleReadPos[i + j] > sampleReadPos[i + j + Sampler::SampleBufferOverlap];  
+                    m_newBits[j] = m_demodPos[j] > m_demodPos[j + (Sampler::NumStreams >> 1)];
+                    //m_sampleReadPos[i + j] > sampleReadPos[i + j + Sampler::SampleBufferOverlap];
                 }
                 // and tell the demodulator to deal with the new bits
                 demodCore.shiftInNewBits(m_newBits);

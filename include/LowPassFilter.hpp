@@ -49,105 +49,100 @@
  */
 namespace FirDetail {
 
-    // tap count rounded up to a whole group of four
-    constexpr size_t padTapCount(size_t n) noexcept {
-        return (n + 3u) & ~size_t(3u);
-    }
+// tap count rounded up to a whole group of four
+constexpr size_t padTapCount(size_t n) noexcept {
+    return (n + 3u) & ~size_t(3u);
+}
 
-    // taps live in Q15, samples in Q14, so a product is Q29 and a whole
-    // tap sum still fits an int32 as long as the taps sum to about one
-    inline constexpr int TapFracBits = 15;
+// taps live in Q15, samples in Q14, so a product is Q29 and a whole
+// tap sum still fits an int32 as long as the taps sum to about one
+inline constexpr int TapFracBits = 15;
 
-    constexpr int16_t toQ15(float t) noexcept {
-        const float x = t * float(1 << TapFracBits);
-        return int16_t(x >= 0.0f ? x + 0.5f : x - 0.5f);
-    }
+constexpr int16_t toQ15(float t) noexcept {
+    const float x = t * float(1 << TapFracBits);
+    return int16_t(x >= 0.0f ? x + 0.5f : x - 0.5f);
+}
 
-    /// Filters one contiguous block. w* hold history followed by the new
-    /// samples, so w*[i + k] is the k-th tap partner of output i. Symmetric
-    /// integer taps may pair their samples before multiplying: unlike the old
-    /// float path this preserves the final rounded result exactly.
-    template<bool Symmetric>
-    inline void firBlock(const int16_t* __restrict taps, size_t numTaps,
-                         const int16_t* __restrict wI, const int16_t* __restrict wQ,
-                         int16_t* __restrict outI, int16_t* __restrict outQ,
-                         size_t n) noexcept {
-        size_t i = 0;
+/// Filters one contiguous block. w* hold history followed by the new
+/// samples, so w*[i + k] is the k-th tap partner of output i. Symmetric
+/// integer taps may pair their samples before multiplying: unlike the old
+/// float path this preserves the final rounded result exactly.
+template <bool Symmetric>
+inline void firBlock(const int16_t* __restrict taps, size_t numTaps, const int16_t* __restrict wI,
+                     const int16_t* __restrict wQ, int16_t* __restrict outI, int16_t* __restrict outQ,
+                     size_t n) noexcept {
+    size_t i = 0;
 
-        // The inner group of four is what the vectorizer turns into a widening
-        // multiply accumulate. Four int32 accumulators to a vector, the same
-        // count float had, but the operands are half the width.
-        for (; i + 4 <= n; i += 4) {
+    // The inner group of four is what the vectorizer turns into a widening
+    // multiply accumulate. Four int32 accumulators to a vector, the same
+    // count float had, but the operands are half the width.
+    for (; i + 4 <= n; i += 4) {
 #if defined(__ARM_NEON)
-            int32x4_t accI = vdupq_n_s32(0);
-            int32x4_t accQ = vdupq_n_s32(0);
+        int32x4_t accI = vdupq_n_s32(0);
+        int32x4_t accQ = vdupq_n_s32(0);
 
-            if constexpr (Symmetric) {
-                const size_t half = numTaps / 2;
-                for (size_t k = 0; k < half; ++k) {
-                    const size_t opposite = numTaps - 1 - k;
-                    const int32x4_t pairI = vaddl_s16(vld1_s16(wI + i + k),
-                                                      vld1_s16(wI + i + opposite));
-                    const int32x4_t pairQ = vaddl_s16(vld1_s16(wQ + i + k),
-                                                      vld1_s16(wQ + i + opposite));
-                    accI = vmlaq_n_s32(accI, pairI, taps[k]);
-                    accQ = vmlaq_n_s32(accQ, pairQ, taps[k]);
-                }
-                if (numTaps & 1) {
-                    accI = vmlal_n_s16(accI, vld1_s16(wI + i + half), taps[half]);
-                    accQ = vmlal_n_s16(accQ, vld1_s16(wQ + i + half), taps[half]);
-                }
-            } else {
-                for (size_t k = 0; k < numTaps; ++k) {
-                    accI = vmlal_n_s16(accI, vld1_s16(wI + i + k), taps[k]);
-                    accQ = vmlal_n_s16(accQ, vld1_s16(wQ + i + k), taps[k]);
-                }
+        if constexpr (Symmetric) {
+            const size_t half = numTaps / 2;
+            for (size_t k = 0; k < half; ++k) {
+                const size_t opposite = numTaps - 1 - k;
+                const int32x4_t pairI = vaddl_s16(vld1_s16(wI + i + k), vld1_s16(wI + i + opposite));
+                const int32x4_t pairQ = vaddl_s16(vld1_s16(wQ + i + k), vld1_s16(wQ + i + opposite));
+                accI = vmlaq_n_s32(accI, pairI, taps[k]);
+                accQ = vmlaq_n_s32(accQ, pairQ, taps[k]);
             }
+            if (numTaps & 1) {
+                accI = vmlal_n_s16(accI, vld1_s16(wI + i + half), taps[half]);
+                accQ = vmlal_n_s16(accQ, vld1_s16(wQ + i + half), taps[half]);
+            }
+        } else {
+            for (size_t k = 0; k < numTaps; ++k) {
+                accI = vmlal_n_s16(accI, vld1_s16(wI + i + k), taps[k]);
+                accQ = vmlal_n_s16(accQ, vld1_s16(wQ + i + k), taps[k]);
+            }
+        }
 
-            const int32x4_t rounding = vdupq_n_s32(1 << (TapFracBits - 1));
-            vst1_s16(outI + i, vshrn_n_s32(vaddq_s32(accI, rounding), TapFracBits));
-            vst1_s16(outQ + i, vshrn_n_s32(vaddq_s32(accQ, rounding), TapFracBits));
+        const int32x4_t rounding = vdupq_n_s32(1 << (TapFracBits - 1));
+        vst1_s16(outI + i, vshrn_n_s32(vaddq_s32(accI, rounding), TapFracBits));
+        vst1_s16(outQ + i, vshrn_n_s32(vaddq_s32(accQ, rounding), TapFracBits));
 #else
-            int32_t accI[4] = { 0, 0, 0, 0 };
-            int32_t accQ[4] = { 0, 0, 0, 0 };
+        int32_t accI[4] = {0, 0, 0, 0};
+        int32_t accQ[4] = {0, 0, 0, 0};
 
-            for (size_t k = 0; k < numTaps; ++k) {
-                const int32_t t = taps[k];
-                for (size_t l = 0; l < 4; ++l) {
-                    accI[l] += t * int32_t(wI[i + k + l]);
-                    accQ[l] += t * int32_t(wQ[i + k + l]);
-                }
+        for (size_t k = 0; k < numTaps; ++k) {
+            const int32_t t = taps[k];
+            for (size_t l = 0; l < 4; ++l) {
+                accI[l] += t * int32_t(wI[i + k + l]);
+                accQ[l] += t * int32_t(wQ[i + k + l]);
             }
+        }
 
-            for (size_t l = 0; l < 4; l++) {
-                outI[i + l] = int16_t((accI[l] + (1 << (TapFracBits - 1))) >> TapFracBits);
-                outQ[i + l] = int16_t((accQ[l] + (1 << (TapFracBits - 1))) >> TapFracBits);
-            }
+        for (size_t l = 0; l < 4; l++) {
+            outI[i + l] = int16_t((accI[l] + (1 << (TapFracBits - 1))) >> TapFracBits);
+            outQ[i + l] = int16_t((accQ[l] + (1 << (TapFracBits - 1))) >> TapFracBits);
+        }
 #endif
-        }
-
-        // whatever does not fill a vector
-        for (; i < n; i++) {
-            int32_t sumI = 0;
-            int32_t sumQ = 0;
-            for (size_t k = 0; k < numTaps; ++k) {
-                sumI += int32_t(taps[k]) * int32_t(wI[i + k]);
-                sumQ += int32_t(taps[k]) * int32_t(wQ[i + k]);
-            }
-            outI[i] = int16_t((sumI + (1 << (TapFracBits - 1))) >> TapFracBits);
-            outQ[i] = int16_t((sumQ + (1 << (TapFracBits - 1))) >> TapFracBits);
-        }
     }
 
-    // how many samples the block filter works on in one go
-    inline constexpr size_t ChunkSize = 256;
+    // whatever does not fill a vector
+    for (; i < n; i++) {
+        int32_t sumI = 0;
+        int32_t sumQ = 0;
+        for (size_t k = 0; k < numTaps; ++k) {
+            sumI += int32_t(taps[k]) * int32_t(wI[i + k]);
+            sumQ += int32_t(taps[k]) * int32_t(wQ[i + k]);
+        }
+        outI[i] = int16_t((sumI + (1 << (TapFracBits - 1))) >> TapFracBits);
+        outQ[i] = int16_t((sumQ + (1 << (TapFracBits - 1))) >> TapFracBits);
+    }
+}
+
+// how many samples the block filter works on in one go
+inline constexpr size_t ChunkSize = 256;
 
 } // namespace FirDetail
 
-
-template<SampleRate inputRate, SampleRate outputRate>
-class IQLowPass {
-public:
+template <SampleRate inputRate, SampleRate outputRate> class IQLowPass {
+  public:
     IQLowPass() {
         std::fill(std::begin(m_historyI), std::end(m_historyI), int16_t(0));
         std::fill(std::begin(m_historyQ), std::end(m_historyQ), int16_t(0));
@@ -185,8 +180,7 @@ public:
             std::fill(workI + HistorySize + m, workI + HistorySize + m + numPaddedTaps, int16_t(0));
             std::fill(workQ + HistorySize + m, workQ + HistorySize + m + numPaddedTaps, int16_t(0));
 
-            FirDetail::firBlock<areTapsSymmetric>(paddedTaps.data(), numTaps,
-                                workI, workQ, I + base, Q + base, m);
+            FirDetail::firBlock<areTapsSymmetric>(paddedTaps.data(), numTaps, workI, workQ, I + base, Q + base, m);
 
             // the tail of the work buffer is the history of the next chunk
             std::copy(workI + m, workI + m + HistorySize, m_historyI);
@@ -199,7 +193,7 @@ public:
         applyBlock(&value_I, &value_Q, 1);
     }
 
-private:
+  private:
     static constexpr auto taps = LowPassTaps::getCustomTaps<inputRate, outputRate>();
     static constexpr auto numTaps = taps.size();
     static constexpr auto bufferSize = std::bit_ceil(numTaps);
@@ -226,15 +220,9 @@ private:
     alignas(32) int16_t m_historyQ[HistorySize > 0 ? HistorySize : 1];
 };
 
-
-template<size_t MaxNumTaps = 64>
-class IQLowPassDynamic {
-public:
-    IQLowPassDynamic()
-        :   m_numTaps(1),
-            m_areTapsSymmetric(true),
-            m_areTapsOdd(true)
-    {
+template <size_t MaxNumTaps = 64> class IQLowPassDynamic {
+  public:
+    IQLowPassDynamic() : m_numTaps(1), m_areTapsSymmetric(true), m_areTapsOdd(true) {
         // set all arrays to 0.0f
         std::fill(m_taps.begin(), m_taps.end(), int16_t(0));
         std::fill(m_historyI.begin(), m_historyI.end(), int16_t(0));
@@ -243,9 +231,7 @@ public:
         m_taps[0] = FirDetail::toQ15(1.0f);
     }
 
-    IQLowPassDynamic(const std::vector<float>& taps)
-        :   IQLowPassDynamic()
-    {
+    IQLowPassDynamic(const std::vector<float>& taps) : IQLowPassDynamic() {
         setTaps(taps);
     }
 
@@ -320,10 +306,12 @@ public:
         std::string line;
         while (std::getline(file, line)) {
             // trim whitespace
-            if (line.empty()) continue;
+            if (line.empty())
+                continue;
 
             // skip comments
-            if (line[0] == '#') continue;
+            if (line[0] == '#')
+                continue;
 
             // parse float
             try {
@@ -349,7 +337,6 @@ public:
 #endif
         return setTaps(taps);
     }
-
 
     // returns the maximum number of taps.
     // This is a compile time constant and is 64 by default.
@@ -380,15 +367,12 @@ public:
 
 #if defined(__ARM_NEON)
             if (m_areTapsSymmetric) {
-                FirDetail::firBlock<true>(m_taps.data(), m_numTaps,
-                                           workI, workQ, I + base, Q + base, m);
+                FirDetail::firBlock<true>(m_taps.data(), m_numTaps, workI, workQ, I + base, Q + base, m);
             } else {
-                FirDetail::firBlock<false>(m_taps.data(), m_numTaps,
-                                            workI, workQ, I + base, Q + base, m);
+                FirDetail::firBlock<false>(m_taps.data(), m_numTaps, workI, workQ, I + base, Q + base, m);
             }
 #else
-            FirDetail::firBlock<false>(m_taps.data(), m_numTaps,
-                                        workI, workQ, I + base, Q + base, m);
+            FirDetail::firBlock<false>(m_taps.data(), m_numTaps, workI, workQ, I + base, Q + base, m);
 #endif
 
             std::copy(workI + m, workI + m + m_historySize, m_historyI.begin());
@@ -401,10 +385,10 @@ public:
         applyBlock(&value_I, &value_Q, 1);
     }
 
-private:
-    static constexpr size_t TapCapacity     = FirDetail::padTapCount(MaxNumTaps);
-    static constexpr size_t MaxHistorySize  = std::bit_ceil(MaxNumTaps);
-    static constexpr size_t WorkSize        = FirDetail::ChunkSize + MaxHistorySize + TapCapacity;
+  private:
+    static constexpr size_t TapCapacity = FirDetail::padTapCount(MaxNumTaps);
+    static constexpr size_t MaxHistorySize = std::bit_ceil(MaxNumTaps);
+    static constexpr size_t WorkSize = FirDetail::ChunkSize + MaxHistorySize + TapCapacity;
 
     // the number of taps currently used
     size_t m_numTaps;

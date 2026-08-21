@@ -18,91 +18,91 @@ int hashFunction(crc_t crc, int N) {
 
 void generateKeySetExtSquitter(std::vector<crc_t>& keys) {
     // skip the first 5 bits (df), first do all one bit corrections
-    for (int i = 0; i < 112-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x1,i)));
+    for (int i = 0; i < 112 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x1, i)));
     }
 
     // now two bit bursts
-    for (int i = 0; i < 111-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x3,i)));
+    for (int i = 0; i < 111 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x3, i)));
     }
 
     // this seems to help, for the parity block
     for (int i = 0; i < 16; i++) {
-        keys.push_back(compute(encodeFixOp(129,i)));
+        keys.push_back(compute(encodeFixOp(129, i)));
     }
 }
 
 void generateKeySetExtSquitterBurst(std::vector<crc_t>& keys) {
     // skip the first 5 bits (df), first do all one bit corrections
-    for (int i = 0; i < 112-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x1,i)));
+    for (int i = 0; i < 112 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x1, i)));
     }
 
     // now two bit bursts (11)
-    for (int i = 0; i < 111-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x3,i)));
+    for (int i = 0; i < 111 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x3, i)));
     }
 
     // now three bit bursts (111)
-    for (int i = 0; i < 110-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x7,i)));
+    for (int i = 0; i < 110 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x7, i)));
     }
 
     // this seems to help, for the parity block
-    for (int i = 0; i < 105-5; i++) {
-        keys.push_back(compute(encodeFixOp(129,i)));
+    for (int i = 0; i < 105 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(129, i)));
     }
 
     // two bit errors with one correct bit in between (101)
-    for (int i = 0; i < 110-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x5,i)));
+    for (int i = 0; i < 110 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x5, i)));
     }
 
     // two bit errors with two correct bits in between (1001)
-    for (int i = 0; i < 109-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x9,i)));
+    for (int i = 0; i < 109 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x9, i)));
     }
 
     // two bit errors with three correct bits in between (10001)
-    for (int i = 0; i < 108-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x11,i)));
+    for (int i = 0; i < 108 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x11, i)));
     }
 
     // two bit errors with four correct bits in between (100001)
-    for (int i = 0; i < 107-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x21,i)));
+    for (int i = 0; i < 107 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x21, i)));
     }
 
     // two bit errors with five correct bits in between (1000001)
-    for (int i = 0; i < 106-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x41,i)));
+    for (int i = 0; i < 106 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x41, i)));
     }
 }
 
 void generateKeySetShort1Bit(std::vector<crc_t>& keys) {
-    for (int i = 0; i < 56-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x1,i)));
+    for (int i = 0; i < 56 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x1, i)));
     }
 }
 
 void generateKeySetShort2Bit(std::vector<crc_t>& keys) {
-    for (int i = 0; i < 56-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x1,i)));
+    for (int i = 0; i < 56 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x1, i)));
     }
 
-    for (int i = 0; i < 55-5; i++) {
-        keys.push_back(compute(encodeFixOp(0x3,i)));
+    for (int i = 0; i < 55 - 5; i++) {
+        keys.push_back(compute(encodeFixOp(0x3, i)));
     }
 }
 
 int testTableSize(const std::vector<crc_t>& keys, int tableSize) {
     std::vector<int> collisions(tableSize, 0);
-    int maxCollisions = 0; 
+    int maxCollisions = 0;
     for (auto k : keys) {
         auto index = hashFunction(k, tableSize);
         collisions[index]++;
-        maxCollisions = std::max(collisions[index], maxCollisions); 
+        maxCollisions = std::max(collisions[index], maxCollisions);
     }
     return maxCollisions;
 }

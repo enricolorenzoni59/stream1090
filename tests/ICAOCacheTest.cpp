@@ -98,10 +98,8 @@ bool emptySlotsRejectUnknownAddresses() {
     ICAOTable table;
     constexpr uint32_t unknownWithCA = 0x5abcde1;
 
-    return !table.findWithCA(unknownWithCA).isValid()
-        && !table.find(unknownWithCA & 0xffffffu).isValid()
-        && table.findWithCA(0).isValid()
-        && table.find(0).isValid();
+    return !table.findWithCA(unknownWithCA).isValid() && !table.find(unknownWithCA & 0xffffffu).isValid() &&
+           table.findWithCA(0).isValid() && table.find(0).isValid();
 }
 
 bool insertedAndReplacementEntriesAreFound() {
@@ -114,10 +112,8 @@ bool insertedAndReplacementEntriesAreFound() {
         return false;
 
     table.insertWithCA(replacement);
-    return !table.findWithCA(first).isValid()
-        && !table.find(first).isValid()
-        && table.findWithCA(replacement).isValid()
-        && table.find(replacement).isValid();
+    return !table.findWithCA(first).isValid() && !table.find(first).isValid() &&
+           table.findWithCA(replacement).isValid() && table.find(replacement).isValid();
 }
 
 bool expiredEntriesDisappear() {
@@ -131,8 +127,7 @@ bool expiredEntriesDisappear() {
         return false;
 
     tick(table, 1'000'000);
-    return !table.findWithCA(icaoWithCA).isValid()
-        && !table.find(icaoWithCA & 0xffffffu).isValid();
+    return !table.findWithCA(icaoWithCA).isValid() && !table.find(icaoWithCA & 0xffffffu).isValid();
 }
 
 bool validationOnlyAltitudeCannotPoisonState() {
@@ -172,11 +167,8 @@ bool capabilityChangePreservesTrustedAircraft() {
     table.markAsTrustedSeen(original);
     const auto refreshed = table.insertWithCA(ca7);
 
-    return refreshed.key == original.key
-        && !table.findWithCA(ca5).isValid()
-        && table.findWithCA(ca7).isValid()
-        && table.find(ca5 & 0xffffffu).isValid()
-        && table.isTrusted(refreshed);
+    return refreshed.key == original.key && !table.findWithCA(ca5).isValid() && table.findWithCA(ca7).isValid() &&
+           table.find(ca5 & 0xffffffu).isValid() && table.isTrusted(refreshed);
 }
 
 bool cleanCprPairSeedsPosition() {
@@ -191,26 +183,17 @@ bool cleanCprPairSeedsPosition() {
         return false;
 
     table.noteCprClean(entry, true, 74158, 50194, now + 100, 10'000);
-    return table.cachedPosition(entry, lat, lon, now + 100, 60'000)
-        && std::abs(lat - 5'225'720) < 100
-        && std::abs(lon - 391'937) < 100
-        && !table.cachedPosition(entry, lat, lon, now + 60'101, 60'000);
+    return table.cachedPosition(entry, lat, lon, now + 100, 60'000) && std::abs(lat - 5'225'720) < 100 &&
+           std::abs(lon - 391'937) < 100 && !table.cachedPosition(entry, lat, lon, now + 60'101, 60'000);
 }
 
 } // namespace
 
 int main() {
-    return !(confirmsOnlySeparateSightings()
-        && expiresOldSightings()
-        && hashCollisionsCannotConfirmAnotherAddress()
-        && rejectedFramesNeedIndependentConfirmation()
-        && expiredRejectedFramesNeedNewPair()
-        && shortAndLongCandidatesCannotConfirmEachOther()
-        && emptySlotsRejectUnknownAddresses()
-        && insertedAndReplacementEntriesAreFound()
-        && expiredEntriesDisappear()
-        && validationOnlyAltitudeCannotPoisonState()
-        && firstLowAltitudeNeedsConfirmation()
-        && capabilityChangePreservesTrustedAircraft()
-        && cleanCprPairSeedsPosition());
+    return !(confirmsOnlySeparateSightings() && expiresOldSightings() && hashCollisionsCannotConfirmAnotherAddress() &&
+             rejectedFramesNeedIndependentConfirmation() && expiredRejectedFramesNeedNewPair() &&
+             shortAndLongCandidatesCannotConfirmEachOther() && emptySlotsRejectUnknownAddresses() &&
+             insertedAndReplacementEntriesAreFound() && expiredEntriesDisappear() &&
+             validationOnlyAltitudeCannotPoisonState() && firstLowAltitudeNeedsConfirmation() &&
+             capabilityChangePreservesTrustedAircraft() && cleanCprPairSeedsPosition());
 }

@@ -13,21 +13,17 @@
 // Downlink formats the demodulator actually looks at: 0, 4, 5, 11, 16, 17, 18,
 // 19, 20, 21. Every other value is dropped right away, so the shift register
 // can tell the caller which streams are worth a closer look and which are not.
-inline constexpr uint32_t handledDownlinkFormats =
-      (1u <<  0) | (1u <<  4) | (1u <<  5) | (1u << 11)
-    | (1u << 16) | (1u << 17) | (1u << 18) | (1u << 19)
-    | (1u << 20) | (1u << 21);
+inline constexpr uint32_t handledDownlinkFormats = (1u << 0) | (1u << 4) | (1u << 5) | (1u << 11) | (1u << 16) |
+                                                   (1u << 17) | (1u << 18) | (1u << 19) | (1u << 20) | (1u << 21);
 
-template<int NumStreams>
-class alignas(16) ShiftRegistersBase {
-    public:
-
+template <int NumStreams> class alignas(16) ShiftRegistersBase {
+  public:
     // one bit per stream has to fit into the returned mask
     static_assert(NumStreams <= 64, "stream mask is 64 bit wide");
 
     constexpr ShiftRegistersBase() noexcept {
         for (auto i = 0; i < NumStreams; i++) {
-            m_crc_56[i]  = 0;
+            m_crc_56[i] = 0;
             m_crc_112[i] = 0;
             m_high[i] = 0;
             m_low[i] = 0;
@@ -46,85 +42,81 @@ class alignas(16) ShiftRegistersBase {
     /// separate array for it meant storing NumStreams words every sample to
     /// serve a read that only happens on a handled format. Derived here
     /// instead, from the value the update has already written.
-    constexpr uint32_t getDF(auto i) const noexcept{
+    constexpr uint32_t getDF(auto i) const noexcept {
         return (uint32_t)(m_high[i] >> 59);
     }
 
-    protected:
-
+  protected:
     uint64_t m_low[NumStreams];
     uint64_t m_high[NumStreams];
 
-	// And a checksum for the short messages (56 bit). Never wider than 25 bits,
-	// so it is held in 32 and the update moves half the bytes it used to.
-	CRC::crc_t m_crc_56[NumStreams];
+    // And a checksum for the short messages (56 bit). Never wider than 25 bits,
+    // so it is held in 32 and the update moves half the bytes it used to.
+    CRC::crc_t m_crc_56[NumStreams];
 
     // Each stream has a checksum for long messages (112 bit)
-	CRC::crc_t m_crc_112[NumStreams];
+    CRC::crc_t m_crc_112[NumStreams];
 };
 
+template <int NumStreams> class alignas(16) ShiftRegisters : public ShiftRegistersBase<NumStreams> {
+  public:
+    constexpr ShiftRegisters() : ShiftRegistersBase<NumStreams>() {}
 
-template<int NumStreams>
-class alignas(16) ShiftRegisters : public ShiftRegistersBase<NumStreams> {
-    public:
-        constexpr ShiftRegisters() : ShiftRegistersBase<NumStreams>() { }
+    /// Shifts one new bit into every stream and updates both CRCs.
+    /// Returns a mask with bit i set when stream i now shows a downlink
+    /// format the demodulator handles.
+    ///
+    /// The two conditionals of the textbook version (did we shift a one out
+    /// of the register, did the CRC overflow past 24 bits) are replaced by
+    /// masks. Both are close to coin flips, so as branches they were mostly
+    /// mispredictions, and without them the loop has no control flow left
+    /// for the compiler to trip over.
+    uint64_t shiftInNewBits(const uint32_t* cmp) noexcept {
+        uint64_t handledMask = 0;
 
-        /// Shifts one new bit into every stream and updates both CRCs.
-        /// Returns a mask with bit i set when stream i now shows a downlink
-        /// format the demodulator handles.
-        ///
-        /// The two conditionals of the textbook version (did we shift a one out
-        /// of the register, did the CRC overflow past 24 bits) are replaced by
-        /// masks. Both are close to coin flips, so as branches they were mostly
-        /// mispredictions, and without them the loop has no control flow left
-        /// for the compiler to trip over.
-        uint64_t shiftInNewBits(const uint32_t* cmp) noexcept {
-            uint64_t handledMask = 0;
+        for (auto i = 0; i < NumStreams; i++) {
+            const uint64_t high = this->m_high[i];
+            const uint64_t low = this->m_low[i];
 
-            for (auto i = 0; i < NumStreams; i++) {
-                const uint64_t high = this->m_high[i];
-                const uint64_t low  = this->m_low[i];
+            // all ones when a one bit leaves the register at the top
+            const uint32_t shiftedOut = uint32_t(0) - uint32_t(high >> 63);
 
-                // all ones when a one bit leaves the register at the top
-                const uint32_t shiftedOut = uint32_t(0) - uint32_t(high >> 63);
+            uint32_t crc56 = this->m_crc_56[i] ^ (Delta55 & shiftedOut);
+            uint32_t crc112 = this->m_crc_112[i] ^ (Delta111 & shiftedOut);
 
-                uint32_t crc56  = this->m_crc_56[i]  ^ (Delta55  & shiftedOut);
-                uint32_t crc112 = this->m_crc_112[i] ^ (Delta111 & shiftedOut);
+            crc56 = (crc56 << 1) | uint32_t((high >> 7) & 0x1);
+            crc112 = (crc112 << 1) | uint32_t((low >> 15) & 0x1);
 
-                crc56  = (crc56  << 1) | uint32_t((high >> 7)  & 0x1);
-                crc112 = (crc112 << 1) | uint32_t((low  >> 15) & 0x1);
+            const uint64_t newHigh = (high << 1) | (low >> 63);
+            const uint64_t newLow = (low << 1) | cmp[i];
+            const uint64_t df = newHigh >> 59;
 
-                const uint64_t newHigh = (high << 1) | (low >> 63);
-                const uint64_t newLow  = (low  << 1) | cmp[i];
-                const uint64_t df      = newHigh >> 59;
+            // Fold the polynomial back in whenever bit 24 is set. The CRC
+            // never exceeds 25 bits here, so the shift is a 0/1 flag.
+            crc56 ^= Polynomial & (uint32_t(0) - (crc56 >> 24));
+            crc112 ^= Polynomial & (uint32_t(0) - (crc112 >> 24));
 
-                // Fold the polynomial back in whenever bit 24 is set. The CRC
-                // never exceeds 25 bits here, so the shift is a 0/1 flag.
-                crc56  ^= Polynomial & (uint32_t(0) - (crc56  >> 24));
-                crc112 ^= Polynomial & (uint32_t(0) - (crc112 >> 24));
+            this->m_crc_56[i] = crc56;
+            this->m_crc_112[i] = crc112;
+            this->m_high[i] = newHigh;
+            this->m_low[i] = newLow;
 
-                this->m_crc_56[i]  = crc56;
-                this->m_crc_112[i] = crc112;
-                this->m_high[i]    = newHigh;
-                this->m_low[i]     = newLow;
-
-                handledMask |= uint64_t((handledDownlinkFormats >> df) & 0x1) << i;
-            }
-
-            return handledMask;
+            handledMask |= uint64_t((handledDownlinkFormats >> df) & 0x1) << i;
         }
 
-        constexpr Bits128 extractAlignedFrameLong(auto i) const noexcept {
-            return Bits128(this->m_high[i] >> 16, (this->m_low[i] >> 16) | (this->m_high[i] << 48));
-        }
+        return handledMask;
+    }
 
-        constexpr uint64_t extractAlignedFrameShort(auto i) const noexcept {
-            return (this->m_high[i] >> 8);
-        }
+    constexpr Bits128 extractAlignedFrameLong(auto i) const noexcept {
+        return Bits128(this->m_high[i] >> 16, (this->m_low[i] >> 16) | (this->m_high[i] << 48));
+    }
 
-    private:
-        static constexpr CRC::crc_t Delta55  = CRC::delta<55>();
-        static constexpr CRC::crc_t Delta111 = CRC::delta<111>();
-        static constexpr CRC::crc_t Polynomial = CRC::polynomial;
+    constexpr uint64_t extractAlignedFrameShort(auto i) const noexcept {
+        return (this->m_high[i] >> 8);
+    }
 
+  private:
+    static constexpr CRC::crc_t Delta55 = CRC::delta<55>();
+    static constexpr CRC::crc_t Delta111 = CRC::delta<111>();
+    static constexpr CRC::crc_t Polynomial = CRC::polynomial;
 };

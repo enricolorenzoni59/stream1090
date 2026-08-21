@@ -10,79 +10,77 @@
 #include <csignal>
 
 struct GlobalOptions {
-    #ifdef STATS_ENABLED
-        static constexpr bool StatsEnabled = (STATS_ENABLED != 0);
-    #else
-        static constexpr bool StatsEnabled = false;
-    #endif
+#ifdef STATS_ENABLED
+    static constexpr bool StatsEnabled = (STATS_ENABLED != 0);
+#else
+    static constexpr bool StatsEnabled = false;
+#endif
 
-    #ifdef STATS_END_ONLY
-        static constexpr bool StatsAtTheEndOnly = StatsEnabled && (STATS_END_ONLY != 0);
-    #else
-        static constexpr bool StatsAtTheEndOnly = false;
-    #endif
+#ifdef STATS_END_ONLY
+    static constexpr bool StatsAtTheEndOnly = StatsEnabled && (STATS_END_ONLY != 0);
+#else
+    static constexpr bool StatsAtTheEndOnly = false;
+#endif
 
-    #ifdef STREAM1090_CUSTOM_INPUT
-        static constexpr bool CustomInputMode = (STREAM1090_CUSTOM_INPUT != 0);
-    #else
-        static constexpr bool CustomInputMode = false;
-    #endif
+#ifdef STREAM1090_CUSTOM_INPUT
+    static constexpr bool CustomInputMode = (STREAM1090_CUSTOM_INPUT != 0);
+#else
+    static constexpr bool CustomInputMode = false;
+#endif
 
-    #ifdef STREAM1090_RSSI
-        static constexpr bool RSSIEnabled = (STREAM1090_RSSI != 0);
-    #else
-        static constexpr bool RSSIEnabled = false;
-    #endif
+#ifdef STREAM1090_RSSI
+    static constexpr bool RSSIEnabled = (STREAM1090_RSSI != 0);
+#else
+    static constexpr bool RSSIEnabled = false;
+#endif
 
-    #ifdef STREAM1090_HAVE_RTLSDR
-        static constexpr bool NativeRtlSdrSupport = (STREAM1090_HAVE_RTLSDR != 0);
-    #else
-        static constexpr bool NativeRtlSdrSupport = false;
-    #endif
+#ifdef STREAM1090_HAVE_RTLSDR
+    static constexpr bool NativeRtlSdrSupport = (STREAM1090_HAVE_RTLSDR != 0);
+#else
+    static constexpr bool NativeRtlSdrSupport = false;
+#endif
 
-    #ifdef STREAM1090_HAVE_AIRSPY
-        static constexpr bool NativeAirspySupport = (STREAM1090_HAVE_AIRSPY != 0);
-    #else
-        static constexpr bool NativeAirspySupport = false;
-    #endif
+#ifdef STREAM1090_HAVE_AIRSPY
+    static constexpr bool NativeAirspySupport = (STREAM1090_HAVE_AIRSPY != 0);
+#else
+    static constexpr bool NativeAirspySupport = false;
+#endif
 
-    #ifdef STREAM1090_HAVE_RTLSDR_BLOG
-        static constexpr bool RtlSdrBlogAdvanced = (STREAM1090_HAVE_RTLSDR_BLOG != 0);
-    #else
-        static constexpr bool RtlSdrBlogAdvanced = false;
-    #endif
+#ifdef STREAM1090_HAVE_RTLSDR_BLOG
+    static constexpr bool RtlSdrBlogAdvanced = (STREAM1090_HAVE_RTLSDR_BLOG != 0);
+#else
+    static constexpr bool RtlSdrBlogAdvanced = false;
+#endif
 };
-
 
 namespace ProcessSignals {
 
-    static std::atomic<bool> g_shutdownRequested{false};
-    static std::atomic<bool> g_reloadRequested{false};
+static std::atomic<bool> g_shutdownRequested{false};
+static std::atomic<bool> g_reloadRequested{false};
 
-    inline bool shutdownRequested() {
-        return g_shutdownRequested.load(std::memory_order_relaxed);
-    }
+inline bool shutdownRequested() {
+    return g_shutdownRequested.load(std::memory_order_relaxed);
+}
 
-    inline bool reloadRequested() {
-        return g_reloadRequested.load(std::memory_order_relaxed);
-    }
+inline bool reloadRequested() {
+    return g_reloadRequested.load(std::memory_order_relaxed);
+}
 
-    inline void clearReload() {
-        g_reloadRequested.store(false, std::memory_order_relaxed);
-    }
+inline void clearReload() {
+    g_reloadRequested.store(false, std::memory_order_relaxed);
+}
 
-    static void handle_sigint(int) {
-        g_shutdownRequested.store(true, std::memory_order_relaxed);
-    }
+static void handle_sigint(int) {
+    g_shutdownRequested.store(true, std::memory_order_relaxed);
+}
 
-    static void handle_sighup(int) {
-        g_reloadRequested.store(true, std::memory_order_relaxed);
-    }
+static void handle_sighup(int) {
+    g_reloadRequested.store(true, std::memory_order_relaxed);
+}
 
-    inline void install() {
-        std::signal(SIGINT,  handle_sigint);
-        std::signal(SIGTERM, handle_sigint);
-        std::signal(SIGHUP,  handle_sighup);
-    }
+inline void install() {
+    std::signal(SIGINT, handle_sigint);
+    std::signal(SIGTERM, handle_sigint);
+    std::signal(SIGHUP, handle_sighup);
+}
 } // end of namespace ProcessSignals
-

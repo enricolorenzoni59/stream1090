@@ -17,7 +17,6 @@
 
 #include "MainInstance.hpp"
 
-
 struct RatePair {
     SampleRate in;
     SampleRate out;
@@ -25,22 +24,20 @@ struct RatePair {
 
 std::vector<RatePair> collect_rate_pairs() {
     std::vector<RatePair> pairs;
-    std::apply([&](auto... p) {
-        ((pairs.push_back({ decltype(p)::inputRate, decltype(p)::outputRate })), ...);
-    }, presets);
+    std::apply([&](auto... p) { ((pairs.push_back({decltype(p)::inputRate, decltype(p)::outputRate})), ...); },
+               presets);
 
     // Sort by input, then output
-    std::sort(pairs.begin(), pairs.end(),
-        [](auto& a, auto& b) {
-            if (a.in != b.in) return (int)a.in < (int)b.in;
-            return (int)a.out < (int)b.out;
-        });
+    std::sort(pairs.begin(), pairs.end(), [](auto& a, auto& b) {
+        if (a.in != b.in)
+            return (int)a.in < (int)b.in;
+        return (int)a.out < (int)b.out;
+    });
 
     // Remove duplicates
-    pairs.erase(std::unique(pairs.begin(), pairs.end(),
-        [](auto& a, auto& b) {
-            return a.in == b.in && a.out == b.out;
-        }), pairs.end());
+    pairs.erase(
+        std::unique(pairs.begin(), pairs.end(), [](auto& a, auto& b) { return a.in == b.in && a.out == b.out; }),
+        pairs.end());
 
     return pairs;
 }
@@ -49,7 +46,7 @@ std::optional<SampleRate> find_default_output_rate(SampleRate input) {
     auto pairs = collect_rate_pairs();
     for (auto& p : pairs) {
         if (p.in == input)
-            return p.out;   // first match
+            return p.out; // first match
     }
     return std::nullopt;
 }
@@ -63,7 +60,6 @@ bool is_valid_rate_pair(SampleRate in, SampleRate out) {
     return false;
 }
 
-
 void print_rate_pairs() {
     auto pairs = collect_rate_pairs();
 
@@ -71,15 +67,11 @@ void print_rate_pairs() {
     for (auto& p : pairs) {
 #if defined(STREAM1090_CUSTOM_INPUT) && STREAM1090_CUSTOM_INPUT
         std::string fmt = "float32 IQ";
-#else 
+#else
         std::string fmt = (p.in < 6'000'000) ? "uint8 IQ" : "uint16 IQ";
 #endif
-        std::cout
-            << "  "
-            << (float(p.in) / 1'000'000.0f)
-            << "  →  "
-            << (float(p.out) / 1'000'000.0f)
-            <<  " (" << fmt << ")\n";
+        std::cout << "  " << (float(p.in) / 1'000'000.0f) << "  →  " << (float(p.out) / 1'000'000.0f) << " (" << fmt
+                  << ")\n";
     }
     std::cout << "\n";
 }
@@ -104,32 +96,29 @@ void print_help() {
     }
 
     if (!GlobalOptions::NativeRtlSdrSupport && !GlobalOptions::NativeAirspySupport) {
-        std::cout << " none";    
+        std::cout << " none";
     }
 
     std::cout << "\n\n";
 
-    std::cout <<
-    "Usage:\n"
-    "  stream1090 [options]\n\n"
-    "Options:\n"
-    "  -s <rate>            Input sample rate in MHz (required)\n"
-    "  -u <rate>            Upsample rate in MHz\n"
-    "  -d <file.ini>        Device configuration INI file for native devices\n"
-    "                       See configs/airspy.ini or configs/rtlsdr.ini\n"                       
-    "  -q                   Enables IQ FIR filter with built-in taps\n"
-    "  -f <taps file>       Taps to load that are used for the IQ FIR filter\n"
-    "  -v                   Verbose output\n"
-    "  -h, --help           Show this help message\n\n";
+    std::cout << "Usage:\n"
+                 "  stream1090 [options]\n\n"
+                 "Options:\n"
+                 "  -s <rate>            Input sample rate in MHz (required)\n"
+                 "  -u <rate>            Upsample rate in MHz\n"
+                 "  -d <file.ini>        Device configuration INI file for native devices\n"
+                 "                       See configs/airspy.ini or configs/rtlsdr.ini\n"
+                 "  -q                   Enables IQ FIR filter with built-in taps\n"
+                 "  -f <taps file>       Taps to load that are used for the IQ FIR filter\n"
+                 "  -v                   Verbose output\n"
+                 "  -h, --help           Show this help message\n\n";
 
     print_rate_pairs();
-    
-    std::cout <<
-    "Examples:\n"
-    "  ./build/stream1090 -s 2.4 -u 8 -q -d ./configs/rtlsdr.ini\n"
-    "  ./build/stream1090 -s 6 -u 12 -q -d ./configs/airspy.ini\n\n";
-}
 
+    std::cout << "Examples:\n"
+                 "  ./build/stream1090 -s 2.4 -u 8 -q -d ./configs/rtlsdr.ini\n"
+                 "  ./build/stream1090 -s 6 -u 12 -q -d ./configs/airspy.ini\n\n";
+}
 
 struct CliArgs {
     std::string sampleRate = "";
@@ -206,22 +195,38 @@ SampleRate parse_sample_rate(const std::string& raw) {
 
     // Match directly against enum values
     switch (hz) {
-        case Rate_1_0_Mhz:  return Rate_1_0_Mhz;
-        case Rate_2_0_Mhz:  return Rate_2_0_Mhz;
-        case Rate_2_4_Mhz:  return Rate_2_4_Mhz;
-        case Rate_2_56_Mhz:  return Rate_2_56_Mhz;
-        case Rate_3_0_Mhz:  return Rate_3_0_Mhz;
-        case Rate_3_2_Mhz:  return Rate_3_2_Mhz;
-        case Rate_4_0_Mhz:  return Rate_4_0_Mhz;
-        case Rate_6_0_Mhz:  return Rate_6_0_Mhz;
-        case Rate_8_0_Mhz:  return Rate_8_0_Mhz;
-        case Rate_10_0_Mhz: return Rate_10_0_Mhz;
-        case Rate_12_0_Mhz: return Rate_12_0_Mhz;
-        case Rate_16_0_Mhz: return Rate_16_0_Mhz;
-        case Rate_20_0_Mhz: return Rate_20_0_Mhz;
-        case Rate_24_0_Mhz: return Rate_24_0_Mhz;
-        case Rate_40_0_Mhz: return Rate_40_0_Mhz;
-        case Rate_48_0_Mhz: return Rate_48_0_Mhz;
+    case Rate_1_0_Mhz:
+        return Rate_1_0_Mhz;
+    case Rate_2_0_Mhz:
+        return Rate_2_0_Mhz;
+    case Rate_2_4_Mhz:
+        return Rate_2_4_Mhz;
+    case Rate_2_56_Mhz:
+        return Rate_2_56_Mhz;
+    case Rate_3_0_Mhz:
+        return Rate_3_0_Mhz;
+    case Rate_3_2_Mhz:
+        return Rate_3_2_Mhz;
+    case Rate_4_0_Mhz:
+        return Rate_4_0_Mhz;
+    case Rate_6_0_Mhz:
+        return Rate_6_0_Mhz;
+    case Rate_8_0_Mhz:
+        return Rate_8_0_Mhz;
+    case Rate_10_0_Mhz:
+        return Rate_10_0_Mhz;
+    case Rate_12_0_Mhz:
+        return Rate_12_0_Mhz;
+    case Rate_16_0_Mhz:
+        return Rate_16_0_Mhz;
+    case Rate_20_0_Mhz:
+        return Rate_20_0_Mhz;
+    case Rate_24_0_Mhz:
+        return Rate_24_0_Mhz;
+    case Rate_40_0_Mhz:
+        return Rate_40_0_Mhz;
+    case Rate_48_0_Mhz:
+        return Rate_48_0_Mhz;
     }
 
     std::cerr << "Unsupported sample rate: " << raw << "\n";
@@ -238,10 +243,12 @@ std::vector<float> load_taps_from_file(const std::string& filename) {
     std::string line;
     while (std::getline(file, line)) {
         // trim whitespace
-        if (line.empty()) continue;
+        if (line.empty())
+            continue;
 
         // skip comments
-        if (line[0] == '#') continue;
+        if (line[0] == '#')
+            continue;
 
         // parse float
         try {
@@ -249,7 +256,8 @@ std::vector<float> load_taps_from_file(const std::string& filename) {
             taps.push_back((float)v);
         } catch (...) {
             // malformed line
-            return std::vector<float>();;
+            return std::vector<float>();
+            ;
         }
 
         // too many taps
@@ -296,8 +304,7 @@ int main(int argc, char** argv) {
         IniConfig dev_ini(args.deviceConfig);
 
         if (!dev_ini.load()) {
-            std::cerr << "[Stream1090] Cannot load device config from "
-                    << args.deviceConfig << std::endl;
+            std::cerr << "[Stream1090] Cannot load device config from " << args.deviceConfig << std::endl;
             return 1;
         }
 
@@ -331,7 +338,6 @@ int main(int argc, char** argv) {
         }
     }
 
-
     // ------------------------
     // FIR taps loading
     // ------------------------
@@ -356,9 +362,8 @@ int main(int argc, char** argv) {
         c_vars.outputRate = parse_sample_rate(args.upsampleRate);
 
         if (!is_valid_rate_pair(c_vars.inputRate, c_vars.outputRate)) {
-            std::cerr << "[Stream1090] Unsupported rate combination: "
-                    << float(c_vars.inputRate)/1'000'000.0f << " → "
-                    << float(c_vars.outputRate)/1'000'000.0f << "\n";
+            std::cerr << "[Stream1090] Unsupported rate combination: " << float(c_vars.inputRate) / 1'000'000.0f
+                      << " → " << float(c_vars.outputRate) / 1'000'000.0f << "\n";
             print_rate_pairs();
             return 1;
         }
@@ -368,8 +373,8 @@ int main(int argc, char** argv) {
     else {
         auto def = find_default_output_rate(c_vars.inputRate);
         if (!def) {
-            std::cerr << "[Stream1090] No valid output rate for input rate: "
-                    << float(c_vars.inputRate)/1'000'000.0f << "\n";
+            std::cerr << "[Stream1090] No valid output rate for input rate: " << float(c_vars.inputRate) / 1'000'000.0f
+                      << "\n";
             print_rate_pairs();
             return 1;
         }
@@ -377,8 +382,8 @@ int main(int argc, char** argv) {
         c_vars.outputRate = *def;
 
         if (args.verbose) {
-            std::cerr << "[Stream1090] Auto-selected output rate: "
-                    << float(c_vars.outputRate)/1'000'000.0f << " MHz\n";
+            std::cerr << "[Stream1090] Auto-selected output rate: " << float(c_vars.outputRate) / 1'000'000.0f
+                      << " MHz\n";
         }
     }
 
@@ -390,9 +395,8 @@ int main(int argc, char** argv) {
         c_vars.pipelineOption = IQPipelineOptions::NONE;
     } else {
         // the default behaviour
-        c_vars.rawFormat = (c_vars.inputRate < Rate_6_0_Mhz)
-            ? InputFormatType::IQ_UINT8_RTL_SDR
-            : InputFormatType::IQ_UINT16_RAW_AIRSPY;
+        c_vars.rawFormat = (c_vars.inputRate < Rate_6_0_Mhz) ? InputFormatType::IQ_UINT8_RTL_SDR
+                                                             : InputFormatType::IQ_UINT16_RAW_AIRSPY;
 
         c_vars.pipelineOption = IQPipelineOptions::NONE;
         if (!r_vars.filterTaps.empty()) {
@@ -406,23 +410,18 @@ int main(int argc, char** argv) {
                 c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_RTL_SDR;
             } else {
                 c_vars.pipelineOption = IQPipelineOptions::IQ_FIR;
-            }        
+            }
         }
     }
-        
+
     // ------------------------
     // Let's go
     // ------------------------
     const auto outcome = runInstanceFromPresets(c_vars, r_vars);
     if (!outcome) {
-        std::cerr << "[Stream1090] Configuration is not supported: "<< c_vars.inputRate << " -> " << c_vars.outputRate << std::endl;
+        std::cerr << "[Stream1090] Configuration is not supported: " << c_vars.inputRate << " -> " << c_vars.outputRate
+                  << std::endl;
         return 1;
     }
     return *outcome ? 0 : 1;
 }
-
-
-
-
-
-

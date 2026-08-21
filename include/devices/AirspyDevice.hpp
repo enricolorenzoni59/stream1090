@@ -13,11 +13,13 @@
 #include "IniConfig.hpp"
 
 class AirspyDevice : public InputDeviceBase<uint16_t> {
-public:
+  public:
     AirspyDevice(SampleRate sampleRate, IAsyncWriter<uint16_t>& bufferWriter)
         : InputDeviceBase<uint16_t>(sampleRate, bufferWriter) {}
 
-    bool open() override { return open_with_serial(m_serial); }
+    bool open() override {
+        return open_with_serial(m_serial);
+    }
     bool start() override;
     void stop() override;
     void close() override;
@@ -37,7 +39,7 @@ public:
     // Reload hook
     void applyConfigPostOpen(const IniConfig::Section& cfg) override;
 
-private:
+  private:
     bool open_with_serial(uint64_t serial);
     bool tryEnablingPacking();
     bool applySetting(const std::string& key, const std::string& value);
@@ -52,8 +54,7 @@ private:
         bool bias_tee = false;
     };
 
-    template<typename Gains>
-    void adoptStageGains(const Gains& gains) {
+    template <typename Gains> void adoptStageGains(const Gains& gains) {
         m_state.lna_gain = gains.lna;
         m_state.mixer_gain = gains.mixer;
         m_state.vga_gain = gains.vga;

@@ -30,10 +30,8 @@ void flipBit(Bits128& frame, uint8_t index) {
 // The runtime table must agree with the compile time deltas it mirrors.
 bool deltaTableMatchesCRC() {
     const auto& delta = ErasureRepair::deltaTable();
-    return delta[0] == CRC::delta<0>()
-        && delta[1] == CRC::delta<1>()
-        && delta[55] == CRC::delta<55>()
-        && delta[111] == CRC::delta<111>();
+    return delta[0] == CRC::delta<0>() && delta[1] == CRC::delta<1>() && delta[55] == CRC::delta<55>() &&
+           delta[111] == CRC::delta<111>();
 }
 
 // Errors placed inside the candidate set must be recovered exactly.
@@ -55,8 +53,7 @@ bool recoversErrorsInsideCandidateSet() {
                 expected |= (uint32_t(1) << e);
             }
 
-            const auto result = ErasureRepair::solve(CRC::compute<112>(frame),
-                                                     candidates.data(), candidates.size());
+            const auto result = ErasureRepair::solve(CRC::compute<112>(frame), candidates.data(), candidates.size());
             if (!result.solved || result.mask != expected)
                 return false;
 
@@ -77,8 +74,7 @@ bool leavesCleanFramesAlone() {
     std::iota(candidates.begin(), candidates.end(), uint8_t(0));
     for (int trial = 0; trial < 200; ++trial) {
         const auto frame = makeValidFrame();
-        const auto result = ErasureRepair::solve(CRC::compute<112>(frame),
-                                                 candidates.data(), candidates.size());
+        const auto result = ErasureRepair::solve(CRC::compute<112>(frame), candidates.data(), candidates.size());
         if (!result.solved || result.mask != 0)
             return false;
     }

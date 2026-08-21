@@ -12,15 +12,14 @@
 #include "ModeS.hpp"
 #include "AVRWriter.hpp"
 
-template<typename H>
+template <typename H>
 concept MessageHandler = requires(H h, uint64_t sampleIndex, uint64_t frameShort, const Bits128& frameLong) {
     { h.handleShort(sampleIndex, frameShort) };
     { h.handleLong(sampleIndex, frameLong) };
 };
 
-template<typename Sampler>
-class StdOutMessageHandler {
-public:
+template <typename Sampler> class StdOutMessageHandler {
+  public:
     explicit StdOutMessageHandler() : m_writer(std::cout) {}
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
@@ -40,18 +39,15 @@ public:
     AVRWriter m_writer;
 };
 
-template<typename R>
+template <typename R>
 concept RssiProvider = requires(R r) {
     { r.getRSSIShort() } -> std::convertible_to<uint8_t>;
     { r.getRSSILong() } -> std::convertible_to<uint8_t>;
 };
 
-template<typename Sampler, RssiProvider R>
-class RssiStdOutMessageHandler {
-public:
-    explicit RssiStdOutMessageHandler(const R& rssi)
-        : m_writer(std::cout), 
-          rssiProvider(rssi) {}
+template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
+  public:
+    explicit RssiStdOutMessageHandler(const R& rssi) : m_writer(std::cout), rssiProvider(rssi) {}
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
@@ -69,7 +65,7 @@ public:
         m_writer.flush();
     }
 
-private:
+  private:
     AVRWriter m_writer;
     const R& rssiProvider;
 };

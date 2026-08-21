@@ -12,20 +12,17 @@
 #include <string>
 #include <atomic>
 
-template<typename T>
-class InputDeviceBase {
-public:
+template <typename T> class InputDeviceBase {
+  public:
     using RawType = T;
 
     InputDeviceBase(SampleRate sampleRate, IAsyncWriter<T>& bufferWriter)
-        : m_sampleRate(sampleRate), m_bufferWriter(bufferWriter)
-    {
-        m_lastSignOfLife.store(std::chrono::steady_clock::now(),
-                             std::memory_order_relaxed);
+        : m_sampleRate(sampleRate), m_bufferWriter(bufferWriter) {
+        m_lastSignOfLife.store(std::chrono::steady_clock::now(), std::memory_order_relaxed);
     }
 
     virtual ~InputDeviceBase() = default;
-    
+
     virtual bool open() = 0;
     virtual bool start() = 0;
     virtual void stop() = 0;
@@ -33,23 +30,22 @@ public:
 
     // Called before open() is called to parse things like serial, packing etc.
     virtual void applyConfigPreOpen(const IniConfig::Section&) {
-        // we do not do anything as default        
+        // we do not do anything as default
     };
 
     // Called by the watchdog after SIGHUP
     virtual void applyConfigPostOpen(const IniConfig::Section&) {
-        // we do not do anything as default        
+        // we do not do anything as default
     };
 
     // Called by device callback threads
     void markAsAlive() {
-        m_lastSignOfLife.store(std::chrono::steady_clock::now(),
-                             std::memory_order_relaxed);
+        m_lastSignOfLife.store(std::chrono::steady_clock::now(), std::memory_order_relaxed);
     }
-    
+
     // Used by watchdog to detect cable pulls
     std::chrono::milliseconds lastSignOfLife() const {
-        auto now  = std::chrono::steady_clock::now();
+        auto now = std::chrono::steady_clock::now();
         auto last = m_lastSignOfLife.load(std::memory_order_relaxed);
         return std::chrono::duration_cast<std::chrono::milliseconds>(now - last);
     }
@@ -70,7 +66,7 @@ public:
         return m_running.load(std::memory_order_relaxed);
     }
 
-protected:
+  protected:
     SampleRate m_sampleRate;
     IAsyncWriter<T>& m_bufferWriter;
     std::atomic<bool> m_running{false};

@@ -61,10 +61,8 @@ inline constexpr int Candidates = 24;
 /// false repairs -- see the safety note above before changing either constant.
 inline constexpr int MaxWeight = 5;
 
-static_assert(Candidates > 0 && Candidates <= 32,
-              "Candidates must fit the 32-bit solution mask");
-static_assert(MaxWeight > 0 && MaxWeight < Candidates,
-              "MaxWeight must actually constrain the solution");
+static_assert(Candidates > 0 && Candidates <= 32, "Candidates must fit the 32-bit solution mask");
+static_assert(MaxWeight > 0 && MaxWeight < Candidates, "MaxWeight must actually constrain the solution");
 
 /// delta[i] is the syndrome contribution of flipping frame bit i. Same
 /// recurrence as CRC::delta<i>(), but as a table so the index can be dynamic.
@@ -85,7 +83,7 @@ inline const std::array<CRC::crc_t, MaxFrameBits>& deltaTable() {
 
 struct Result {
     bool solved = false;
-    uint32_t mask = 0;   ///< bit i set => candidates[i] was flipped
+    uint32_t mask = 0; ///< bit i set => candidates[i] was flipped
 };
 
 /// Solve for which of @p candidates were flipped, given the frame's syndrome.
@@ -134,7 +132,7 @@ inline Result solve(CRC::crc_t syndrome, const uint8_t* candidates, size_t count
         if (!((residual >> bit) & 1))
             continue;
         if (!pivotUsed[bit])
-            return result;      // syndrome lies outside the span
+            return result; // syndrome lies outside the span
         residual ^= pivotValue[bit];
         combination ^= pivotMask[bit];
     }

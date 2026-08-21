@@ -10,14 +10,12 @@
 
 namespace LowPassTaps {
 
-#define STREAM1090_OVERRIDE_TAPS(IN_RATE, OUT_RATE, ...)                           \
-template<>                                                                          \
-constexpr auto getCustomTaps<IN_RATE, OUT_RATE>() {                                 \
-    return std::to_array<float>({ __VA_ARGS__ });                                   \
-}
+#define STREAM1090_OVERRIDE_TAPS(IN_RATE, OUT_RATE, ...)                                                               \
+    template <> constexpr auto getCustomTaps<IN_RATE, OUT_RATE>() {                                                    \
+        return std::to_array<float>({__VA_ARGS__});                                                                    \
+    }
 
-template<SampleRate inputRate, SampleRate outputRate>
-constexpr auto getCustomTaps() {
+template <SampleRate inputRate, SampleRate outputRate> constexpr auto getCustomTaps() {
     return LowPassTaps::getTaps<inputRate, outputRate>();
 }
 
@@ -25,8 +23,7 @@ constexpr auto getCustomTaps() {
 #include "../custom_filters/OverrideFilterTaps.hpp"
 
 // checks if the taps are symmetric
-template<SampleRate inputRate, SampleRate outputRate>
-constexpr bool areCustomTapsSymmetric() {
+template <SampleRate inputRate, SampleRate outputRate> constexpr bool areCustomTapsSymmetric() {
     const auto taps = getCustomTaps<inputRate, outputRate>();
     for (size_t i = 0; i < taps.size() / 2; i++) {
         if (taps[i] != taps[taps.size() - 1 - i])
@@ -36,8 +33,7 @@ constexpr bool areCustomTapsSymmetric() {
 }
 
 // checks if the length is odd
-template<SampleRate inputRate, SampleRate outputRate>
-constexpr bool areCustomTapsOdd() {
+template <SampleRate inputRate, SampleRate outputRate> constexpr bool areCustomTapsOdd() {
     return (getCustomTaps<inputRate, outputRate>().size() % 2) != 0;
 }
 

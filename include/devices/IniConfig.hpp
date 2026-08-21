@@ -12,12 +12,11 @@
 #include <algorithm>
 
 class IniConfig {
-public:
+  public:
     using Section = std::map<std::string, std::string>;
     using Data = std::map<std::string, Section>;
 
-    explicit IniConfig(std::string filename = "")
-        : m_filename(std::move(filename)) {}
+    explicit IniConfig(std::string filename = "") : m_filename(std::move(filename)) {}
 
     bool load() {
         if (m_filename.empty())
@@ -69,9 +68,11 @@ public:
         return loadFromFile(m_filename);
     }
 
-    const Data& get() const { return data; }
+    const Data& get() const {
+        return data;
+    }
 
-private:
+  private:
     Data data;
     std::string m_filename;
 
@@ -81,5 +82,3 @@ private:
         s.erase(std::find_if(s.rbegin(), s.rend(), notSpace).base(), s.end());
     }
 };
-
-

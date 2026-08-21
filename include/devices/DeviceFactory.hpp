@@ -19,76 +19,56 @@
 #include "devices/RtlSdrDevice.hpp"
 #endif
 
-enum class InputDeviceType {
-    STREAM,
-    AIRSPY,
-    RTLSDR,
-    NONE
-};
+enum class InputDeviceType { STREAM, AIRSPY, RTLSDR, NONE };
 
-template<typename RawType>
-class DeviceFactory {
-public:
+template <typename RawType> class DeviceFactory {
+  public:
     using BasePtr = std::unique_ptr<InputDeviceBase<RawType>>;
-    static BasePtr create(InputDeviceType ,
-                          SampleRate ,
-                          IAsyncWriter<RawType>& ) 
-                          {
-                            return nullptr;
-                          };
+    static BasePtr create(InputDeviceType, SampleRate, IAsyncWriter<RawType>&) {
+        return nullptr;
+    };
 };
 
 // ------------------------------------------------------------
 // uint16_t specialization (Airspy)
 // ------------------------------------------------------------
-template<>
+template <>
 inline DeviceFactory<uint16_t>::BasePtr
-DeviceFactory<uint16_t>::create(InputDeviceType inputType,
-                                SampleRate inputSampleRate,
-                                IAsyncWriter<uint16_t>& writer)
-{
+DeviceFactory<uint16_t>::create(InputDeviceType inputType, SampleRate inputSampleRate, IAsyncWriter<uint16_t>& writer) {
     // mark this as used to surpress warnings when certain backends are not present
     (void)(inputSampleRate);
     (void)(writer);
 
-    switch (inputType)
-    {
+    switch (inputType) {
 #ifdef STREAM1090_HAVE_AIRSPY
-        case InputDeviceType::AIRSPY:
-            return std::make_unique<AirspyDevice>(inputSampleRate, writer);
+    case InputDeviceType::AIRSPY:
+        return std::make_unique<AirspyDevice>(inputSampleRate, writer);
 #endif
-        case InputDeviceType::STREAM:
-        case InputDeviceType::NONE:
-        default:
-            return nullptr;
+    case InputDeviceType::STREAM:
+    case InputDeviceType::NONE:
+    default:
+        return nullptr;
     }
 }
 
 // ------------------------------------------------------------
 // uint8_t specialization (RTL-SDR)
 // ------------------------------------------------------------
-template<>
+template <>
 inline DeviceFactory<uint8_t>::BasePtr
-DeviceFactory<uint8_t>::create(InputDeviceType inputType,
-                               SampleRate inputSampleRate,
-                               IAsyncWriter<uint8_t>& writer)
-{
+DeviceFactory<uint8_t>::create(InputDeviceType inputType, SampleRate inputSampleRate, IAsyncWriter<uint8_t>& writer) {
     // mark this as used to surpress warnings when certain backends are not present
     (void)(inputSampleRate);
     (void)(writer);
-    
-    switch (inputType)
-    {
+
+    switch (inputType) {
 #ifdef STREAM1090_HAVE_RTLSDR
-        case InputDeviceType::RTLSDR:
-            return std::make_unique<RtlSdrDevice>(inputSampleRate, writer);
+    case InputDeviceType::RTLSDR:
+        return std::make_unique<RtlSdrDevice>(inputSampleRate, writer);
 #endif
-        case InputDeviceType::STREAM:
-        case InputDeviceType::NONE:
-        default:
-            return nullptr;
+    case InputDeviceType::STREAM:
+    case InputDeviceType::NONE:
+    default:
+        return nullptr;
     }
 }
-
-
-

@@ -6,8 +6,7 @@
 
 namespace {
 
-template<size_t NumTaps>
-bool symmetricMatchesPlain(const std::array<int16_t, NumTaps>& taps) {
+template <size_t NumTaps> bool symmetricMatchesPlain(const std::array<int16_t, NumTaps>& taps) {
     constexpr size_t Count = 257;
     std::array<int16_t, Count + NumTaps> inputI{};
     std::array<int16_t, Count + NumTaps> inputQ{};
@@ -24,15 +23,14 @@ bool symmetricMatchesPlain(const std::array<int16_t, NumTaps>& taps) {
         inputQ[i] = int16_t((state >> 17) - 16384);
     }
 
-    FirDetail::firBlock<false>(taps.data(), taps.size(), inputI.data(), inputQ.data(),
-                                plainI.data(), plainQ.data(), Count);
-    FirDetail::firBlock<true>(taps.data(), taps.size(), inputI.data(), inputQ.data(),
-                               symmetricI.data(), symmetricQ.data(), Count);
+    FirDetail::firBlock<false>(taps.data(), taps.size(), inputI.data(), inputQ.data(), plainI.data(), plainQ.data(),
+                               Count);
+    FirDetail::firBlock<true>(taps.data(), taps.size(), inputI.data(), inputQ.data(), symmetricI.data(),
+                              symmetricQ.data(), Count);
     return plainI == symmetricI && plainQ == symmetricQ;
 }
 
-template<SampleRate InputRate, SampleRate OutputRate>
-bool builtInSymmetricMatchesPlain() {
+template <SampleRate InputRate, SampleRate OutputRate> bool builtInSymmetricMatchesPlain() {
     constexpr auto source = LowPassTaps::getCustomTaps<InputRate, OutputRate>();
     constexpr auto taps = [source] {
         std::array<int16_t, source.size()> result{};
@@ -47,10 +45,8 @@ bool builtInSymmetricMatchesPlain() {
 } // namespace
 
 int main() {
-    constexpr std::array<int16_t, 15> oddTaps{
-        -81, -66, 781, 1019, 1741, 3178, 1865, 15891,
-        1865, 3178, 1741, 1019, 781, -66, -81
-    };
+    constexpr std::array<int16_t, 15> oddTaps{-81,  -66,  781,  1019, 1741, 3178, 1865, 15891,
+                                              1865, 3178, 1741, 1019, 781,  -66,  -81};
     constexpr std::array<int16_t, 6> evenTaps{328, 655, 1311, 1311, 655, 328};
 
     if (!symmetricMatchesPlain(oddTaps) || !symmetricMatchesPlain(evenTaps) ||

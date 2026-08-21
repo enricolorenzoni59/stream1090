@@ -15,18 +15,15 @@
 #include <vector>
 #include <iostream>
 
+template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncReader;
+template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncWriter;
 
-template<typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncReader;
-template<typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncWriter;
-
-// template class for a block based ring buffer. 
-template<typename T, size_t BlockSize, size_t NumBlocks>
-class RingBufferBase {
-    public:
-    
+// template class for a block based ring buffer.
+template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferBase {
+  public:
     // default constructor
     RingBufferBase() = default;
-    
+
     // the number of blocks this buffer holds, each of size blockSize
     static constexpr size_t numBlocks() {
         return NumBlocks;
@@ -59,27 +56,25 @@ class RingBufferBase {
     void write(size_t startIndex, const T* src, size_t n) noexcept {
         // number of elements we can write before wrapping
         size_t first = std::min(n, size() - startIndex);
-        
+
         // write first segment, this might be enough. Maybe not.
         std::memcpy(m_data + startIndex, src, first * sizeof(T));
-    
+
         // check if there are elements left
         if (n > first) {
-            // wrap around and copy them to the start of the buffer 
+            // wrap around and copy them to the start of the buffer
             std::memcpy(m_data, src + first, (n - first) * sizeof(T));
         }
     }
 
-    protected:
-
+  protected:
     // all data data of the block ring buffer
     alignas(64) T m_data[BlockSize * NumBlocks];
 };
 
-
-template<typename T, size_t _BlockSize, size_t _NumBlocks = 8>
+template <typename T, size_t _BlockSize, size_t _NumBlocks = 8>
 class RingBufferAsync : public RingBufferBase<T, _BlockSize, _NumBlocks> {
-public:
+  public:
     using Reader = RingBufferAsyncReader<T, _BlockSize, _NumBlocks>;
     using Writer = RingBufferAsyncWriter<T, _BlockSize, _NumBlocks>;
     using ValueType = T;
@@ -110,7 +105,7 @@ public:
             m_numFullBlocks -= numBlocksRead;
             res = m_numFullBlocks;
         }
-        m_condVar.notify_one();   // wake writer
+        m_condVar.notify_one(); // wake writer
         return res;
     }
 
@@ -123,14 +118,12 @@ public:
         m_condVar.notify_all();
     }
 
-    // This function blocks until at least one full block of data is ready (returns sth. > 0), 
-    // or no blocks are remaining and it has been signaled via shutdown() 
+    // This function blocks until at least one full block of data is ready (returns sth. > 0),
+    // or no blocks are remaining and it has been signaled via shutdown()
     // that no more data will bee written later. Returns 0 in that case.
     size_t waitForNewBlocks() noexcept {
         std::unique_lock<std::mutex> lock(m_mutex);
-        m_condVar.wait(lock, [&]{
-            return m_shutdown || m_numFullBlocks > 0;
-        });
+        m_condVar.wait(lock, [&] { return m_shutdown || m_numFullBlocks > 0; });
 
         // If shutdown and no blocks → EOF
         if (m_shutdown && (m_numFullBlocks == 0))
@@ -141,9 +134,9 @@ public:
     }
 
     size_t waitForSpace(size_t desiredBlocks) noexcept {
-        
+
         std::unique_lock<std::mutex> lock(m_mutex);
-        m_condVar.wait(lock, [&]{
+        m_condVar.wait(lock, [&] {
             //std::cerr << "Waiting for desired Blocks " << desiredBlocks << " full "<< m_numFullBlocks << std::endl;
             return m_shutdown || (NumBlocks - m_numFullBlocks) >= desiredBlocks;
         });
@@ -156,35 +149,31 @@ public:
         return m_numFullBlocks;
     }
 
-private:
+  private:
     // number of unread full blocks
     size_t m_numFullBlocks;
-    
-    // signals that no more data will be written (error or end of file)        
-    bool   m_shutdown;
-    
-    // mutex to protected the two above variables             
+
+    // signals that no more data will be written (error or end of file)
+    bool m_shutdown;
+
+    // mutex to protected the two above variables
     mutable std::mutex m_mutex;
 
     // condition variable for signaling when the state changes
     std::condition_variable m_condVar;
 };
 
-
-template<typename T, size_t BlockSize, size_t NumBlocks>
-class RingBufferAsyncReader {
-    public:
-    
+template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncReader {
+  public:
     using RingBufferType = RingBufferAsync<T, BlockSize, NumBlocks>;
 
-    RingBufferAsyncReader(RingBufferType& ring) 
-        : m_ring(ring), m_numFullBlocks(0), m_readBlockIndex(0) {}
+    RingBufferAsyncReader(RingBufferType& ring) : m_ring(ring), m_numFullBlocks(0), m_readBlockIndex(0) {}
 
     bool eof() {
         // we first check if the local m_numFullBlocks > 0, that is, there is work to be done.
         // note that this value might not be up-to-date. However, we will first do this instead
         // of syncing with the shared value
-        if (m_numFullBlocks > 0) 
+        if (m_numFullBlocks > 0)
             return false;
 
         // local m_numFullBlocks is 0, let's wait for new blocks to arrive or a shutdown signal
@@ -192,35 +181,31 @@ class RingBufferAsyncReader {
         return m_numFullBlocks == 0;
     }
 
-    template<typename ProcessingFunc>
-    void process(ProcessingFunc processingFunc) noexcept {
+    template <typename ProcessingFunc> void process(ProcessingFunc processingFunc) noexcept {
         if (m_numFullBlocks > 0) {
             processingFunc(m_ring.begin(m_readBlockIndex));
             m_readBlockIndex = (m_readBlockIndex + 1) % NumBlocks;
             m_numFullBlocks = m_ring.consumeBlocks(1);
         }
     }
-    
-    private:
 
+  private:
     RingBufferType& m_ring;
     size_t m_numFullBlocks;
     size_t m_readBlockIndex;
 };
 
-template<typename T>
-class IAsyncWriter {
-    public:
+template <typename T> class IAsyncWriter {
+  public:
     virtual size_t write(const T* newData, size_t n) = 0;
     virtual void shutdown() = 0;
 };
 
-template<typename T, size_t BlockSize, size_t NumBlocks>
-class RingBufferAsyncWriter : public IAsyncWriter<T> {
-public:
+template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncWriter : public IAsyncWriter<T> {
+  public:
     using RingBufferType = RingBufferAsync<T, BlockSize, NumBlocks>;
 
-    RingBufferAsyncWriter(RingBufferType& ring) : m_ring(ring), m_writePos(0), m_numFullBlocks(0)  {}
+    RingBufferAsyncWriter(RingBufferType& ring) : m_ring(ring), m_writePos(0), m_numFullBlocks(0) {}
 
     size_t write(const T* newData, size_t n) override {
         constexpr size_t bufferSize = BlockSize * NumBlocks;
@@ -229,16 +214,14 @@ public:
         while (remaining > 0) {
 
             // Compute used/free based on local state
-            size_t usedElems =
-                (m_numFullBlocks * BlockSize) +
-                (m_writePos % BlockSize);
+            size_t usedElems = (m_numFullBlocks * BlockSize) + (m_writePos % BlockSize);
 
             size_t freeElems = bufferSize - usedElems;
 
             // If no space, block until consumer frees some
             if (freeElems == 0) {
                 // here we need to be careful when waiting for new free blocks.
-                size_t new_numFullBlocks = m_ring.waitForSpace( 1 );//std::min(NumBlocks - 1, remaining / BlockSize));
+                size_t new_numFullBlocks = m_ring.waitForSpace(1); //std::min(NumBlocks - 1, remaining / BlockSize));
                 if (new_numFullBlocks == NumBlocks) {
                     // there are no new free blocks, the buffer is shutting down
                     // we bail out too
@@ -253,9 +236,8 @@ public:
             size_t numToWrite = std::min(remaining, freeElems);
 
             const size_t writeBlockOffset = m_writePos % BlockSize;
-            const size_t numNewFullBlocks =
-                (writeBlockOffset + numToWrite) / BlockSize;
-                
+            const size_t numNewFullBlocks = (writeBlockOffset + numToWrite) / BlockSize;
+
             // Perform the write
             m_ring.write(m_writePos, newData, numToWrite);
             m_writePos = (m_writePos + numToWrite) % bufferSize;
@@ -265,7 +247,7 @@ public:
                 m_numFullBlocks = m_ring.commitBlocks(numNewFullBlocks);
 
             // Advance input pointer
-            newData   += numToWrite;
+            newData += numToWrite;
             remaining -= numToWrite;
         }
 
@@ -274,12 +256,11 @@ public:
 
     size_t finishLastBlock(const T& paddingValue = T{}) {
         const auto numPartial = (m_writePos % BlockSize);
-        
+
         if (numPartial == 0)
             return 0;
-        
+
         const auto numPadding = BlockSize - numPartial;
-        
 
         std::vector<T> padding(numPadding);
         std::fill(padding.begin(), padding.end(), paddingValue);
@@ -290,11 +271,8 @@ public:
         m_ring.shutdown();
     }
 
-
-private:
+  private:
     RingBufferType& m_ring;
-    size_t m_writePos;       // element index in [0, NumBlocks*BlockSize)
-    size_t m_numFullBlocks;  // local copy of full blocks
+    size_t m_writePos;      // element index in [0, NumBlocks*BlockSize)
+    size_t m_numFullBlocks; // local copy of full blocks
 };
-
-

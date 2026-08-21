@@ -13,7 +13,6 @@
 #include <utility>
 #include "RawInputFormat.hpp"
 
-
 /*
  * Leaky integrator, in fixed point. The accumulator carries the running mean
  * shifted up by m_shift, so the update is an add and the mean is a shift back
@@ -22,9 +21,7 @@
  * becomes 1/256.
  */
 struct DCRemoval {
-    explicit DCRemoval(float alpha = 0.005f)
-        : m_shift(shiftForAlpha(alpha)), m_acc_I(0), m_acc_Q(0)
-    {}
+    explicit DCRemoval(float alpha = 0.005f) : m_shift(shiftForAlpha(alpha)), m_acc_I(0), m_acc_Q(0) {}
 
     void apply(int16_t& I, int16_t& Q) noexcept {
         const int32_t dI = int32_t(I) - (m_acc_I >> m_shift);
@@ -51,13 +48,17 @@ struct DCRemoval {
         oss << "[DCRemoval] alpha: 1/" << (1 << m_shift);
         return oss.str();
     }
-private:
+
+  private:
     // nearest shift k with 2^-k closest to alpha in the log domain
     static int shiftForAlpha(float alpha) noexcept {
-        if (!(alpha > 0.0f)) return 8;
+        if (!(alpha > 0.0f))
+            return 8;
         int k = int(std::lround(std::log2(1.0f / alpha)));
-        if (k < 1)  k = 1;
-        if (k > 20) k = 20;
+        if (k < 1)
+            k = 1;
+        if (k > 20)
+            k = 20;
         return k;
     }
 
@@ -65,7 +66,6 @@ private:
     int32_t m_acc_I;
     int32_t m_acc_Q;
 };
-
 
 struct FlipSigns {
     FlipSigns() = default;
@@ -88,20 +88,17 @@ struct FlipSigns {
         m_flip ^= (n & 1) != 0;
     }
 
-    std::string toString() const { 
-        return "[FlipSigns] enabled"; 
+    std::string toString() const {
+        return "[FlipSigns] enabled";
     }
-private:
+
+  private:
     bool m_flip = false;
 };
 
-
-template<typename... Stages>
-class IQPipeline {
-public:
-    IQPipeline(const Stages& ... stages)
-        : m_stages(std::move(stages)...)
-    {}
+template <typename... Stages> class IQPipeline {
+  public:
+    IQPipeline(const Stages&... stages) : m_stages(std::move(stages)...) {}
 
     int32_t process(int16_t I, int16_t Q) noexcept {
         // run IQ through the stages
@@ -133,20 +130,18 @@ public:
         return toStringImpl(std::index_sequence_for<Stages...>{});
     }
 
-private:
-    // the different stages of the IQ pair pipeline 
+  private:
+    // the different stages of the IQ pair pipeline
     // in the order how they are being executed on each pair
     std::tuple<Stages...> m_stages;
 
     // runs the stages above on a single pair
-    template<std::size_t... Is>
-    void applyStages(int16_t& I, int16_t& Q, std::index_sequence<Is...>) noexcept {
+    template <std::size_t... Is> void applyStages(int16_t& I, int16_t& Q, std::index_sequence<Is...>) noexcept {
         // C++ fun: apply(I, Q) on each stage in order
         (std::get<Is>(m_stages).apply(I, Q), ...);
     }
 
-    template<typename Stage>
-    static void runStageOnBlock(Stage& stage, int16_t* I, int16_t* Q, size_t n) noexcept {
+    template <typename Stage> static void runStageOnBlock(Stage& stage, int16_t* I, int16_t* Q, size_t n) noexcept {
         if constexpr (requires { stage.applyBlock(I, Q, n); }) {
             stage.applyBlock(I, Q, n);
         } else {
@@ -155,13 +150,12 @@ private:
         }
     }
 
-    template<std::size_t... Is>
+    template <std::size_t... Is>
     void applyStagesBlock(int16_t* I, int16_t* Q, size_t n, std::index_sequence<Is...>) noexcept {
         (runStageOnBlock(std::get<Is>(m_stages), I, Q, n), ...);
     }
 
-    template<std::size_t... Is>
-    std::string toStringImpl(std::index_sequence<Is...>) const {
+    template <std::size_t... Is> std::string toStringImpl(std::index_sequence<Is...>) const {
         std::ostringstream oss;
         ((oss << std::get<Is>(m_stages).toString() << "\n"), ...);
         return oss.str();
@@ -169,8 +163,6 @@ private:
 };
 
 // makes constructing a custom pipeline quite easy
-template<typename... Stages>
-auto make_pipeline(Stages&&... stages) {
+template <typename... Stages> auto make_pipeline(Stages&&... stages) {
     return IQPipeline<std::decay_t<Stages>...>(std::forward<Stages>(stages)...);
 }
-

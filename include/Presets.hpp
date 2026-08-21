@@ -11,23 +11,15 @@
 #include "IQPipeline.hpp"
 #include "LowPassFilter.hpp"
 
-enum class IQPipelineOptions {
-    NONE,
-    IQ_FIR,
-    IQ_FIR_FILE,
-    IQ_FIR_RTL_SDR,
-    IQ_FIR_RTL_SDR_FILE
-};
+enum class IQPipelineOptions { NONE, IQ_FIR, IQ_FIR_FILE, IQ_FIR_RTL_SDR, IQ_FIR_RTL_SDR_FILE };
 
-
-template<typename RawFormat, typename Sampler, IQPipelineOptions Opt>
-struct Preset {
+template <typename RawFormat, typename Sampler, IQPipelineOptions Opt> struct Preset {
     using RawFormatType = RawFormat;
-    using SamplerType   = Sampler;
-    using RawType       = typename RawFormat::RawType;
+    using SamplerType = Sampler;
+    using RawType = typename RawFormat::RawType;
 
-    static constexpr SampleRate        inputRate      = SamplerType::InputSampleRate;
-    static constexpr SampleRate        outputRate     = SamplerType::OutputSampleRate;
+    static constexpr SampleRate inputRate = SamplerType::InputSampleRate;
+    static constexpr SampleRate outputRate = SamplerType::OutputSampleRate;
     static constexpr IQPipelineOptions pipelineOption = Opt;
 };
 
@@ -37,9 +29,8 @@ constexpr auto presets = std::make_tuple(
     Preset<IQ_FLOAT32, Sampler_2_0_to_2_0_Mhz, IQPipelineOptions::NONE>{},
     Preset<IQ_FLOAT32, Sampler_2_0_to_4_0_Mhz, IQPipelineOptions::NONE>{},
     Preset<IQ_FLOAT32, Sampler_2_0_to_8_0_Mhz, IQPipelineOptions::NONE>{},
-    Preset<IQ_FLOAT32, Sampler_4_0_to_4_0_Mhz, IQPipelineOptions::NONE>{}
-);
-#else 
+    Preset<IQ_FLOAT32, Sampler_4_0_to_4_0_Mhz, IQPipelineOptions::NONE>{});
+#else
 constexpr auto presets = std::make_tuple(
     // RTL-SDR (uint8) default presets
     Preset<IQ_UINT8_RTL_SDR, Sampler_2_4_to_8_0_Mhz, IQPipelineOptions::NONE>{},
@@ -52,12 +43,12 @@ constexpr auto presets = std::make_tuple(
 
     Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_8_0_Mhz, IQPipelineOptions::NONE>{},
     Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_8_0_Mhz, IQPipelineOptions::IQ_FIR_RTL_SDR>{},
-    Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_8_0_Mhz, IQPipelineOptions::IQ_FIR_RTL_SDR_FILE>{} ,
-    
+    Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_8_0_Mhz, IQPipelineOptions::IQ_FIR_RTL_SDR_FILE>{},
+
     Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_12_0_Mhz, IQPipelineOptions::NONE>{},
     Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_12_0_Mhz, IQPipelineOptions::IQ_FIR_RTL_SDR>{},
-    Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_12_0_Mhz, IQPipelineOptions::IQ_FIR_RTL_SDR_FILE>{} ,
-    
+    Preset<IQ_UINT8_RTL_SDR, Sampler_2_56_to_12_0_Mhz, IQPipelineOptions::IQ_FIR_RTL_SDR_FILE>{},
+
     // Airspy (uint16) default presets
     Preset<IQ_UINT16_RAW_AIRSPY, Sampler_6_0_to_6_0_Mhz, IQPipelineOptions::NONE>{},
     Preset<IQ_UINT16_RAW_AIRSPY, Sampler_6_0_to_6_0_Mhz, IQPipelineOptions::IQ_FIR>{},
@@ -93,39 +84,32 @@ constexpr auto presets = std::make_tuple(
 
 #endif
 
-
-template<SampleRate In, SampleRate Out, IQPipelineOptions sel>
-struct IQPipelineSelector {
+template <SampleRate In, SampleRate Out, IQPipelineOptions sel> struct IQPipelineSelector {
     static auto make(const std::vector<float>&) {
         return make_pipeline();
     }
 };
 
-template<SampleRate In, SampleRate Out>
-struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR> {
+template <SampleRate In, SampleRate Out> struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR> {
     static auto make(const std::vector<float>&) {
         return make_pipeline(DCRemoval(), FlipSigns(), IQLowPass<In, Out>());
     }
 };
 
-template<SampleRate In, SampleRate Out>
-struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_FILE> {
+template <SampleRate In, SampleRate Out> struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_FILE> {
     static auto make(const std::vector<float>& taps) {
         return make_pipeline(DCRemoval(), FlipSigns(), IQLowPassDynamic(taps));
     }
 };
 
-template<SampleRate In, SampleRate Out>
-struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_RTL_SDR> {
+template <SampleRate In, SampleRate Out> struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_RTL_SDR> {
     static auto make(const std::vector<float>&) {
         return make_pipeline(IQLowPass<In, Out>());
     }
 };
 
-template<SampleRate In, SampleRate Out>
-struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_RTL_SDR_FILE> {
+template <SampleRate In, SampleRate Out> struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_RTL_SDR_FILE> {
     static auto make(const std::vector<float>& taps) {
         return make_pipeline(IQLowPassDynamic(taps));
     }
 };
-

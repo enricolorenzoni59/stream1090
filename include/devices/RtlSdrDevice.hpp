@@ -12,7 +12,7 @@
 #include "IniConfig.hpp"
 
 class RtlSdrDevice : public InputDeviceBase<uint8_t> {
-public:
+  public:
     RtlSdrDevice(SampleRate sampleRate, IAsyncWriter<uint8_t>& bufferWriter)
         : InputDeviceBase<uint8_t>(sampleRate, bufferWriter) {}
 
@@ -32,14 +32,14 @@ public:
     bool setLnaGain(int value);
     bool setMixerGain(int value);
     bool setVgaGain(int value);
-    
+
     // Called before opening the device to parse the serial
     void applyConfigPreOpen(const IniConfig::Section& cfg) override;
 
     // Reload hook
     void applyConfigPostOpen(const IniConfig::Section& cfg) override;
-    
-private:
+
+  private:
     bool open_with_serial(uint64_t serial = 0);
     bool open_with_serial(const std::string& serial);
     bool applySetting(const std::string& key, const std::string& value);
@@ -62,8 +62,7 @@ private:
     ShadowState m_state;
 
     rtlsdr_dev_t* m_dev = nullptr;
-    std::thread   m_thread;
+    std::thread m_thread;
     uint64_t m_actualSerial = 0;
     std::string m_serialString = "";
 };
-

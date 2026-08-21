@@ -10,10 +10,8 @@
 #include <memory>
 #include <algorithm>
 
-template<typename T, size_t BlockSize, size_t NumBlocks, size_t Delay = 0,
-         size_t HistoryBlocks = 0>
-class BlockRing {
-public:
+template <typename T, size_t BlockSize, size_t NumBlocks, size_t Delay = 0, size_t HistoryBlocks = 0> class BlockRing {
+  public:
     static_assert(NumBlocks > HistoryBlocks);
     static_assert(Delay <= BlockSize);
 
@@ -22,14 +20,10 @@ public:
     static constexpr size_t Capacity = NumBlocks - HistoryBlocks;
 
     BlockRing(const T& initValue)
-        : m_data(
-            new (std::align_val_t(CacheLineSize)) T[TotalSize],   // aligned allocation
-            AlignedDeleter{}                           // matching deleter
-        ),
-          m_readPos(0),
-          m_writePos(Delay),
-          m_fullBlocks(0)
-    {
+        : m_data(new (std::align_val_t(CacheLineSize)) T[TotalSize], // aligned allocation
+                 AlignedDeleter{}                                    // matching deleter
+                 ),
+          m_readPos(0), m_writePos(Delay), m_fullBlocks(0) {
         std::fill(m_data.get(), m_data.get() + TotalSize, initValue);
     }
 
@@ -42,11 +36,7 @@ public:
 
         if (m_writePos + BlockSize > TotalSize) {
             if constexpr (Delay > 0) {
-                std::memcpy(
-                    m_data.get(),
-                    m_data.get() + (TotalSize - Delay),
-                    Delay * sizeof(T)
-                );
+                std::memcpy(m_data.get(), m_data.get() + (TotalSize - Delay), Delay * sizeof(T));
             }
             m_writePos = Delay;
         }
@@ -88,8 +78,7 @@ public:
         return m_data[lookBackIndex];
     }
 
-private:
-
+  private:
     static constexpr size_t CacheLineSize = 64;
     struct AlignedDeleter {
         void operator()(T* p) const noexcept {

@@ -25,66 +25,25 @@ constexpr int clampPreset(int index) {
 }
 
 constexpr StageGains linearityPreset(int index) {
-    constexpr StageGains table[22] = {
-        { 0,  0,  4},
-        { 0,  0,  5},
-        { 0,  1,  6},
-        { 0,  1,  7},
-        { 0,  1,  8},
-        { 0,  1,  9},
-        { 0,  2, 10},
-        { 1,  2, 10},
-        { 3,  0, 10},
-        { 5,  0, 10},
-        { 6,  1, 10},
-        { 8,  0, 10},
-        { 9,  0, 10},
-        { 8,  5, 10},
-        { 9,  6, 10},
-        { 9,  6, 11},
-        {10,  7, 11},
-        {12,  8, 11},
-        {13,  9, 11},
-        {14, 11, 11},
-        {14, 12, 12},
-        {14, 12, 13}
-    };
+    constexpr StageGains table[22] = {{0, 0, 4},   {0, 0, 5},    {0, 1, 6},    {0, 1, 7},   {0, 1, 8},   {0, 1, 9},
+                                      {0, 2, 10},  {1, 2, 10},   {3, 0, 10},   {5, 0, 10},  {6, 1, 10},  {8, 0, 10},
+                                      {9, 0, 10},  {8, 5, 10},   {9, 6, 10},   {9, 6, 11},  {10, 7, 11}, {12, 8, 11},
+                                      {13, 9, 11}, {14, 11, 11}, {14, 12, 12}, {14, 12, 13}};
     return table[clampPreset(index)];
 }
 
 constexpr StageGains sensitivityPreset(int index) {
-    constexpr StageGains table[22] = {
-        { 0,  0,  4},
-        { 1,  0,  4},
-        { 2,  0,  4},
-        { 3,  0,  4},
-        { 5,  1,  4},
-        { 6,  2,  4},
-        { 7,  2,  4},
-        { 8,  3,  4},
-        { 9,  4,  4},
-        { 9,  4,  5},
-        {12,  4,  5},
-        {12,  7,  5},
-        {13,  8,  5},
-        {14,  9,  5},
-        {14,  9,  6},
-        {14, 10,  7},
-        {14, 10,  8},
-        {14, 11,  9},
-        {14, 12, 10},
-        {14, 12, 11},
-        {14, 12, 12},
-        {14, 12, 13}
-    };
+    constexpr StageGains table[22] = {{0, 0, 4},    {1, 0, 4},    {2, 0, 4},    {3, 0, 4},   {5, 1, 4},   {6, 2, 4},
+                                      {7, 2, 4},    {8, 3, 4},    {9, 4, 4},    {9, 4, 5},   {12, 4, 5},  {12, 7, 5},
+                                      {13, 8, 5},   {14, 9, 5},   {14, 9, 6},   {14, 10, 7}, {14, 10, 8}, {14, 11, 9},
+                                      {14, 12, 10}, {14, 12, 11}, {14, 12, 12}, {14, 12, 13}};
     return table[clampPreset(index)];
 }
 
 // Guard against a transcription slip in the tables above.
 static_assert(linearityPreset(0).lna == 0 && linearityPreset(0).vga == 4);
 static_assert(linearityPreset(19).lna == 14 && linearityPreset(19).mixer == 11);
-static_assert(linearityPreset(20).lna == 14 && linearityPreset(20).mixer == 12
-              && linearityPreset(20).vga == 12);
+static_assert(linearityPreset(20).lna == 14 && linearityPreset(20).mixer == 12 && linearityPreset(20).vga == 12);
 static_assert(sensitivityPreset(10).lna == 12 && sensitivityPreset(10).vga == 5);
 static_assert(sensitivityPreset(21).vga == 13);
 
@@ -109,9 +68,7 @@ int airspy_callback(airspy_transfer_t* transfer) {
 // Open / Start / Stop
 // ----------------------
 bool AirspyDevice::open_with_serial(uint64_t serial) {
-    int rc = (serial == 0)
-        ? airspy_open(&m_dev)
-        : airspy_open_sn(&m_dev, serial);
+    int rc = (serial == 0) ? airspy_open(&m_dev) : airspy_open_sn(&m_dev, serial);
 
     if (rc != AIRSPY_SUCCESS) {
         Log::error("AirspyDevice", "airspy_open failed");
@@ -129,7 +86,7 @@ bool AirspyDevice::open_with_serial(uint64_t serial) {
 
     if (m_packingEnabled) {
         if (!tryEnablingPacking()) {
-            Log::error("AirspyDevice", "Packing has been requested, but is not supported");    
+            Log::error("AirspyDevice", "Packing has been requested, but is not supported");
             return false;
         }
         //Log::info("AirspyDevice", "Packing is enabled");
@@ -170,8 +127,7 @@ bool AirspyDevice::setFrequency(uint32_t hz) {
         return true;
 
     if (airspy_set_freq(m_dev, hz) == AIRSPY_SUCCESS) {
-        Log::info("AirspyDevice") << "frequency: "
-                  << m_state.frequency << " -> " << hz;
+        Log::info("AirspyDevice") << "frequency: " << m_state.frequency << " -> " << hz;
         m_state.frequency = hz;
         return true;
     }
@@ -183,8 +139,7 @@ bool AirspyDevice::setLinearityGain(int value) {
         return true;
 
     if (airspy_set_linearity_gain(m_dev, value) == AIRSPY_SUCCESS) {
-        Log::info("AirspyDevice") << "linearity_gain: "
-                  << m_state.linearity_gain << " -> " << value;
+        Log::info("AirspyDevice") << "linearity_gain: " << m_state.linearity_gain << " -> " << value;
         m_state.linearity_gain = value;
         // The preset moved all three stages, so the shadow copy has to follow
         // or every later per-stage call compares against a stale value.
@@ -199,8 +154,7 @@ bool AirspyDevice::setSensitivityGain(int value) {
         return true;
 
     if (airspy_set_sensitivity_gain(m_dev, value) == AIRSPY_SUCCESS) {
-        Log::info("AirspyDevice") << "sensitivity_gain: "
-                  << m_state.sensitivity_gain << " -> " << value;
+        Log::info("AirspyDevice") << "sensitivity_gain: " << m_state.sensitivity_gain << " -> " << value;
         m_state.sensitivity_gain = value;
         // The preset moved all three stages, so the shadow copy has to follow
         // or every later per-stage call compares against a stale value.
@@ -215,8 +169,7 @@ bool AirspyDevice::setLnaGain(int value) {
         return true;
 
     if (airspy_set_lna_gain(m_dev, value) == AIRSPY_SUCCESS) {
-        Log::info("AirspyDevice") << "lna_gain: "
-                  << m_state.lna_gain << " -> " << value;
+        Log::info("AirspyDevice") << "lna_gain: " << m_state.lna_gain << " -> " << value;
         m_state.lna_gain = value;
         return true;
     }
@@ -228,8 +181,7 @@ bool AirspyDevice::setMixerGain(int value) {
         return true;
 
     if (airspy_set_mixer_gain(m_dev, value) == AIRSPY_SUCCESS) {
-        Log::info("AirspyDevice") << "mixer_gain: "
-                  << m_state.mixer_gain << " -> " << value;
+        Log::info("AirspyDevice") << "mixer_gain: " << m_state.mixer_gain << " -> " << value;
         m_state.mixer_gain = value;
         return true;
     }
@@ -241,8 +193,7 @@ bool AirspyDevice::setVgaGain(int value) {
         return true;
 
     if (airspy_set_vga_gain(m_dev, value) == AIRSPY_SUCCESS) {
-        Log::info("AirspyDevice") << "vga_gain: "
-                  << m_state.vga_gain << " -> " << value;
+        Log::info("AirspyDevice") << "vga_gain: " << m_state.vga_gain << " -> " << value;
         m_state.vga_gain = value;
         return true;
     }
@@ -254,15 +205,13 @@ bool AirspyDevice::setBiasTee(bool enabled) {
         return true;
 
     if (airspy_set_rf_bias(m_dev, enabled ? 1 : 0) == AIRSPY_SUCCESS) {
-        Log::info("AirspyDevice") << "bias_tee: "
-                  << (m_state.bias_tee ? "on" : "off")
-                  << " -> " << (enabled ? "on" : "off");
+        Log::info("AirspyDevice") << "bias_tee: " << (m_state.bias_tee ? "on" : "off") << " -> "
+                                  << (enabled ? "on" : "off");
         m_state.bias_tee = enabled;
         return true;
     }
     return false;
 }
-
 
 bool AirspyDevice::tryEnablingPacking() {
     // The device can send its 12-bit samples packed instead of padded
@@ -281,12 +230,12 @@ bool AirspyDevice::tryEnablingPacking() {
         // so it refuses while streaming. A reload can therefore reach
         // this, and it is not a firmware limitation.
         Log::error("AirspyDevice") << "Packing can only be changed before "
-                        "the device starts streaming; restart to apply";
+                                      "the device starts streaming; restart to apply";
         return false;
     }
     if (result != AIRSPY_SUCCESS) {
         Log::error("AirspyDevice") << "Packing not supported by this "
-                        "device or firmware; continuing unpacked";
+                                      "device or firmware; continuing unpacked";
         return false;
     }
 
@@ -300,12 +249,18 @@ bool AirspyDevice::applySetting(const std::string& key, const std::string& value
     if (!m_dev)
         return false;
 
-    if (key == "frequency")        return setFrequency(std::stoul(value));
-    if (key == "linearity_gain")   return setLinearityGain(std::stoi(value));
-    if (key == "sensitivity_gain") return setSensitivityGain(std::stoi(value));
-    if (key == "lna_gain")         return setLnaGain(std::stoi(value));
-    if (key == "mixer_gain")       return setMixerGain(std::stoi(value));
-    if (key == "vga_gain")         return setVgaGain(std::stoi(value));
+    if (key == "frequency")
+        return setFrequency(std::stoul(value));
+    if (key == "linearity_gain")
+        return setLinearityGain(std::stoi(value));
+    if (key == "sensitivity_gain")
+        return setSensitivityGain(std::stoi(value));
+    if (key == "lna_gain")
+        return setLnaGain(std::stoi(value));
+    if (key == "mixer_gain")
+        return setMixerGain(std::stoi(value));
+    if (key == "vga_gain")
+        return setVgaGain(std::stoi(value));
     if (key == "bias_tee") {
         bool enabled = (value == "1" || value == "true" || value == "on");
         return setBiasTee(enabled);
@@ -313,7 +268,6 @@ bool AirspyDevice::applySetting(const std::string& key, const std::string& value
 
     return false;
 }
-
 
 void AirspyDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
     for (auto& [key, value] : cfg) {
@@ -328,7 +282,7 @@ void AirspyDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
                 m_serial = serial;
             } catch (...) {
                 m_serial = 0;
-            }   
+            }
         }
 
         if (key == "packing") {
@@ -336,7 +290,6 @@ void AirspyDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
         }
     }
 }
-
 
 // ----------------------
 // Reload logic
@@ -352,5 +305,3 @@ void AirspyDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
         applySetting(key, value);
     }
 }
-
-

@@ -10,29 +10,24 @@
 #include "InputReaderBase.hpp"
 #include "RingBuffer.hpp"
 
-template<typename RawFormat, size_t BufferBlockSize, size_t NumBufferBlocks, typename Pipeline>
+template <typename RawFormat, size_t BufferBlockSize, size_t NumBufferBlocks, typename Pipeline>
 class InputBufferReader : public InputReaderBase<RawFormat, BufferBlockSize / 2, Pipeline> {
-public:
-    using RawType       = typename RawFormat::RawType;
+  public:
+    using RawType = typename RawFormat::RawType;
     using RingBufferType = RingBufferAsync<RawType, BufferBlockSize, NumBufferBlocks>;
-    using AsyncReader    = typename RingBufferType::Reader;
+    using AsyncReader = typename RingBufferType::Reader;
 
     InputBufferReader(Pipeline& pipeline, RingBufferType& ringBuffer)
-        : InputReaderBase<RawFormat, BufferBlockSize / 2, Pipeline>(pipeline),
-          m_reader(ringBuffer)
-    { }
+        : InputReaderBase<RawFormat, BufferBlockSize / 2, Pipeline>(pipeline), m_reader(ringBuffer) {}
 
     inline void readMagnitude(int32_t* out) {
-        m_reader.process([&](const RawType* buffer) {
-            this->processBlock(buffer, out);
-        });
+        m_reader.process([&](const RawType* buffer) { this->processBlock(buffer, out); });
     }
 
-    bool eof() { 
-        return m_reader.eof() || ProcessSignals::shutdownRequested(); 
+    bool eof() {
+        return m_reader.eof() || ProcessSignals::shutdownRequested();
     }
 
-private:
+  private:
     AsyncReader m_reader;
 };
-

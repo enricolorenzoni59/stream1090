@@ -17,13 +17,9 @@
  * takes it out anyway.
  */
 inline constexpr int SampleFracBits = 14;
-inline constexpr int SampleOne      = 1 << SampleFracBits;
+inline constexpr int SampleOne = 1 << SampleFracBits;
 
-enum class InputFormatType {
-    IQ_UINT8_RTL_SDR,
-    IQ_UINT16_RAW_AIRSPY,
-    IQ_FLOAT32
-};
+enum class InputFormatType { IQ_UINT8_RTL_SDR, IQ_UINT16_RAW_AIRSPY, IQ_FLOAT32 };
 
 struct IQ_UINT8_RTL_SDR {
     using RawType = uint8_t;

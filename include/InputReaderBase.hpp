@@ -13,13 +13,11 @@
 #include <algorithm>
 #include <type_traits>
 
-template<typename RawFormat, size_t InputBufferSize, typename Pipeline>
-class InputReaderBase {
-public:
+template <typename RawFormat, size_t InputBufferSize, typename Pipeline> class InputReaderBase {
+  public:
     using RawType = typename RawFormat::RawType;
 
-    InputReaderBase(Pipeline& pipeline) noexcept
-        : m_pipeline(pipeline) {}
+    InputReaderBase(Pipeline& pipeline) noexcept : m_pipeline(pipeline) {}
 
     /*
      * The samples make three short passes instead of one long one:
@@ -36,8 +34,7 @@ public:
      * The work is tiled so the two scratch arrays stay in L1 no matter how
      * large the input buffer is.
      */
-    inline void processBlock(const RawType* __restrict in,
-                             int32_t* __restrict out) noexcept {
+    inline void processBlock(const RawType* __restrict in, int32_t* __restrict out) noexcept {
         constexpr size_t N = InputBufferSize;
 
         for (size_t base = 0; base < N; base += TileSize) {
@@ -54,23 +51,23 @@ public:
             }
 
             for (size_t i = 0; i < n; i++) {
-                    // Linear magnitude, as before, but the samples are integers
-                    // now. Squaring the ring instead would be cheaper, and the
-                    // square root is monotone so it cannot flip a comparison --
-                    // but the resampler interpolates this ring, and interpolation
-                    // does not commute with squaring, which costs about 0.5% of
-                    // messages on a busy 2.4 Msps feed. Measured, so kept linear.
-                    const int32_t i2 = int32_t(m_tileI[i]) * int32_t(m_tileI[i]);
-                    const int32_t q2 = int32_t(m_tileQ[i]) * int32_t(m_tileQ[i]);
-                    // 8 fractional bits kept: the root of a weak sample is only
-                    // a couple of hundred, and truncating it to an integer costs
-                    // about 0.3% of messages on its own.
-                    out[base + i] = int32_t(std::sqrt(float(i2 + q2)) * 256.0f + 0.5f);
+                // Linear magnitude, as before, but the samples are integers
+                // now. Squaring the ring instead would be cheaper, and the
+                // square root is monotone so it cannot flip a comparison --
+                // but the resampler interpolates this ring, and interpolation
+                // does not commute with squaring, which costs about 0.5% of
+                // messages on a busy 2.4 Msps feed. Measured, so kept linear.
+                const int32_t i2 = int32_t(m_tileI[i]) * int32_t(m_tileI[i]);
+                const int32_t q2 = int32_t(m_tileQ[i]) * int32_t(m_tileQ[i]);
+                // 8 fractional bits kept: the root of a weak sample is only
+                // a couple of hundred, and truncating it to an integer costs
+                // about 0.3% of messages on its own.
+                out[base + i] = int32_t(std::sqrt(float(i2 + q2)) * 256.0f + 0.5f);
             }
         }
     }
 
-private:
+  private:
     // callers hand in the pipeline as a reference type
     using PipelineType = std::remove_reference_t<Pipeline>;
 

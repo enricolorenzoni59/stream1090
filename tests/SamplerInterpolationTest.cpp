@@ -25,8 +25,7 @@ int main() {
 
     bool differsFromLinear = false;
     for (size_t i = 0; i < output.size(); ++i) {
-        const double expected = double(i) * double(RatioInput) * 1000.0
-                              / double(RatioOutput);
+        const double expected = double(i) * double(RatioInput) * 1000.0 / double(RatioOutput);
         differsFromLinear |= std::fabs(double(output[i]) - expected) > 4.0;
     }
 
