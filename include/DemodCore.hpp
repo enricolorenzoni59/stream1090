@@ -107,8 +107,21 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             handledStreams &= handledStreams - 1;
         }
         m_currTime = baseTime + NumStreams;
+    }
 
-        logStats(Stats::NUM_ITERATIONS);
+    /// The bit-period counter used for the statistics and the msgs/sec figures
+    /// is hoisted out of shiftInNewBits() so the hottest function in the
+    /// program does not touch the stats on every call. SampleStream calls this
+    /// once per block with the number of shiftInNewBits() calls the block ran.
+    void logBlockStats(size_t iterations) {
+#if defined(STATS_ENABLED) && STATS_ENABLED
+        m_statsLog.log(Stats::NUM_ITERATIONS, int(iterations));
+#if !(defined(STATS_END_ONLY) && STATS_END_ONLY)
+        Stats::printTick(m_statsLog, std::cerr);
+#endif
+#else
+        (void)iterations;
+#endif
     }
 
     bool sendFrameLongAligned(int streamIndex, const uint8_t downlinkFormat, CRC::crc_t crc, const Bits128& frame,

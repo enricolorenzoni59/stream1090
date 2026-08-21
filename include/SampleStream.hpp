@@ -235,6 +235,8 @@ inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& m
                 // advance the readpos
                 m_demodPos += Sampler::NumStreams;
             }
+            const size_t blockIterations = Sampler::SampleBufferSize / Sampler::NumStreams;
+            demodCore.logBlockStats(blockIterations);
             m_sampleRingBuffer.advanceReadPos();
 
             // Hand the buffered frames to the operating system on a fixed
