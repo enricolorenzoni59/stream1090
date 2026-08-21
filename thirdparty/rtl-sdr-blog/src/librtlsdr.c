@@ -2112,3 +2112,48 @@ int rtlsdr_set_bias_tee(rtlsdr_dev_t *dev, int on)
 {
 	return rtlsdr_set_bias_tee_gpio(dev, 0, on);
 }
+
+
+int rtlsdr_r82xx_set_lna_gain(rtlsdr_dev_t *dev, int gain)
+{
+    int r;
+
+	if (!dev)
+        return -1;
+
+    rtlsdr_set_i2c_repeater(dev, 1);
+    r = r82xx_set_lna_gain(&dev->r82xx_p, gain);
+    rtlsdr_set_i2c_repeater(dev, 0);
+
+    return r;
+}
+
+int rtlsdr_r82xx_set_mixer_gain(rtlsdr_dev_t *dev, int gain)
+{
+    int r;
+
+	if (!dev)
+        return -1;
+
+    rtlsdr_set_i2c_repeater(dev, 1);
+    r = r82xx_set_mixer_gain(&dev->r82xx_p, gain);
+    rtlsdr_set_i2c_repeater(dev, 0);
+
+    return r;
+}
+
+int rtlsdr_r82xx_set_vga_gain(rtlsdr_dev_t *dev, int gain)
+{
+	int r;
+
+    if (!dev)
+        return -1;
+
+    rtlsdr_set_i2c_repeater(dev, 1);
+    r = r82xx_set_vga_gain_new(&dev->r82xx_p, gain);
+    rtlsdr_set_i2c_repeater(dev, 0);
+
+    return r;
+}
+
+

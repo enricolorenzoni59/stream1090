@@ -120,4 +120,8 @@ int r82xx_set_bandwidth(struct r82xx_priv *priv, int bandwidth,  uint32_t rate);
 int r82xx_toggle_test(struct r82xx_priv *priv, int toggle);
 int r82xx_set_vga_gain(struct r82xx_priv *priv);
 
+int r82xx_set_lna_gain(struct r82xx_priv *priv, int gain);
+int r82xx_set_mixer_gain(struct r82xx_priv *priv, int gain);
+int r82xx_set_vga_gain_new(struct r82xx_priv *priv, int gain);
+
 #endif

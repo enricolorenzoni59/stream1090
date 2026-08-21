@@ -285,7 +285,7 @@ Clearly, there are some things you will not be able to change like serial (and s
 
 ### Advanced RTL-SDR gain controls
 
-If you have an RTL-SDR device and still not happy, you can push things further. Stream1090 comes with a hacked version of the [RTL-SDR-BLOG](https://github.com/rtlsdrblog/rtl-sdr-blog) lib which in turn is a fork of librtlsdr. There are two aspects here.
+If you have an RTL-SDR device and still not happy, you can push things further. Stream1090 includes the [RTL-SDR-BLOG](https://github.com/rtlsdrblog/rtl-sdr-blog) fork of librtlsdr as a Git subtree, with local adaptations documented in [thirdparty/rtl-sdr-blog-UPSTREAM.md](thirdparty/rtl-sdr-blog-UPSTREAM.md). There are two aspects here.
 - This lib behaves differently in terms of results. Might be in your favour.
 - If you have an R82xx tuner, this version gives you gain control over the LNA, MIX and VGA stages.
 
