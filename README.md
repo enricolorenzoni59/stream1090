@@ -26,6 +26,7 @@ situations, a higher overall message rate can be achieved compared to a preamble
 
 ## Table of Contents
 - [Compiling](#compiling-stream1090)
+- [Code Formatting](#code-formatting)
 - [First Steps](#first-steps)
 - [Upsampling](#Upsampling)
 - [Low-Pass Filter](#low-pass-filter)
@@ -65,6 +66,17 @@ cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build
 ctest --test-dir build
 ```
+
+## Code Formatting
+
+Stream1090 uses clang-format 22.1.7 for its first-party C and C++ sources. The RTL-SDR Blog subtree under `thirdparty/` is deliberately excluded. Check or update the formatting with:
+
+```sh
+./scripts/clang-format.sh --check
+./scripts/clang-format.sh --write
+```
+
+Set `CLANG_FORMAT` to an explicit executable path if it is not available as `clang-format-22` or `clang-format`.
 
 ## First Steps
 Before we start, you have to understand how stream1090 works. The rough principle is:
