@@ -146,3 +146,106 @@ inline Result solve(CRC::crc_t syndrome, const uint8_t* candidates, size_t count
 }
 
 } // namespace ErasureRepair
+
+/*
+ * ORBGRAND enumerates error patterns over all searchable positions in
+ * reliability order. The hard guess budget bounds the chance of matching a
+ * random 24-bit syndrome to MaxGuesses / 2^24.
+ */
+namespace OrbGrand {
+
+#ifndef STREAM1090_ORBGRAND_GUESSES
+#define STREAM1090_ORBGRAND_GUESSES 1024
+#endif
+inline constexpr int MaxGuesses = STREAM1090_ORBGRAND_GUESSES;
+
+inline constexpr int MaxFlips = 6;
+
+static_assert(MaxGuesses > 0, "ORBGRAND needs a positive guess budget");
+
+struct Result {
+    bool solved = false;
+    int count = 0;
+    uint8_t flips[MaxFlips] = {};
+    int guesses = 0;
+};
+
+namespace detail {
+
+struct Search {
+    CRC::crc_t syndrome;
+    const CRC::crc_t* delta;
+    const uint8_t* position;
+    int guesses = 0;
+    int depth = 0;
+    uint8_t ranks[MaxFlips] = {};
+    Result* out = nullptr;
+
+    // Generate sets of distinct ranks summing to remaining. Trying lower
+    // logistic weights first approximates maximum-likelihood error ordering.
+    void recurse(int remaining, int largest, CRC::crc_t accumulated) {
+        if (out->solved || guesses >= MaxGuesses)
+            return;
+        if (remaining == 0) {
+            ++guesses;
+            if (accumulated == syndrome) {
+                out->solved = true;
+                out->count = depth;
+                for (int i = 0; i < depth; ++i)
+                    out->flips[i] = position[ranks[i] - 1];
+            }
+            return;
+        }
+        if (depth == MaxFlips)
+            return;
+
+        for (int part = (remaining < largest) ? remaining : largest; part >= 1; --part) {
+            int reachable = 0;
+            for (int i = 1; i <= MaxFlips - depth - 1; ++i) {
+                const int next = part - i;
+                if (next <= 0)
+                    break;
+                reachable += next;
+            }
+            if (remaining - part > reachable)
+                break;
+
+            ranks[depth++] = uint8_t(part);
+            recurse(remaining - part, part - 1, accumulated ^ delta[part - 1]);
+            --depth;
+            if (out->solved || guesses >= MaxGuesses)
+                return;
+        }
+    }
+};
+
+} // namespace detail
+
+/// Decode a syndrome using frame bit positions ordered least reliable first.
+inline Result decode(CRC::crc_t syndrome, const uint8_t* position, int numRanks) {
+    Result result;
+    if (syndrome == 0 || numRanks <= 0)
+        return result;
+
+    const auto& table = ErasureRepair::deltaTable();
+    CRC::crc_t delta[ErasureRepair::MaxFrameBits];
+    const int n = (numRanks > int(ErasureRepair::MaxFrameBits)) ? int(ErasureRepair::MaxFrameBits) : numRanks;
+    for (int rank = 0; rank < n; ++rank) {
+        if (position[rank] >= ErasureRepair::MaxFrameBits)
+            return result;
+        delta[rank] = table[position[rank]];
+    }
+
+    detail::Search search{syndrome, delta, position};
+    search.out = &result;
+    const int maxWeight = n * MaxFlips;
+    for (int weight = 1; weight <= maxWeight; ++weight) {
+        search.recurse(weight, n, 0);
+        if (result.solved || search.guesses >= MaxGuesses)
+            break;
+    }
+    result.guesses = search.guesses;
+    return result;
+}
+
+} // namespace OrbGrand

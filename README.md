@@ -339,6 +339,25 @@ cmake .. -DENABLE_STATS=OFF && cmake --build .
 ```
 
 ## Experimental Features
+
+### ORBGRAND DF17 repair
+
+ORBGRAND is an optional last-resort repair for damaged DF17 frames. It runs
+only after the existing catalogue and erasure repair paths have failed, and it
+still requires the repaired aircraft address to be trusted. The default guess
+budget of 1024 bounds the random-syndrome match probability to approximately
+`1024 / 2^24` per attempted frame. It is disabled by default for controlled
+A/B testing:
+
+```
+cmake -S . -B build-orb-off -DENABLE_ORBGRAND=OFF
+cmake -S . -B build-orb-on -DENABLE_ORBGRAND=ON -DORBGRAND_GUESSES=1024
+cmake --build build-orb-off
+cmake --build build-orb-on
+```
+
+The two binaries can then be swapped without reconfiguring during a live A/B.
+
 ### SIGHUP support
 
 There is now basic experimental support for the SIGHUP signal. This signal can be send via ```kill -HUP <process id of stream1090>``` telling stream1090 to reload the device specific ini file. You can figure out the PID via ```ps```or ```pidof stream1090``` when it is running.

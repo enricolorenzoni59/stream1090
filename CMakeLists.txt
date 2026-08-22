@@ -19,6 +19,8 @@ option(ENABLE_RSSI           "Compile with STREAM1090_ENABLE_RSSI" ON)
 option(ENABLE_PREAMBLE_GATE  "Reject address-parity frames that are weak and preamble-less" ON)
 set(PREAMBLE_GATE_THRESHOLD 1.2 CACHE STRING "Preamble score a real transmission must reach")
 set(MIN_SNR               2.5 CACHE STRING "Reject address-parity frames below this signal-to-noise ratio (0 disables; a ratio, so it transfers between receivers)")
+option(ENABLE_ORBGRAND "Enable reliability-ordered last-resort DF17 repair" OFF)
+set(ORBGRAND_GUESSES "1024" CACHE STRING "Hard cap on ORBGRAND error-pattern guesses per frame")
 option(ENABLE_RTLSDR_BLOG    "Enable vendored RTL-SDR Blog fork" OFF)
 option(ENABLE_TOO_MUCH_CPU   "Unlocks the 40 and 48 Msps speeds" OFF)
 option(BUILD_TESTING         "Build tests" OFF)
@@ -41,6 +43,8 @@ set(RSSI_DEF         STREAM1090_RSSI=$<BOOL:${ENABLE_RSSI}>)
 set(PREAMBLE_GATE_DEF STREAM1090_PREAMBLE_GATE=$<BOOL:${ENABLE_PREAMBLE_GATE}>)
 set(PREAMBLE_THRESHOLD_DEF STREAM1090_PREAMBLE_THRESHOLD=${PREAMBLE_GATE_THRESHOLD})
 set(MIN_SNR_DEF         STREAM1090_MIN_SNR=${MIN_SNR})
+set(ORBGRAND_DEF STREAM1090_ORBGRAND=$<BOOL:${ENABLE_ORBGRAND}>)
+set(ORBGRAND_GUESSES_DEF STREAM1090_ORBGRAND_GUESSES=${ORBGRAND_GUESSES})
 set(TOO_MUCH_CPU_DEF STREAM1090_TOO_MUCH_CPU=$<BOOL:${ENABLE_TOO_MUCH_CPU}>)
 set(INTERPOLATION_DEF STREAM1090_INTERP=${INTERPOLATION_KERNEL})
 
@@ -332,6 +336,8 @@ target_compile_definitions(stream1090 PRIVATE
     ${PREAMBLE_GATE_DEF}
     ${PREAMBLE_THRESHOLD_DEF}
     ${MIN_SNR_DEF}
+    ${ORBGRAND_DEF}
+    ${ORBGRAND_GUESSES_DEF}
     ${INTERPOLATION_DEF}
     ${DEVICE_DEFINITIONS}
 )

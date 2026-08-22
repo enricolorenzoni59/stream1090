@@ -14,6 +14,7 @@
 #include "ModeS.hpp"
 #include "ICAOCache.hpp"
 #include "Stats.hpp"
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cmath>
@@ -372,6 +373,11 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             if (m_cache.maybeTrusted(icaoBefore) &&
                 tryErasureRepairLong(streamIndex, downlinkFormat, frame, crc, icaoBefore))
                 return true;
+#if defined(STREAM1090_ORBGRAND) && STREAM1090_ORBGRAND
+            if (m_cache.maybeTrusted(icaoBefore) &&
+                tryOrbGrandRepairLong(streamIndex, downlinkFormat, frame, crc, icaoBefore))
+                return true;
+#endif
             logStats(Stats::DF17_REPAIR_FAILED);
         }
         return false;
@@ -442,6 +448,50 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         m_cache.markAsTrustedSeen(e);
         return sendFrameLongAligned(streamIndex, downlinkFormat, crc, repaired, e);
     }
+
+#if defined(STREAM1090_ORBGRAND) && STREAM1090_ORBGRAND
+    /// @brief Last-resort DF17 repair using reliability-ordered syndrome guesses.
+    bool tryOrbGrandRepairLong(int streamIndex, const uint8_t& downlinkFormat, const Bits128& frame, CRC::crc_t crc,
+                               uint32_t icaoBefore) {
+        if (m_confidenceFn == nullptr)
+            return false;
+
+        const auto before = m_cache.findWithCA(icaoBefore);
+        if (!before.isValid() || !m_cache.isTrusted(before))
+            return false;
+
+        constexpr int SearchLimit = 112 - 5;
+        float confidence[SearchLimit];
+        uint8_t order[SearchLimit];
+        for (int bit = 0; bit < SearchLimit; ++bit) {
+            confidence[bit] = m_confidenceFn(m_confidenceCtx, uint8_t(bit), size_t(streamIndex));
+            order[bit] = uint8_t(bit);
+        }
+        std::sort(order, order + SearchLimit, [&](uint8_t a, uint8_t b) { return confidence[a] < confidence[b]; });
+
+        const auto solution = OrbGrand::decode(crc, order, SearchLimit);
+        if (!solution.solved)
+            return false;
+
+        Bits128 repaired{frame};
+        for (int i = 0; i < solution.count; ++i) {
+            Bits128 flip(uint64_t(1));
+            flip.shiftLeft(solution.flips[i]);
+            repaired = repaired ^ flip;
+        }
+
+        const auto icaoWithCA = ModeS::extractICAOWithCA_Long(repaired);
+        const auto e = m_cache.findWithCA(icaoWithCA);
+        if (!e.isValid() || !m_cache.isTrusted(e))
+            return false;
+        if (!repairPositionPlausible(e, repaired))
+            return false;
+
+        logStats(Stats::DF17_REPAIR_SUCCESS);
+        m_cache.markAsTrustedSeen(e);
+        return sendFrameLongAligned(streamIndex, downlinkFormat, crc, repaired, e);
+    }
+#endif
 
     /// @brief Handler for long ACAS and Comm-B messages
     /// @return returns true if a message has been send to the output

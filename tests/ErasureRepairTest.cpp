@@ -81,6 +81,31 @@ bool leavesCleanFramesAlone() {
     return true;
 }
 
+bool orbGrandRecoversRankedErrors() {
+    uint8_t positions[ErasureRepair::MaxFrameBits];
+    std::iota(std::begin(positions), std::end(positions), uint8_t(0));
+
+    const auto& delta = ErasureRepair::deltaTable();
+    const auto result = OrbGrand::decode(delta[0] ^ delta[2], positions, ErasureRepair::MaxFrameBits);
+    if (!result.solved || result.count != 2 || result.guesses > OrbGrand::MaxGuesses)
+        return false;
+
+    bool recovered0 = false;
+    bool recovered2 = false;
+    for (int i = 0; i < result.count; ++i) {
+        recovered0 |= result.flips[i] == 0;
+        recovered2 |= result.flips[i] == 2;
+    }
+    return recovered0 && recovered2;
+}
+
+bool orbGrandRejectsInvalidInput() {
+    uint8_t positions[2] = {0, uint8_t(ErasureRepair::MaxFrameBits)};
+    return !OrbGrand::decode(0, positions, 1).solved &&
+           !OrbGrand::decode(ErasureRepair::deltaTable()[0], positions, 0).solved &&
+           !OrbGrand::decode(ErasureRepair::deltaTable()[0], positions, 2).solved;
+}
+
 // The spurious-solve rate is what bounds false repairs, so pin it: offering k
 // candidates must accept a random syndrome with probability near 2^(k-24).
 bool spuriousSolveRateMatchesTheory() {
@@ -176,6 +201,10 @@ int main() {
     if (!recoversErrorsInsideCandidateSet())
         return 1;
     if (!leavesCleanFramesAlone())
+        return 1;
+    if (!orbGrandRecoversRankedErrors())
+        return 1;
+    if (!orbGrandRejectsInvalidInput())
         return 1;
     if (!spuriousSolveRateMatchesTheory())
         return 1;
