@@ -31,11 +31,12 @@ requests:
 
 The branch also carries fork-only work that is not yet represented by upstream
 pull requests: an experimental linear-time SNR noise-floor test that avoids
-sorting the sample window, pinned clang-format tooling, and the RTL-SDR Blog
-source as a Git subtree, including a macOS `CLOCK_MONOTONIC_RAW` comparison in
-`rtl_test`. Keeping these items separate from the list above makes their review
-status explicit; successful experiments can later be submitted upstream as
-focused pull requests.
+sorting the sample window, end-of-run loss-waterfall counters documented in
+[`docs/AZC-21_P1_loss_waterfall.md`](docs/AZC-21_P1_loss_waterfall.md), pinned
+clang-format tooling, and the RTL-SDR Blog source as a Git subtree, including a
+macOS `CLOCK_MONOTONIC_RAW` comparison in `rtl_test`. Keeping these items
+separate from the list above makes their review status explicit; successful
+experiments can later be submitted upstream as focused pull requests.
 
 Stream1090 is a proof of concept implementation taking a different approach in order to identify mode-s messages in an SDR signal stream.
 Most implementations look for the so-called preamble (a sequence of pulses anounncing a message). Stream1090 skips this step and maintains

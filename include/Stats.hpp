@@ -29,6 +29,8 @@ enum EventType {
     DF17_BAD_MESSAGE,  //
     DF17_REPAIR_SUCCESS,
     DF17_REPAIR_FAILED,
+    DF17_FIRST_SIGHTING, // CRC-clean unknown ICAO held for confirmation
+    DF17_FIRST_RELEASED, // held first sighting emitted after confirmation
 
     //COMM_B_HEADER,
     COMM_B_GOOD_MESSAGE,
@@ -36,12 +38,26 @@ enum EventType {
     //ACAS_SURV_HEADER,
     ACAS_SURV_GOOD_MESSAGE,
 
-    //DF11_HEADER,
+    DF11_HEADER,
     DF11_ICAO_CA_FOUND,
     DF11_ICAO_CA_FOUND_GOOD_CRC,
     DF11_ICAO_CA_FOUND_1_BIT_FIX,
     DF11_ICAO_CA_FOUND_BAD_CRC,
     DF11_NEW_GOOD_CRC,
+
+    // Stage-attributed loss waterfall. These counters describe where a
+    // candidate leaves the pipeline; they do not change acceptance policy.
+    SHORT_HEADER,
+    SHORT_ADDR_UNKNOWN,
+    SHORT_ADDR_NOT_ALIVE,
+    LONG_CB_HEADER,
+    LONG_CB_ADDR_UNKNOWN,
+    LONG_CB_ADDR_NOT_ALIVE,
+    REJECT_ALTITUDE,
+    REJECT_SQUAWK,
+    ALTITUDE_RESCUED,
+    SQUAWK_RESCUED,
+    NOISE_FLOOR_REJECTED,
 
     NUM_EVENTS
 };
@@ -246,6 +262,25 @@ inline void printStats(const StatsLog& s, std::ostream& out) {
         }
     }
     out << s.getCount(NUM_ITERATIONS) << " iterations @1MHz" << std::endl;
+    out << "WATERFALL_DF17_HEADER: " << s.getCount(DF17_HEADER) << std::endl;
+    out << "WATERFALL_DF17_GOOD_MESSAGE: " << s.getCount(DF17_GOOD_MESSAGE) << std::endl;
+    out << "WATERFALL_DF17_BAD_MESSAGE: " << s.getCount(DF17_BAD_MESSAGE) << std::endl;
+    out << "WATERFALL_DF17_FIRST_SIGHTING: " << s.getCount(DF17_FIRST_SIGHTING) << std::endl;
+    out << "WATERFALL_DF17_FIRST_RELEASED: " << s.getCount(DF17_FIRST_RELEASED) << std::endl;
+    out << "WATERFALL_DF17_REPAIR_SUCCESS: " << s.getCount(DF17_REPAIR_SUCCESS) << std::endl;
+    out << "WATERFALL_DF17_REPAIR_FAILED: " << s.getCount(DF17_REPAIR_FAILED) << std::endl;
+    out << "WATERFALL_SHORT_HEADER: " << s.getCount(SHORT_HEADER) << std::endl;
+    out << "WATERFALL_SHORT_ADDR_UNKNOWN: " << s.getCount(SHORT_ADDR_UNKNOWN) << std::endl;
+    out << "WATERFALL_SHORT_ADDR_NOT_ALIVE: " << s.getCount(SHORT_ADDR_NOT_ALIVE) << std::endl;
+    out << "WATERFALL_DF11_HEADER: " << s.getCount(DF11_HEADER) << std::endl;
+    out << "WATERFALL_LONG_CB_HEADER: " << s.getCount(LONG_CB_HEADER) << std::endl;
+    out << "WATERFALL_LONG_CB_ADDR_UNKNOWN: " << s.getCount(LONG_CB_ADDR_UNKNOWN) << std::endl;
+    out << "WATERFALL_LONG_CB_ADDR_NOT_ALIVE: " << s.getCount(LONG_CB_ADDR_NOT_ALIVE) << std::endl;
+    out << "WATERFALL_REJECT_ALTITUDE: " << s.getCount(REJECT_ALTITUDE) << std::endl;
+    out << "WATERFALL_REJECT_SQUAWK: " << s.getCount(REJECT_SQUAWK) << std::endl;
+    out << "WATERFALL_ALTITUDE_RESCUED: " << s.getCount(ALTITUDE_RESCUED) << std::endl;
+    out << "WATERFALL_SQUAWK_RESCUED: " << s.getCount(SQUAWK_RESCUED) << std::endl;
+    out << "WATERFALL_NOISE_FLOOR_REJECTED: " << s.getCount(NOISE_FLOOR_REJECTED) << std::endl;
 }
 
 inline void printTick(StatsLog& stats, std::ostream& out) {

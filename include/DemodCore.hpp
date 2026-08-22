@@ -149,6 +149,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         // not gated.
         if ((downlinkFormat == 16 || downlinkFormat == 20 || downlinkFormat == 21) && signalAtNoiseFloor(streamIndex) &&
             !preambleConfirms(streamIndex)) {
+            logStats(Stats::NOISE_FLOOR_REJECTED);
             return false;
         }
 
@@ -156,16 +157,27 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             const auto alt_bits = ModeS::extractSquawkAlt_Long(frame);
             const auto alt = ModeS::decodeAltitude(alt_bits);
             const bool altitudeAccepted = alt && m_cache.checkAltitude(it, *alt);
-            if (!altitudeAccepted && !m_cache.confirmRejectedLong(crc, frame.high(), frame.low())) {
-                return false;
+            if (!altitudeAccepted) {
+                if (m_cache.confirmRejectedLong(crc, frame.high(), frame.low())) {
+                    logStats(Stats::ALTITUDE_RESCUED);
+                } else {
+                    logStats(Stats::REJECT_ALTITUDE);
+                    return false;
+                }
             }
             m_cache.markAsSeen(it);
         }
 
         if (downlinkFormat == 21) {
             const auto sqwk = ModeS::extractSquawkAlt_Long(frame);
-            if (!m_cache.checkSquawk(it, sqwk) && !m_cache.confirmRejectedLong(crc, frame.high(), frame.low()))
-                return false;
+            if (!m_cache.checkSquawk(it, sqwk)) {
+                if (m_cache.confirmRejectedLong(crc, frame.high(), frame.low())) {
+                    logStats(Stats::SQUAWK_RESCUED);
+                } else {
+                    logStats(Stats::REJECT_SQUAWK);
+                    return false;
+                }
+            }
             m_cache.markAsSeen(it);
         }
 
@@ -189,6 +201,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         // parity, so reject frames at the noise floor with no preamble.
         if ((downlinkFormat == 0 || downlinkFormat == 4 || downlinkFormat == 5) && signalAtNoiseFloor(streamIndex) &&
             !preambleConfirms(streamIndex)) {
+            logStats(Stats::NOISE_FLOOR_REJECTED);
             return false;
         }
 
@@ -196,16 +209,27 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             const auto alt_bits = ModeS::extractSquawkAlt_Short(frameShort);
             const auto alt = ModeS::decodeAltitude(alt_bits);
             const bool altitudeAccepted = alt && m_cache.checkAltitude(it, *alt);
-            if (!altitudeAccepted && !m_cache.confirmRejectedShort(crc, frameShort)) {
-                return false;
+            if (!altitudeAccepted) {
+                if (m_cache.confirmRejectedShort(crc, frameShort)) {
+                    logStats(Stats::ALTITUDE_RESCUED);
+                } else {
+                    logStats(Stats::REJECT_ALTITUDE);
+                    return false;
+                }
             }
             m_cache.markAsSeen(it);
         }
 
         if (downlinkFormat == 5) {
             const auto sqwk = ModeS::extractSquawkAlt_Short(frameShort);
-            if (!m_cache.checkSquawk(it, sqwk) && !m_cache.confirmRejectedShort(crc, frameShort))
-                return false;
+            if (!m_cache.checkSquawk(it, sqwk)) {
+                if (m_cache.confirmRejectedShort(crc, frameShort)) {
+                    logStats(Stats::SQUAWK_RESCUED);
+                } else {
+                    logStats(Stats::REJECT_SQUAWK);
+                    return false;
+                }
+            }
             m_cache.markAsSeen(it);
         }
 
@@ -241,10 +265,14 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         if (!isShort && !isLong)
             return false;
 
+        logStats(isShort ? Stats::SHORT_HEADER : Stats::LONG_CB_HEADER);
+
         const CRC::crc_t syndrome =
             isShort ? m_shiftRegisters.getCRC_56(streamIndex) : m_shiftRegisters.getCRC_112(streamIndex);
         if (syndrome != 0 && m_cache.find(syndrome).isValid())
             return false;
+
+        logStats(isShort ? Stats::SHORT_ADDR_UNKNOWN : Stats::LONG_CB_ADDR_UNKNOWN);
 
         if (isShort)
             phaseDupCheckShort(m_shiftRegisters.extractAlignedFrameShort(streamIndex));
@@ -285,6 +313,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
     /// @brief Handler for the extended squitter messages
     /// @return returns true if a message has been send to the output
     bool handleExtSquitterLongMessage(int streamIndex, const uint8_t& downlinkFormat) {
+        logStats(Stats::DF17_HEADER);
         auto frame = m_shiftRegisters.extractAlignedFrameLong(streamIndex);
 
         if (phaseDupCheckLong(frame))
@@ -314,6 +343,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
                     e = m_cache.insertWithCA(icaoWithCA);
                     m_cache.markAsSeen(e);
                     pending = PendingFirstFrame{icao, downlinkFormat, true, m_currTime, frame};
+                    logStats(Stats::DF17_FIRST_SIGHTING);
                     return false;
                 }
             }
@@ -327,6 +357,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
                     noteCleanPosition(e, pending.frame, pending.sampleTime);
                     sendFrameLongAlignedAt(streamIndex, pending.downlinkFormat, 0, pending.frame, e,
                                            pending.sampleTime);
+                    logStats(Stats::DF17_FIRST_RELEASED);
                 }
                 pending = PendingFirstFrame{};
             }
@@ -519,6 +550,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             return sendFrameLongAligned(streamIndex, downlinkFormat, crc, frame, e);
         }
 
+        logStats(Stats::LONG_CB_ADDR_NOT_ALIVE);
         return false;
     }
 
@@ -548,6 +580,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             // output the message
             return sendFrameShortAligned(streamIndex, downlinkFormat, crc, frameShort, e);
         }
+        logStats(Stats::SHORT_ADDR_NOT_ALIVE);
         return false;
     }
 
@@ -585,6 +618,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
     /// @brief This function handles all-call replies (downlink format 11).
     /// @return returns true if a message has been send to the output
     bool handleDF11ShortMessage(int streamIndex) {
+        logStats(Stats::DF11_HEADER);
         auto frameShort = m_shiftRegisters.extractAlignedFrameShort(streamIndex);
 
         if (phaseDupCheckShort(frameShort))
@@ -598,6 +632,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             // address-parity frames of its own. Reject the noise-floor,
             // preamble-less ones to break that loop.
             if (signalAtNoiseFloor(streamIndex) && !preambleConfirms(streamIndex)) {
+                logStats(Stats::NOISE_FLOOR_REJECTED);
                 return false;
             }
             logStats(Stats::DF11_ICAO_CA_FOUND_GOOD_CRC);
