@@ -19,8 +19,8 @@ struct CapturingHandler {
     }
 
     uint32_t longCount{0};
-    std::array<uint64_t, 2> sampleTimes{};
-    std::array<Bits128, 2> frames{Bits128(), Bits128()};
+    std::array<uint64_t, 4> sampleTimes{};
+    std::array<Bits128, 4> frames{Bits128(), Bits128(), Bits128(), Bits128()};
 };
 
 Bits128 makeDF17(uint32_t icao, uint8_t typeCode, uint8_t capability = 5) {
@@ -49,12 +49,12 @@ void feedFrame(DemodCore<1, CapturingHandler>& demod, const Bits128& frame) {
 } // namespace
 
 int main() {
-    // The first frame of an unknown aircraft is held: nothing is emitted even
-    // if a CRC-clean frame of a different aircraft and a repair candidate for
-    // the same address arrive in between.
+    // Interleave two unknown aircraft. Confirming the second one first must not
+    // cause either held first sighting to be emitted behind newer RF time.
     const auto first = makeDF17(0xabcdef, 1);
     const auto second = makeDF17(0xabcdef, 2, 7);
-    const auto unrelated = makeDF17(0x123456, 1);
+    const auto otherFirst = makeDF17(0x123456, 1);
+    const auto otherSecond = makeDF17(0x123456, 2, 7);
     auto repairCandidate = makeDF17(0xabcdef, 3);
     repairCandidate.flip(30);
 
@@ -62,18 +62,20 @@ int main() {
     DemodCore<1, CapturingHandler> demod(handler);
     feedFrame(demod, first);
     feedSilence(demod, 128);
-    feedFrame(demod, unrelated);
+    feedFrame(demod, otherFirst);
     feedSilence(demod, 128);
     feedFrame(demod, repairCandidate);
     if (handler.longCount != 0)
         return 1;
 
-    // A second CRC-clean sighting confirms: the held frame is released with its
-    // original timestamp, then the confirming frame flows normally.
+    // Only each current confirming observation is emitted. The historical
+    // first sightings remain internal evidence and output stays monotonic.
+    feedSilence(demod, 128);
+    feedFrame(demod, otherSecond);
     feedSilence(demod, 128);
     feedFrame(demod, second);
-    if (!(handler.longCount == 2 && handler.frames[0] == first && handler.frames[1] == second &&
-          handler.sampleTimes[0] < handler.sampleTimes[1]))
+    if (!(handler.longCount == 2 && handler.frames[0] == otherSecond && handler.frames[1] == second &&
+          handler.sampleTimes[0] <= handler.sampleTimes[1]))
         return 2;
 
     // If no confirmation arrives inside the window the held frame is dropped.

@@ -127,15 +127,10 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
 
     bool sendFrameLongAligned(int streamIndex, const uint8_t downlinkFormat, CRC::crc_t crc, const Bits128& frame,
                               const ICAOTable::Iterator& it) {
-        return sendFrameLongAlignedAt(streamIndex, downlinkFormat, crc, frame, it, m_currTime);
-    }
-
-    bool sendFrameLongAlignedAt(int streamIndex, const uint8_t downlinkFormat, CRC::crc_t crc, const Bits128& frame,
-                                const ICAOTable::Iterator& it, uint64_t sampleTime) {
         auto& e = m_cache.getMsgStatEntry(it);
         static constexpr uint64_t DUP_WINDOW_TICKS = 30 * NumStreams;
-        if (sampleTime - e.last_time < DUP_WINDOW_TICKS) {
-            e.last_time = sampleTime;
+        if (m_currTime - e.last_time < DUP_WINDOW_TICKS) {
+            e.last_time = m_currTime;
             logStatsDup(downlinkFormat);
             return false;
         }
@@ -182,8 +177,8 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         }
 
         logStatsSent(downlinkFormat);
-        e.last_time = sampleTime;
-        m_messageHandler.handleLong(sampleTime, frame);
+        e.last_time = m_currTime;
+        m_messageHandler.handleLong(m_currTime, frame);
         return true;
     }
 
@@ -342,7 +337,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
                     // untrusted and hold the frame for a second sighting.
                     e = m_cache.insertWithCA(icaoWithCA);
                     m_cache.markAsSeen(e);
-                    pending = PendingFirstFrame{icao, downlinkFormat, true, m_currTime, frame};
+                    pending = PendingFirstFrame{icao, true, m_currTime, frame};
                     logStats(Stats::DF17_FIRST_SIGHTING);
                     return false;
                 }
@@ -355,9 +350,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
                     return false;
                 if (age <= FirstFrameConfirmationMaxTicks) {
                     noteCleanPosition(e, pending.frame, pending.sampleTime);
-                    sendFrameLongAlignedAt(streamIndex, pending.downlinkFormat, 0, pending.frame, e,
-                                           pending.sampleTime);
-                    logStats(Stats::DF17_FIRST_RELEASED);
+                    logStats(Stats::DF17_FIRST_CONFIRMED);
                 }
                 pending = PendingFirstFrame{};
             }
@@ -747,11 +740,11 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         return distanceKm(refLat, refLon, lat, lon) <= RepairDistanceLimitKm;
     }
 
-    // First sighting of an unknown address: cache the frame, require a second,
-    // separate sighting before the aircraft is trusted and the frame released.
+    // First sighting of an unknown address: cache the frame and require a
+    // second, separate sighting before the aircraft is trusted. The historical
+    // first frame is internal evidence only and is never released out of order.
     struct PendingFirstFrame {
         uint32_t icao{0};
-        uint8_t downlinkFormat{0};
         bool valid{false};
         uint64_t sampleTime{0};
         Bits128 frame{uint64_t(0)};

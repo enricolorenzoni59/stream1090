@@ -3,24 +3,27 @@
 > **`enrico-dev` adaptation:** the measurements below are the historical
 > `origin/main` results from the original commit, not current `enrico-dev`
 > results. On `enrico-dev`, the instrumentation also reports
-> `WATERFALL_DF17_FIRST_RELEASED`, because this branch already holds and emits a
-> first DF17 after confirmation. Its remaining first-frame loss ceiling is the
-> number held minus the number released. Re-run the replay before using any of
-> the historical ceilings below to choose a change for this branch.
+> `WATERFALL_DF17_FIRST_CONFIRMED`. The branch retains a first DF17 only as
+> internal evidence and never emits it after newer RF timestamps. Re-run the
+> replay before using any of the historical ceilings below to choose a change
+> for this branch.
 
 ## `enrico-dev` replay with John's 27-tap filter
 
 Replay of `sample20260713_pi51-g20-t4-20M-5min` at 10 -> 24 Msps with
 `repo_au27_numeric.txt`, `END_STATS=ON`, and ORBGRAND disabled:
 
-- baseline and instrumented output are byte-identical: 99,998 AVR lines,
-  SHA-256 `ab3b200e5f32bcb7e07b84a4737d871deb641f7905c2b757e0d50c6e46fc3227`;
+- after enforcing monotonic output, the replay emits 99,961 AVR lines,
+  SHA-256 `9ccff27f01aca23f9e3630a68b5d30cff02c0e6e30c4d2104336564fce109792`;
+- compared with the earlier 99,998-line replay, exactly 37 delayed first
+  sightings are removed, no frames are added, and timestamp regressions fall
+  from 30 to zero;
 - 1,310 altitude candidates and 730 squawk candidates failed both the
   plausibility check and exact-payload confirmation; only one altitude
   candidate was rescued by exact-payload confirmation;
 - 1,652 candidates were rejected by the noise-floor/preamble gate;
-- 84 first CRC-clean DF17 sightings were held and 37 were later released, so
-  the residual first-sighting ceiling is at most 47 frames.
+- 84 first CRC-clean DF17 sightings were held and 37 were later confirmed; all
+  84 first sightings remained intentionally absent from output.
 
 These are rejection counts, not safe-recovery counts. In particular, emitting
 all 2,040 AP validation rejects or all 1,652 noise-floor rejects would admit
@@ -28,7 +31,7 @@ fabricated frames. They rank where to add stronger confirmation: the largest
 low-CPU target is confirmation of rejected AP altitude/squawk replies, while
 the preamble statistic targets the second-largest bucket.
 
-Every queued lever (first-frame release, AP-confirmation-style recovery)
+Every queued lever (first-frame handling, AP-confirmation-style recovery)
 targets a different failure stage, but until now no number existed for
 how many frames actually die at each stage on `main`. This instruments
 one replayed pass over the pi51 sample to count candidates, CRC/address

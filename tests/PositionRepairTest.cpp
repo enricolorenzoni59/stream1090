@@ -59,12 +59,12 @@ int main() {
     CapturingHandler handler;
     DemodCore<1, CapturingHandler> demod(handler);
 
-    // Make aircraft 0x123456 trusted with a clean identity pair (the first
-    // sighting seeds trust on the second, separate sighting).
+    // Make aircraft 0x123456 trusted with a clean identity pair. The first
+    // sighting seeds trust but remains internal; only the second is emitted.
     feedFrame(demod, makeIdentity(0x123456));
     feedSilence(demod, 128);
     feedFrame(demod, makeIdentity(0x123456, 7));
-    if (handler.longCount != 2)
+    if (handler.longCount != 1)
         return 1;
 
     // A repaired position for a trusted aircraft with no clean odd/even pair
@@ -73,7 +73,7 @@ int main() {
     firstRepair.flip(0);
     feedSilence(demod, 128);
     feedFrame(demod, firstRepair);
-    if (handler.longCount != 2)
+    if (handler.longCount != 1)
         return 2;
 
     // A CRC-clean even/odd pair establishes the reference position.
@@ -82,7 +82,7 @@ int main() {
     feedSilence(demod, 128);
     const auto firstOdd = makePosition(0x123456, true, 74158, 50194, 7);
     feedFrame(demod, firstOdd);
-    if (handler.longCount != 4)
+    if (handler.longCount != 3)
         return 3;
 
     // A single-bit damage repair landing near the established position passes.
@@ -90,7 +90,7 @@ int main() {
     nearby.flip(0);
     feedSilence(demod, 128);
     feedFrame(demod, nearby);
-    if (handler.longCount != 5)
+    if (handler.longCount != 4)
         return 4;
 
     // A repair that would place the aircraft > 100 km away is rejected.
@@ -99,5 +99,5 @@ int main() {
     feedSilence(demod, 128);
     feedFrame(demod, farAway);
 
-    return handler.longCount != 5 ? 5 : 0;
+    return handler.longCount != 4 ? 5 : 0;
 }

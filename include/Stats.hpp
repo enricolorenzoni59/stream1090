@@ -30,7 +30,7 @@ enum EventType {
     DF17_REPAIR_SUCCESS,
     DF17_REPAIR_FAILED,
     DF17_FIRST_SIGHTING, // CRC-clean unknown ICAO held for confirmation
-    DF17_FIRST_RELEASED, // held first sighting emitted after confirmation
+    DF17_FIRST_CONFIRMED, // later CRC-clean sighting confirmed the held ICAO
 
     //COMM_B_HEADER,
     COMM_B_GOOD_MESSAGE,
@@ -266,7 +266,7 @@ inline void printStats(const StatsLog& s, std::ostream& out) {
     out << "WATERFALL_DF17_GOOD_MESSAGE: " << s.getCount(DF17_GOOD_MESSAGE) << std::endl;
     out << "WATERFALL_DF17_BAD_MESSAGE: " << s.getCount(DF17_BAD_MESSAGE) << std::endl;
     out << "WATERFALL_DF17_FIRST_SIGHTING: " << s.getCount(DF17_FIRST_SIGHTING) << std::endl;
-    out << "WATERFALL_DF17_FIRST_RELEASED: " << s.getCount(DF17_FIRST_RELEASED) << std::endl;
+    out << "WATERFALL_DF17_FIRST_CONFIRMED: " << s.getCount(DF17_FIRST_CONFIRMED) << std::endl;
     out << "WATERFALL_DF17_REPAIR_SUCCESS: " << s.getCount(DF17_REPAIR_SUCCESS) << std::endl;
     out << "WATERFALL_DF17_REPAIR_FAILED: " << s.getCount(DF17_REPAIR_FAILED) << std::endl;
     out << "WATERFALL_SHORT_HEADER: " << s.getCount(SHORT_HEADER) << std::endl;

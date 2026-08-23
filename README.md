@@ -16,7 +16,7 @@ requests:
   preservation ([#49](https://github.com/mgrone/stream1090/pull/49)), DF11
   SNR/preamble gating ([#50](https://github.com/mgrone/stream1090/pull/50)),
   repaired-position validation ([#51](https://github.com/mgrone/stream1090/pull/51)),
-  and confirmation of newly seen aircraft
+  and confirmation of newly seen aircraft without delayed output
   ([#52](https://github.com/mgrone/stream1090/pull/52)).
 - Runtime and tooling improvements: parallel and bounded filter optimisation
   ([#36](https://github.com/mgrone/stream1090/pull/36)), batched AVR output
