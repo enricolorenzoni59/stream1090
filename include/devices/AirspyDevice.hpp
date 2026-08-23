@@ -44,6 +44,11 @@ class AirspyDevice : public InputDeviceBase<uint16_t> {
     bool tryEnablingPacking();
     bool applySetting(const std::string& key, const std::string& value);
 
+    // Dumps everything the device can tell us about itself. Two receivers that
+    // behave differently usually differ in firmware or board revision, and
+    // those are exactly the two things nothing else in the log records.
+    void logDeviceInfo();
+
     struct ShadowState {
         uint32_t frequency = 1090000000;
         int linearity_gain = 5;

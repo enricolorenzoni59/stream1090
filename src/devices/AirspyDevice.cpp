@@ -6,9 +6,21 @@
  */
 #include "devices/AirspyDevice.hpp"
 #include "Logger.hpp"
+#include <cstdio>
 #include <iostream>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace {
+
+// airspy_info prints the identifiers this way, so anything pasted into a bug
+// report lines up with what the reference tool shows.
+std::string hex32(uint32_t value) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%08X", value);
+    return buf;
+}
 
 // libairspy applies these stage values for the combined gain presets and
 // gives no way to read them back, so they are mirrored here to keep the
@@ -89,10 +101,66 @@ bool AirspyDevice::open_with_serial(uint64_t serial) {
             Log::error("AirspyDevice", "Packing has been requested, but is not supported");
             return false;
         }
-        //Log::info("AirspyDevice", "Packing is enabled");
     }
 
+    logDeviceInfo();
+
     return true;
+}
+
+void AirspyDevice::logDeviceInfo() {
+    airspy_lib_version_t lib{};
+    airspy_lib_version(&lib);
+    Log::info("AirspyDevice") << "libairspy " << lib.major_version << "." << lib.minor_version << "." << lib.revision;
+
+    // The firmware string carries the board family too ("AirSpy NOS" for the
+    // R0/R2, "AirSpy MINI"), which decides both the available sample rates and
+    // how much USB bandwidth the link has to spare.
+    char firmware[128] = {};
+    if (airspy_version_string_read(m_dev, firmware, sizeof(firmware) - 1) == AIRSPY_SUCCESS)
+        Log::info("AirspyDevice") << "firmware: " << firmware;
+    else
+        Log::warn("AirspyDevice", "firmware version could not be read");
+
+    uint8_t boardId = AIRSPY_BOARD_ID_INVALID;
+    if (airspy_board_id_read(m_dev, &boardId) == AIRSPY_SUCCESS)
+        Log::info("AirspyDevice") << "board: " << airspy_board_id_name(static_cast<airspy_board_id>(boardId)) << " (id "
+                                  << static_cast<int>(boardId) << ")";
+
+    airspy_read_partid_serialno_t ids{};
+    if (airspy_board_partid_serialno_read(m_dev, &ids) == AIRSPY_SUCCESS) {
+        Log::info("AirspyDevice") << "part id: " << hex32(ids.part_id[0]) << " " << hex32(ids.part_id[1]);
+        Log::info("AirspyDevice") << "serial: " << hex32(ids.serial_no[2]) << hex32(ids.serial_no[3]);
+    }
+
+    // These come back doubled, because the sample type was set to a REAL one
+    // above and airspy_get_samplerates() multiplies by two for anything that is
+    // not IQ (libairspy/src/airspy.c). That is the same factor that makes a
+    // nominal 10 MSPS device produce 20 M samples/s and 40 MB/s on disk.
+    // airspy_info never sets a sample type, so it prints the halved figures.
+    uint32_t rateCount = 0;
+    if (airspy_get_samplerates(m_dev, &rateCount, 0) == AIRSPY_SUCCESS && rateCount > 0) {
+        std::vector<uint32_t> rates(rateCount);
+        if (airspy_get_samplerates(m_dev, rates.data(), rateCount) == AIRSPY_SUCCESS) {
+            std::ostringstream list;
+            for (uint32_t i = 0; i < rateCount; ++i)
+                list << (i ? ", " : "") << (rates[i] / 1000000.0) << " MSPS";
+            Log::info("AirspyDevice") << "supported rates: " << list.str()
+                                      << " real (airspy_info prints these halved, as IQ)";
+        }
+    }
+
+    // What we actually asked the device for, so the log is self-contained.
+    Log::info("AirspyDevice") << "streaming: " << (getSampleRate() * 2) / 1000000.0 << " MSPS real (UINT16_REAL) at "
+                              << m_state.frequency / 1000000.0 << " MHz";
+
+    // Packing only compresses the USB transit; the samples stay 16 bit. The
+    // first fraction of a millisecond after start comes out of a buffer the
+    // firmware has zeroed but not yet filled, so it is not valid signal.
+    if (m_packingEnabled)
+        Log::info("AirspyDevice", "packing: on (samples right after start are not yet valid)");
+    else
+        Log::info("AirspyDevice", "packing: off");
 }
 
 bool AirspyDevice::start() {
