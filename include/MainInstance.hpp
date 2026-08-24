@@ -166,10 +166,14 @@ public:
         m_device->markAsAlive();
         Log::info("Stream1090", "Devices has been marked as alive.");
 
+        // flag that indicates if the shutdown was intended 
+        // or the watchhdog killed the device
+        bool intendedShutdown = true;
+
         // -------------------------------
         // WATCHDOG THREAD
         // -------------------------------
-        std::thread watchdog([this] {
+        std::thread watchdog([this, &intendedShutdown] {
             using namespace std::chrono_literals;
             Log::info("Watchdog", "Started.");
             while (!ProcessSignals::shutdownRequested()) {
@@ -183,6 +187,8 @@ public:
                     // on the same handle and both join the same reader thread.
                     m_device->shutdownWriter();
                     ProcessSignals::handle_sigint(0);
+                    // mark that the shutdown was not intended
+                    intendedShutdown = false;
                     break;
                 }
 
@@ -246,7 +252,8 @@ public:
         }
         Log::info("Stream1090", "Shutdown completed.");
         Log::msg("Stream1090") << "Finished. (" << dur_wct_secs/1000.0 << "s)";
-        return true;
+        // return if this shutdown was intended or not (lost device)
+        return intendedShutdown;
     }
 
 
