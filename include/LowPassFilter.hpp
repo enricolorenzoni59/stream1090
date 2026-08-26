@@ -560,9 +560,11 @@ template <size_t MaxNumTaps = 68> class IQDualLowPass {
         // something to do while each multiply-accumulate retires; run as two
         // loops they serialise on their own accumulator. The tails cover the
         // branches having different tap counts.
-        const size_t stepsI = SymI ? m_numTapsI / 2 : m_numTapsI;
-        const size_t stepsQ = SymQ ? m_numTapsQ / 2 : m_numTapsQ;
-        const size_t shared = stepsI < stepsQ ? stepsI : stepsQ;
+        // Only the vector paths below read these; a target without NEON drops
+        // straight to the scalar tail, and -Wunused-variable would fire there.
+        [[maybe_unused]] const size_t stepsI = SymI ? m_numTapsI / 2 : m_numTapsI;
+        [[maybe_unused]] const size_t stepsQ = SymQ ? m_numTapsQ / 2 : m_numTapsQ;
+        [[maybe_unused]] const size_t shared = stepsI < stepsQ ? stepsI : stepsQ;
 
         size_t i = 0;
 #if defined(__aarch64__)

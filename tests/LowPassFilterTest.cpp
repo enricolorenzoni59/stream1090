@@ -64,7 +64,7 @@ bool dualFilterMatchesTwoIndependentFilters() {
     auto actualI = inputI, actualQ = inputQ;
     auto expectedI = inputI, expectedQ = inputQ;
     auto discardedI = inputI, discardedQ = inputQ;
-    for (const auto [offset, count] : {std::pair<size_t, size_t>{0, 113}, {113, 511}, {624, 153}}) {
+    for (const auto& [offset, count] : {std::pair<size_t, size_t>{0, 113}, {113, 511}, {624, 153}}) {
         dual.applyBlock(actualI.data() + offset, actualQ.data() + offset, count);
         referenceI.applyBlock(expectedI.data() + offset, discardedQ.data() + offset, count);
         referenceQ.applyBlock(discardedI.data() + offset, expectedQ.data() + offset, count);
