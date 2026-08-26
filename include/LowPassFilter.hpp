@@ -60,9 +60,44 @@ constexpr size_t padTapCount(size_t n) noexcept {
 // tap sum still fits an int32 as long as the taps sum to about one
 inline constexpr int TapFracBits = 15;
 
+/// Rounds a tap into Q15, saturating instead of converting out of range.
+/// Without the two guards a tap of magnitude one or more overflows the
+/// conversion, which is undefined: the value that comes back is whatever the
+/// optimiser felt like, and it differs between targets.
 constexpr int16_t toQ15(float t) noexcept {
     const float x = t * float(1 << TapFracBits);
+    if (x >= 32767.0f)
+        return 32767;
+    if (x <= -32768.0f)
+        return -32768;
     return int16_t(x >= 0.0f ? x + 0.5f : x - 0.5f);
+}
+
+// The ends of the range, and the cases that used to be undefined: anything at
+// or past full scale must saturate rather than wrap.
+static_assert(toQ15(0.0f) == 0);
+static_assert(toQ15(1.0f) == 32767);
+static_assert(toQ15(-1.0f) == -32768);
+static_assert(toQ15(2.0f) == 32767);
+static_assert(toQ15(-2.0f) == -32768);
+static_assert(toQ15(1e9f) == 32767);
+static_assert(toQ15(-1e9f) == -32768);
+// Just inside full scale still rounds, and stays inside int16.
+static_assert(toQ15(0.99f) == 32440);
+static_assert(toQ15(-0.99f) == -32440);
+
+/// Whether a tap set leaves the int32 accumulator room to work.
+///
+/// Each product is a Q15 tap (up to 2^15) times a Q14 sample (up to 2^14), so
+/// the running sum stays inside an int32 while the taps sum to no more than
+/// four in absolute value. Every table in the tree sits between 1.00 and 1.62,
+/// so the bound below keeps a factor of two in hand while still catching a
+/// refit that has drifted somewhere it cannot be evaluated safely.
+template <typename Taps> constexpr bool tapsFitAccumulator(const Taps& taps) noexcept {
+    float magnitude = 0.0f;
+    for (const float t : taps)
+        magnitude += t < 0.0f ? -t : t;
+    return magnitude <= 2.0f;
 }
 
 /// Filters one contiguous block. w* hold history followed by the new
@@ -247,6 +282,9 @@ template <SampleRate inputRate, SampleRate outputRate> class IQLowPass {
 
   private:
     static constexpr auto taps = LowPassTaps::getCustomTaps<inputRate, outputRate>();
+    static_assert(FirDetail::tapsFitAccumulator(taps),
+                  "these taps sum too far past one: the int32 accumulator in firBlock() would "
+                  "overflow, see tapsFitAccumulator");
     static constexpr auto numTaps = taps.size();
     static constexpr auto bufferSize = std::bit_ceil(numTaps);
     static constexpr bool areTapsOdd = LowPassTaps::areCustomTapsOdd<inputRate, outputRate>();
