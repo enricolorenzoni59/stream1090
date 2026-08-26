@@ -70,7 +70,7 @@ For ```airspy_rx``` this works the same way. However, make sure that your sample
     - MIX gain is set to  9 with ```-m 10```
     - VGA gain is  set to 11 with ```-v 10```
     - Enable bias-t with ```-b 1```
-    - Dump samples as raw IQ (```-t 4```) at a sample rate of 2x10 IQ-Msps (```-a 20000000```) to stdout (```-r -```)
+    - Dump real ADC samples (```-t 4```, U16_REAL) at 20 Msps, paired by stream1090 into 10 million I/Q pairs per second, to stdout (```-r -```)
 2. You can then pipe the raw file contents into stream1090 using the same sample rate like for example
     ```
     cat ./samples.bin | ./build/stream1090 -s 10 -u 24 > /dev/null

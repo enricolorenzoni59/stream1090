@@ -247,6 +247,26 @@ To enable filtering use
 ```
 Stream1090 comes with a single filter for each sample rate combination. These have been optimized for a set of pre-recorded sample data provided by people from around the world with different setups.
 
+### Airspy I/Q branch alignment
+
+The Airspy's `U16_REAL` stream is one real ADC stream, and stream1090 pairs it
+as `I = x[2k]`, `Q = x[2k+1]`. Those two samples sit half a complex sample
+apart in time, so without a correction the pair the magnitude is formed from is
+not an analytic one, and the two branches disagree about which instant they
+describe. libairspy's own converter closes that gap with a half-band filter on
+one branch and a matching delay on the other.
+
+The `-q` filter does it inside the FIR instead: the two branches get different
+symmetric coefficients, chosen so their group delays are half a sample apart
+and both land on the same instant. It stays one FIR traversal, and both tap
+sets stay symmetric, so the folding below still applies. Across five capture
+windows from three sites, at 6 and 10 MS/s, this is worth 0.8-2.8% more
+messages for about 1.7% more CPU on a Raspberry Pi 4.
+
+This applies to the Airspy `U16_REAL` path only. An RTL-SDR hands over a pair
+its own downconverter produced, with the branches already on the same instant,
+and that path is untouched.
+
 On ARM64/NEON builds, symmetric fixed-point FIR taps are evaluated four output
 samples at a time. Opposing input samples are widened and added before their
 shared tap is multiplied, which nearly halves the multiply-accumulate count.

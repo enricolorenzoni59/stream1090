@@ -73,6 +73,56 @@ inline void firBlock(const int16_t* __restrict taps, size_t numTaps, const int16
                      size_t n) noexcept {
     size_t i = 0;
 
+#if defined(__aarch64__)
+    // Eight lanes first, for the same reason as IQDualLowPass: this kernel
+    // is load bound, not compute bound, and twice the lanes amortises each
+    // tap load and each loop iteration over twice the output. The furthest
+    // element read is unchanged -- the last group starts eight earlier and
+    // reaches seven further -- so the callers' padding still covers it.
+    for (; i + 8 <= n; i += 8) {
+        int32x4_t accI0 = vdupq_n_s32(0), accI1 = vdupq_n_s32(0);
+        int32x4_t accQ0 = vdupq_n_s32(0), accQ1 = vdupq_n_s32(0);
+
+        if constexpr (Symmetric) {
+            const size_t half = numTaps / 2;
+            for (size_t k = 0; k < half; ++k) {
+                const size_t opposite = numTaps - 1 - k;
+                const int16x8_t aI = vld1q_s16(wI + i + k);
+                const int16x8_t bI = vld1q_s16(wI + i + opposite);
+                const int16x8_t aQ = vld1q_s16(wQ + i + k);
+                const int16x8_t bQ = vld1q_s16(wQ + i + opposite);
+                accI0 = vmlaq_n_s32(accI0, vaddl_s16(vget_low_s16(aI), vget_low_s16(bI)), taps[k]);
+                accI1 = vmlaq_n_s32(accI1, vaddl_high_s16(aI, bI), taps[k]);
+                accQ0 = vmlaq_n_s32(accQ0, vaddl_s16(vget_low_s16(aQ), vget_low_s16(bQ)), taps[k]);
+                accQ1 = vmlaq_n_s32(accQ1, vaddl_high_s16(aQ, bQ), taps[k]);
+            }
+            if (numTaps & 1) {
+                const int16x8_t vI = vld1q_s16(wI + i + half);
+                const int16x8_t vQ = vld1q_s16(wQ + i + half);
+                accI0 = vmlal_n_s16(accI0, vget_low_s16(vI), taps[half]);
+                accI1 = vmlal_high_n_s16(accI1, vI, taps[half]);
+                accQ0 = vmlal_n_s16(accQ0, vget_low_s16(vQ), taps[half]);
+                accQ1 = vmlal_high_n_s16(accQ1, vQ, taps[half]);
+            }
+        } else {
+            for (size_t k = 0; k < numTaps; ++k) {
+                const int16x8_t vI = vld1q_s16(wI + i + k);
+                const int16x8_t vQ = vld1q_s16(wQ + i + k);
+                accI0 = vmlal_n_s16(accI0, vget_low_s16(vI), taps[k]);
+                accI1 = vmlal_high_n_s16(accI1, vI, taps[k]);
+                accQ0 = vmlal_n_s16(accQ0, vget_low_s16(vQ), taps[k]);
+                accQ1 = vmlal_high_n_s16(accQ1, vQ, taps[k]);
+            }
+        }
+
+        const int32x4_t rounding = vdupq_n_s32(1 << (TapFracBits - 1));
+        vst1q_s16(outI + i, vcombine_s16(vshrn_n_s32(vaddq_s32(accI0, rounding), TapFracBits),
+                                         vshrn_n_s32(vaddq_s32(accI1, rounding), TapFracBits)));
+        vst1q_s16(outQ + i, vcombine_s16(vshrn_n_s32(vaddq_s32(accQ0, rounding), TapFracBits),
+                                         vshrn_n_s32(vaddq_s32(accQ1, rounding), TapFracBits)));
+    }
+#endif
+
     // The inner group of four is what the vectorizer turns into a widening
     // multiply accumulate. Four int32 accumulators to a vector, the same
     // count float had, but the operands are half the width.
@@ -416,4 +466,240 @@ template <size_t MaxNumTaps = 64> class IQLowPassDynamic {
     // the samples that the next block still needs
     alignas(32) std::array<int16_t, MaxHistorySize> m_historyI;
     alignas(32) std::array<int16_t, MaxHistorySize> m_historyQ;
+};
+
+/// One FIR traversal with an independent symmetric response for I and Q.
+/// Airspy's U16_REAL stream is paired as (x[2k], x[2k+1]), so the branches
+/// need different group delays before their magnitude represents one instant.
+template <size_t MaxNumTaps = 68> class IQDualLowPass {
+  public:
+    IQDualLowPass() {
+        setBranch(m_tapsI, m_numTapsI, m_historySizeI, m_symmetricI, {1.0f});
+        setBranch(m_tapsQ, m_numTapsQ, m_historySizeQ, m_symmetricQ, {1.0f});
+    }
+    IQDualLowPass(const std::vector<float>& tapsI, const std::vector<float>& tapsQ) : IQDualLowPass() {
+        setBranch(m_tapsI, m_numTapsI, m_historySizeI, m_symmetricI, tapsI);
+        setBranch(m_tapsQ, m_numTapsQ, m_historySizeQ, m_symmetricQ, tapsQ);
+    }
+
+    void apply(int16_t& I, int16_t& Q) noexcept {
+        applyBlock(&I, &Q, 1);
+    }
+
+    void applyBlock(int16_t* __restrict I, int16_t* __restrict Q, size_t n) noexcept {
+        alignas(32) int16_t workI[WorkSize];
+        alignas(32) int16_t workQ[WorkSize];
+
+        for (size_t base = 0; base < n; base += FirDetail::ChunkSize) {
+            const size_t count = std::min(FirDetail::ChunkSize, n - base);
+            std::copy(m_historyI.begin(), m_historyI.begin() + m_historySizeI, workI);
+            std::copy(m_historyQ.begin(), m_historyQ.begin() + m_historySizeQ, workQ);
+            std::copy(I + base, I + base + count, workI + m_historySizeI);
+            std::copy(Q + base, Q + base + count, workQ + m_historySizeQ);
+
+            filterBlock(workI, workQ, I + base, Q + base, count);
+
+            std::copy(workI + count, workI + count + m_historySizeI, m_historyI.begin());
+            std::copy(workQ + count, workQ + count + m_historySizeQ, m_historyQ.begin());
+        }
+    }
+
+    std::string toString() const {
+        std::ostringstream out;
+        out << "[IQDualLowPass] I taps: " << m_numTapsI << " Q taps: " << m_numTapsQ;
+        return out.str();
+    }
+
+  private:
+    static constexpr size_t TapCapacity = FirDetail::padTapCount(MaxNumTaps);
+    static constexpr size_t MaxHistorySize = std::bit_ceil(MaxNumTaps);
+    static constexpr size_t WorkSize = FirDetail::ChunkSize + MaxHistorySize + TapCapacity;
+
+    static void setBranch(std::array<int16_t, TapCapacity>& target, size_t& count, size_t& historySize, bool& symmetric,
+                          const std::vector<float>& source) {
+        std::fill(target.begin(), target.end(), int16_t(0));
+        count = std::min(source.size(), MaxNumTaps);
+        if (count == 0) {
+            count = 1;
+            target[0] = FirDetail::toQ15(1.0f);
+        } else {
+            for (size_t i = 0; i < count; ++i)
+                target[i] = FirDetail::toQ15(source[i]);
+        }
+        historySize = std::bit_ceil(count) - 1;
+        symmetric = true;
+        for (size_t i = 0; i < count / 2; ++i)
+            symmetric &= target[i] == target[count - 1 - i];
+    }
+
+    /// Dispatches the branch symmetry once per block. Testing it inside the
+    /// loop, as this did, costs about a quarter of the kernel: the compiler
+    /// cannot specialise the tap loop across a runtime branch. firBlock() takes
+    /// the same flag as a template parameter for the same reason, and
+    /// IQLowPassDynamic picks its instantiation outside the loop.
+    void filterBlock(const int16_t* __restrict workI, const int16_t* __restrict workQ, int16_t* __restrict outI,
+                     int16_t* __restrict outQ, size_t count) const noexcept {
+        if (m_symmetricI) {
+            if (m_symmetricQ)
+                filterBlockTyped<true, true>(workI, workQ, outI, outQ, count);
+            else
+                filterBlockTyped<true, false>(workI, workQ, outI, outQ, count);
+        } else {
+            if (m_symmetricQ)
+                filterBlockTyped<false, true>(workI, workQ, outI, outQ, count);
+            else
+                filterBlockTyped<false, false>(workI, workQ, outI, outQ, count);
+        }
+    }
+
+    template <bool SymI, bool SymQ>
+    void filterBlockTyped(const int16_t* __restrict workI, const int16_t* __restrict workQ, int16_t* __restrict outI,
+                          int16_t* __restrict outQ, size_t count) const noexcept {
+        // Both branches walk k in one loop, the way firBlock does. Two
+        // independent accumulator chains in one body give the pipeline
+        // something to do while each multiply-accumulate retires; run as two
+        // loops they serialise on their own accumulator. The tails cover the
+        // branches having different tap counts.
+        const size_t stepsI = SymI ? m_numTapsI / 2 : m_numTapsI;
+        const size_t stepsQ = SymQ ? m_numTapsQ / 2 : m_numTapsQ;
+        const size_t shared = stepsI < stepsQ ? stepsI : stepsQ;
+
+        size_t i = 0;
+#if defined(__aarch64__)
+        // Eight lanes at a time. Profiling on a Cortex-A72 put 63% of this
+        // kernel's cycles in the sample loads and 25% in the tap loads,
+        // against 2% in the multiply-accumulate: it is load bound, and every
+        // group re-reads the same tap. Twice the lanes amortises each tap load
+        // and each loop iteration over twice the output.
+        for (; i + 8 <= count; i += 8) {
+            int32x4_t accI0 = vdupq_n_s32(0), accI1 = vdupq_n_s32(0);
+            int32x4_t accQ0 = vdupq_n_s32(0), accQ1 = vdupq_n_s32(0);
+
+            const auto stepI = [&](size_t k) {
+                if constexpr (SymI) {
+                    const int16x8_t a = vld1q_s16(workI + i + k);
+                    const int16x8_t b = vld1q_s16(workI + i + m_numTapsI - 1 - k);
+                    accI0 = vmlaq_n_s32(accI0, vaddl_s16(vget_low_s16(a), vget_low_s16(b)), m_tapsI[k]);
+                    accI1 = vmlaq_n_s32(accI1, vaddl_high_s16(a, b), m_tapsI[k]);
+                } else {
+                    const int16x8_t v = vld1q_s16(workI + i + k);
+                    accI0 = vmlal_n_s16(accI0, vget_low_s16(v), m_tapsI[k]);
+                    accI1 = vmlal_high_n_s16(accI1, v, m_tapsI[k]);
+                }
+            };
+            const auto stepQ = [&](size_t k) {
+                if constexpr (SymQ) {
+                    const int16x8_t a = vld1q_s16(workQ + i + k);
+                    const int16x8_t b = vld1q_s16(workQ + i + m_numTapsQ - 1 - k);
+                    accQ0 = vmlaq_n_s32(accQ0, vaddl_s16(vget_low_s16(a), vget_low_s16(b)), m_tapsQ[k]);
+                    accQ1 = vmlaq_n_s32(accQ1, vaddl_high_s16(a, b), m_tapsQ[k]);
+                } else {
+                    const int16x8_t v = vld1q_s16(workQ + i + k);
+                    accQ0 = vmlal_n_s16(accQ0, vget_low_s16(v), m_tapsQ[k]);
+                    accQ1 = vmlal_high_n_s16(accQ1, v, m_tapsQ[k]);
+                }
+            };
+
+            for (size_t k = 0; k < shared; ++k) {
+                stepI(k);
+                stepQ(k);
+            }
+            for (size_t k = shared; k < stepsI; ++k)
+                stepI(k);
+            for (size_t k = shared; k < stepsQ; ++k)
+                stepQ(k);
+            if constexpr (SymI)
+                if (m_numTapsI & 1) {
+                    const int16x8_t v = vld1q_s16(workI + i + stepsI);
+                    accI0 = vmlal_n_s16(accI0, vget_low_s16(v), m_tapsI[stepsI]);
+                    accI1 = vmlal_high_n_s16(accI1, v, m_tapsI[stepsI]);
+                }
+            if constexpr (SymQ)
+                if (m_numTapsQ & 1) {
+                    const int16x8_t v = vld1q_s16(workQ + i + stepsQ);
+                    accQ0 = vmlal_n_s16(accQ0, vget_low_s16(v), m_tapsQ[stepsQ]);
+                    accQ1 = vmlal_high_n_s16(accQ1, v, m_tapsQ[stepsQ]);
+                }
+
+            const auto rounding = vdupq_n_s32(1 << (FirDetail::TapFracBits - 1));
+            vst1q_s16(outI + i, vcombine_s16(vshrn_n_s32(vaddq_s32(accI0, rounding), FirDetail::TapFracBits),
+                                             vshrn_n_s32(vaddq_s32(accI1, rounding), FirDetail::TapFracBits)));
+            vst1q_s16(outQ + i, vcombine_s16(vshrn_n_s32(vaddq_s32(accQ0, rounding), FirDetail::TapFracBits),
+                                             vshrn_n_s32(vaddq_s32(accQ1, rounding), FirDetail::TapFracBits)));
+        }
+#endif
+        for (; i + 4 <= count; i += 4) {
+#if defined(__ARM_NEON)
+            int32x4_t accI = vdupq_n_s32(0);
+            int32x4_t accQ = vdupq_n_s32(0);
+
+            for (size_t k = 0; k < shared; ++k) {
+                if constexpr (SymI)
+                    accI = vmlaq_n_s32(
+                        accI, vaddl_s16(vld1_s16(workI + i + k), vld1_s16(workI + i + m_numTapsI - 1 - k)), m_tapsI[k]);
+                else
+                    accI = vmlal_n_s16(accI, vld1_s16(workI + i + k), m_tapsI[k]);
+                if constexpr (SymQ)
+                    accQ = vmlaq_n_s32(
+                        accQ, vaddl_s16(vld1_s16(workQ + i + k), vld1_s16(workQ + i + m_numTapsQ - 1 - k)), m_tapsQ[k]);
+                else
+                    accQ = vmlal_n_s16(accQ, vld1_s16(workQ + i + k), m_tapsQ[k]);
+            }
+            for (size_t k = shared; k < stepsI; ++k) {
+                if constexpr (SymI)
+                    accI = vmlaq_n_s32(
+                        accI, vaddl_s16(vld1_s16(workI + i + k), vld1_s16(workI + i + m_numTapsI - 1 - k)), m_tapsI[k]);
+                else
+                    accI = vmlal_n_s16(accI, vld1_s16(workI + i + k), m_tapsI[k]);
+            }
+            for (size_t k = shared; k < stepsQ; ++k) {
+                if constexpr (SymQ)
+                    accQ = vmlaq_n_s32(
+                        accQ, vaddl_s16(vld1_s16(workQ + i + k), vld1_s16(workQ + i + m_numTapsQ - 1 - k)), m_tapsQ[k]);
+                else
+                    accQ = vmlal_n_s16(accQ, vld1_s16(workQ + i + k), m_tapsQ[k]);
+            }
+            if constexpr (SymI)
+                if (m_numTapsI & 1)
+                    accI = vmlal_n_s16(accI, vld1_s16(workI + i + stepsI), m_tapsI[stepsI]);
+            if constexpr (SymQ)
+                if (m_numTapsQ & 1)
+                    accQ = vmlal_n_s16(accQ, vld1_s16(workQ + i + stepsQ), m_tapsQ[stepsQ]);
+
+            const auto rounding = vdupq_n_s32(1 << (FirDetail::TapFracBits - 1));
+            vst1_s16(outI + i, vshrn_n_s32(vaddq_s32(accI, rounding), FirDetail::TapFracBits));
+            vst1_s16(outQ + i, vshrn_n_s32(vaddq_s32(accQ, rounding), FirDetail::TapFracBits));
+#else
+            int32_t accI[4] = {0, 0, 0, 0};
+            int32_t accQ[4] = {0, 0, 0, 0};
+            for (size_t k = 0; k < m_numTapsI; ++k)
+                for (size_t lane = 0; lane < 4; ++lane)
+                    accI[lane] += int32_t(m_tapsI[k]) * workI[i + k + lane];
+            for (size_t k = 0; k < m_numTapsQ; ++k)
+                for (size_t lane = 0; lane < 4; ++lane)
+                    accQ[lane] += int32_t(m_tapsQ[k]) * workQ[i + k + lane];
+            for (size_t lane = 0; lane < 4; ++lane) {
+                outI[i + lane] = int16_t((accI[lane] + (1 << 14)) >> 15);
+                outQ[i + lane] = int16_t((accQ[lane] + (1 << 14)) >> 15);
+            }
+#endif
+        }
+        for (; i < count; ++i) {
+            int32_t accI = 0, accQ = 0;
+            for (size_t k = 0; k < m_numTapsI; ++k)
+                accI += int32_t(m_tapsI[k]) * workI[i + k];
+            for (size_t k = 0; k < m_numTapsQ; ++k)
+                accQ += int32_t(m_tapsQ[k]) * workQ[i + k];
+            outI[i] = int16_t((accI + (1 << 14)) >> 15);
+            outQ[i] = int16_t((accQ + (1 << 14)) >> 15);
+        }
+    }
+
+    std::array<int16_t, TapCapacity> m_tapsI{};
+    std::array<int16_t, TapCapacity> m_tapsQ{};
+    std::array<int16_t, MaxHistorySize> m_historyI{};
+    std::array<int16_t, MaxHistorySize> m_historyQ{};
+    size_t m_numTapsI = 1, m_numTapsQ = 1;
+    size_t m_historySizeI = 0, m_historySizeQ = 0;
+    bool m_symmetricI = true, m_symmetricQ = true;
 };
