@@ -1,12 +1,11 @@
-# Stream1090
-Mode-S demodulator written in C++ with CRC-based message framing.
-
 > [!IMPORTANT]
 > This fork's `enrico-dev` branch is an experimental integration branch. Its
 > purpose is to let users build and test a cumulative preview of changes that
 > are being proposed to [upstream Stream1090](https://github.com/mgrone/stream1090),
 > and to collect real-world feedback before those changes are merged. It is not
 > an upstream release, and individual changes may still be revised or rejected.
+> Please open an issue in this repo if you spot any problem with it or if you want
+> to request any change.
 
 Compared with upstream `main`, `enrico-dev` currently previews these open pull
 requests:
@@ -37,6 +36,11 @@ clang-format tooling, and the RTL-SDR Blog source as a Git subtree, including a
 macOS `CLOCK_MONOTONIC_RAW` comparison in `rtl_test`. Keeping these items
 separate from the list above makes their review status explicit; successful
 experiments can later be submitted upstream as focused pull requests.
+
+-----------------------------------------------------------------------------------------
+
+# Stream1090
+Mode-S demodulator written in C++ with CRC-based message framing.
 
 Stream1090 is a proof of concept implementation taking a different approach in order to identify mode-s messages in an SDR signal stream.
 Most implementations look for the so-called preamble (a sequence of pulses anounncing a message). Stream1090 skips this step and maintains
