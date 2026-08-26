@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <vector>
@@ -108,6 +109,17 @@ bool dualFilterMatchesDirectConvolution() {
                 if (symmetric)
                     for (size_t i = 0; i < n / 2; ++i)
                         t[n - 1 - i] = t[i];
+                // firBlock() documents its accumulator as fitting an int32 only
+                // while the taps sum to about one. Random coefficients over 68
+                // taps blow past that, and the overflow is signed: the vector
+                // path wraps in hardware but the portable path is undefined, so
+                // an unnormalised filter tests the compiler, not the kernel.
+                float magnitude = 0.0f;
+                for (float v : t)
+                    magnitude += std::abs(v);
+                if (magnitude > 1.0f)
+                    for (float& v : t)
+                        v /= magnitude;
                 return t;
             };
             const size_t otherTaps = numTaps > 1 ? numTaps - 1 : 1;
