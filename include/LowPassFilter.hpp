@@ -86,18 +86,40 @@ static_assert(toQ15(-1e9f) == -32768);
 static_assert(toQ15(0.99f) == 32440);
 static_assert(toQ15(-0.99f) == -32440);
 
-/// Whether a tap set leaves the int32 accumulator room to work.
+/// The largest absolute tap sum the int32 accumulator can carry safely.
 ///
 /// Each product is a Q15 tap (up to 2^15) times a Q14 sample (up to 2^14), so
-/// the running sum stays inside an int32 while the taps sum to no more than
-/// four in absolute value. Every table in the tree sits between 1.00 and 1.62,
-/// so the bound below keeps a factor of two in hand while still catching a
-/// refit that has drifted somewhere it cannot be evaluated safely.
-template <typename Taps> constexpr bool tapsFitAccumulator(const Taps& taps) noexcept {
+/// the running sum leaves int32 once the taps sum past four. Measured, the
+/// tables in the tree reach 1.62 and the filters people contribute reach 1.79;
+/// after the Airspy branch alignment convolves them the worst is 1.98. Three
+/// clears every one of those by half again and still stops well short of the
+/// arithmetic limit.
+inline constexpr float MaxTapMagnitudeSum = 3.0f;
+
+template <typename Taps> constexpr float tapMagnitudeSum(const Taps& taps) noexcept {
     float magnitude = 0.0f;
     for (const float t : taps)
         magnitude += t < 0.0f ? -t : t;
-    return magnitude <= 2.0f;
+    return magnitude;
+}
+
+/// Whether a tap set leaves the int32 accumulator room to work.
+template <typename Taps> constexpr bool tapsFitAccumulator(const Taps& taps) noexcept {
+    return tapMagnitudeSum(taps) <= MaxTapMagnitudeSum;
+}
+
+/// Taps that arrive at run time through -f cannot be checked at build time, and
+/// the branch alignment grows their sum before the filter ever sees them, so the
+/// check belongs here, where the coefficients are final. Once per tap load, off
+/// the sample path. It reports rather than refuses: a receiver that has been
+/// running for a week should say what is wrong, not fall over.
+inline void warnIfTapsOverflowAccumulator(const std::vector<float>& taps, const char* branch) {
+    if (taps.empty() || tapsFitAccumulator(taps))
+        return;
+    std::cerr << "[Stream1090] " << branch << " taps sum to " << tapMagnitudeSum(taps) << ", past the "
+              << MaxTapMagnitudeSum
+              << " the fixed-point accumulator can carry: the filtered output will be wrong. Scale "
+                 "the taps down.\n";
 }
 
 /// Filters one contiguous block. w* hold history followed by the new
@@ -349,6 +371,7 @@ template <size_t MaxNumTaps = 64> class IQLowPassDynamic {
     }
 
     bool setTaps(const std::vector<float>& newTaps) {
+        FirDetail::warnIfTapsOverflowAccumulator(newTaps, "IQ FIR");
         if (newTaps.size() == 0)
             return false;
 
@@ -557,6 +580,7 @@ template <size_t MaxNumTaps = 68> class IQDualLowPass {
 
     static void setBranch(std::array<int16_t, TapCapacity>& target, size_t& count, size_t& historySize, bool& symmetric,
                           const std::vector<float>& source) {
+        FirDetail::warnIfTapsOverflowAccumulator(source, "IQ FIR branch");
         std::fill(target.begin(), target.end(), int16_t(0));
         count = std::min(source.size(), MaxNumTaps);
         if (count == 0) {
