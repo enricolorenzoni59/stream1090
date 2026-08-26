@@ -6,6 +6,7 @@
  */
 
 #include <iostream>
+#include <stdexcept>
 #include <fstream>
 #include <unistd.h>
 #include <algorithm>
@@ -347,6 +348,16 @@ int main(int argc, char** argv) {
             std::cerr << "Error loading taps from " << args.tapsFile << std::endl;
             return 1;
         }
+        // Check the file's own numbers here, so a coefficient that cannot be
+        // represented is reported as the user wrote it. The pipeline checks
+        // again once the branch alignment has convolved them, but by then the
+        // values no longer match anything in the file.
+        try {
+            FirDetail::requireTapsFitAccumulator(r_vars.filterTaps, args.tapsFile.c_str());
+        } catch (const std::invalid_argument& error) {
+            std::cerr << "[Stream1090] " << error.what() << std::endl;
+            return 1;
+        }
     }
 
     // set the verbose flag
@@ -417,7 +428,17 @@ int main(int argc, char** argv) {
     // ------------------------
     // Let's go
     // ------------------------
-    const auto outcome = runInstanceFromPresets(c_vars, r_vars);
+    // Building the pipeline validates the tap sets, including the ones -f
+    // supplied after the branch alignment has grown them. A filter that cannot
+    // be represented is refused here rather than quietly reshaped, so the
+    // failure names what is wrong instead of showing up as a thin output.
+    std::optional<bool> outcome;
+    try {
+        outcome = runInstanceFromPresets(c_vars, r_vars);
+    } catch (const std::invalid_argument& error) {
+        std::cerr << "[Stream1090] " << error.what() << std::endl;
+        return 1;
+    }
     if (!outcome) {
         std::cerr << "[Stream1090] Configuration is not supported: " << c_vars.inputRate << " -> " << c_vars.outputRate
                   << std::endl;

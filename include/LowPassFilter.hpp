@@ -16,6 +16,7 @@
 #include <bit>
 #include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <vector>
 #if defined(__ARM_NEON)
 #include <arm_neon.h>
@@ -111,15 +112,34 @@ template <typename Taps> constexpr bool tapsFitAccumulator(const Taps& taps) noe
 /// Taps that arrive at run time through -f cannot be checked at build time, and
 /// the branch alignment grows their sum before the filter ever sees them, so the
 /// check belongs here, where the coefficients are final. Once per tap load, off
-/// the sample path. It reports rather than refuses: a receiver that has been
-/// running for a week should say what is wrong, not fall over.
-inline void warnIfTapsOverflowAccumulator(const std::vector<float>& taps, const char* branch) {
-    if (taps.empty() || tapsFitAccumulator(taps))
+/// the sample path.
+///
+/// Two ways a tap set silently stops being the filter that was asked for: a
+/// coefficient past +-1 does not fit Q15 and toQ15() saturates it, and a set
+/// whose absolute sum passes MaxTapMagnitudeSum overflows the accumulator. The
+/// output is wrong either way and nothing downstream can tell, so this refuses
+/// rather than warns. Tap sets are installed while the pipeline is built,
+/// before any samples flow, so it cannot interrupt a running receiver.
+inline void requireTapsFitAccumulator(const std::vector<float>& taps, const char* branch) {
+    if (taps.empty())
         return;
-    std::cerr << "[Stream1090] " << branch << " taps sum to " << tapMagnitudeSum(taps) << ", past the "
-              << MaxTapMagnitudeSum
-              << " the fixed-point accumulator can carry: the filtered output will be wrong. Scale "
-                 "the taps down.\n";
+
+    for (const float t : taps) {
+        if (t > 1.0f || t < -1.0f) {
+            std::ostringstream out;
+            out << branch << " tap " << t
+                << " does not fit the Q15 coefficients the filter runs on, which hold -1 to 1. It "
+                   "would be clamped, and the filter would not be the one asked for.";
+            throw std::invalid_argument(out.str());
+        }
+    }
+
+    if (!tapsFitAccumulator(taps)) {
+        std::ostringstream out;
+        out << branch << " taps sum to " << tapMagnitudeSum(taps) << ", past the " << MaxTapMagnitudeSum
+            << " the fixed-point accumulator can carry. Scale them down.";
+        throw std::invalid_argument(out.str());
+    }
 }
 
 /// Filters one contiguous block. w* hold history followed by the new
@@ -371,7 +391,7 @@ template <size_t MaxNumTaps = 64> class IQLowPassDynamic {
     }
 
     bool setTaps(const std::vector<float>& newTaps) {
-        FirDetail::warnIfTapsOverflowAccumulator(newTaps, "IQ FIR");
+        FirDetail::requireTapsFitAccumulator(newTaps, "IQ FIR");
         if (newTaps.size() == 0)
             return false;
 
@@ -580,7 +600,7 @@ template <size_t MaxNumTaps = 68> class IQDualLowPass {
 
     static void setBranch(std::array<int16_t, TapCapacity>& target, size_t& count, size_t& historySize, bool& symmetric,
                           const std::vector<float>& source) {
-        FirDetail::warnIfTapsOverflowAccumulator(source, "IQ FIR branch");
+        FirDetail::requireTapsFitAccumulator(source, "the IQ FIR branch, after alignment,");
         std::fill(target.begin(), target.end(), int16_t(0));
         count = std::min(source.size(), MaxNumTaps);
         if (count == 0) {
