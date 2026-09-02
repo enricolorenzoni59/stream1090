@@ -52,9 +52,13 @@ for raw in sys.stdin:
     if decoded is None:
         continue
 
+    if (decoded["df"] in {17, 18}):
+        decoded["capability"] = int(frame_hex[0:2], 16) & 0x7
+
     print({
         "mlat": mlat_int,
         "rssi": rssi_int,
         "frame": frame_hex,
         "decoded": decoded
     })
+    
