@@ -41,6 +41,14 @@ public:
     }
 };
 
+void checkBoolean(const char* value, bool expectedParsed, bool expectedValue) {
+    bool out = !expectedValue;
+    const bool parsed = DeviceSettings::parseBoolean(value, out);
+    require(parsed == expectedParsed);
+    if (expectedParsed)
+        require(out == expectedValue);
+}
+
 } // namespace
 
 int main() {
@@ -71,4 +79,28 @@ int main() {
     require(!DeviceSettings::parseFloat("49.6dB", floating));
     require(!DeviceSettings::parseFloat("nan", floating));
     require(!DeviceSettings::parseFloat("inf", floating));
+
+    // The six spellings a boolean setting takes.
+    checkBoolean("1", true, true);
+    checkBoolean("true", true, true);
+    checkBoolean("on", true, true);
+    checkBoolean("0", true, false);
+    checkBoolean("false", true, false);
+    checkBoolean("off", true, false);
+
+    // Everything else is a configuration error, not a silent false. "yes" is
+    // the one people actually write; the rest are the near misses that used to
+    // read as "off" just as quietly.
+    for (const char* rejected : { "yes", "no", "y", "n", "enabled", "disabled",
+                                  "True", "TRUE", "On", "OFF", "2", "-1",
+                                  "", " ", "true ", " true", "tru" })
+        checkBoolean(rejected, false, false);
+
+    // The reporting wrapper agrees with the quiet one, and leaves the output
+    // untouched when it refuses.
+    bool out = true;
+    require(!DeviceSettings::parseBooleanOrReport("agc", "yes", out));
+    require(out);
+    require(DeviceSettings::parseBooleanOrReport("agc", "off", out));
+    require(!out);
 }

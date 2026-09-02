@@ -63,6 +63,42 @@ inline bool parseFloat(const std::string& value, float& out) noexcept {
     }
 }
 
+// ------------------------------------------------------------
+// Boolean settings
+// ------------------------------------------------------------
+//
+// A boolean setting takes one of six spellings and nothing else. Every other
+// value used to fold into false, because the test was written as
+// "value == 1 || value == true || value == on": "agc = yes" therefore turned
+// the AGC off, which is the opposite of what the line says, and "agc = flase"
+// did the same without anything on the terminal to suggest it.
+inline bool parseBoolean(const std::string& value, bool& out) noexcept {
+    if (value == "1" || value == "true" || value == "on") {
+        out = true;
+        return true;
+    }
+    if (value == "0" || value == "false" || value == "off") {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+inline bool parseBooleanOrReport(const std::string& key,
+                                 const std::string& value, bool& out) {
+    if (parseBoolean(value, out))
+        return true;
+
+    Log::error("InputDevice")
+        << "configuration rejected: '" << key << " = " << value
+        << "' is not a boolean.";
+    Log::error("InputDevice")
+        << "  Accepted values are '1', 'true' and 'on' to enable, '0', "
+           "'false' and 'off' to disable. They are matched exactly, so "
+           "capitals and abbreviations are not accepted either.";
+    return false;
+}
+
 } // namespace DeviceSettings
 
 template<typename T>

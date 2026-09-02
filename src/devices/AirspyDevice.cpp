@@ -307,7 +307,9 @@ bool AirspyDevice::applySetting(const std::string& key, const std::string& value
     if (key == "mixer_gain")       return setMixerGain(std::stoi(value));
     if (key == "vga_gain")         return setVgaGain(std::stoi(value));
     if (key == "bias_tee") {
-        bool enabled = (value == "1" || value == "true" || value == "on");
+        bool enabled = false;
+        if (!DeviceSettings::parseBooleanOrReport(key, value, enabled))
+            return false;
         return setBiasTee(enabled);
     }
 
@@ -318,12 +320,14 @@ bool AirspyDevice::validateSetting(const std::string& key,
                                   const std::string& value) const {
     int integer = 0;
     uint32_t frequency = 0;
+    bool boolean = false;
     if (key == "frequency")
         return DeviceSettings::parseUnsigned(value, frequency);
     if (key == "linearity_gain" || key == "sensitivity_gain"
             || key == "lna_gain" || key == "mixer_gain" || key == "vga_gain")
         return DeviceSettings::parseInt(value, integer);
-    return key == "bias_tee";
+    return key == "bias_tee"
+        && DeviceSettings::parseBoolean(value, boolean);
 }
 
 
@@ -343,7 +347,8 @@ bool AirspyDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
         }
 
         if (key == "packing") {
-            m_packingEnabled = (value == "1" || value == "true" || value == "on");
+            if (!DeviceSettings::parseBooleanOrReport(key, value, m_packingEnabled))
+                return false;
         }
     }
     return true;

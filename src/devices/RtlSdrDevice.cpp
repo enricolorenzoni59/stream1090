@@ -392,10 +392,16 @@ bool RtlSdrDevice::applySetting(const std::string& key, const std::string& value
     // Core controls
     if (key == "frequency")        return setFrequency(std::stoul(value));
     if (key == "gain")             return setGain(std::stof(value));
-    if (key == "agc")              return setAgc(value == "1" || value == "true" || value == "on");
-    if (key == "bias_tee")         return setBiasTee(value == "1" || value == "true" || value == "on");
+    if (key == "agc" || key == "bias_tee" || key == "offset_tuning") {
+        bool enabled = false;
+        if (!DeviceSettings::parseBooleanOrReport(key, value, enabled))
+            return false;
+
+        if (key == "agc")           return setAgc(enabled);
+        if (key == "bias_tee")      return setBiasTee(enabled);
+        return setOffsetTuning(enabled);
+    }
     if (key == "ppm")              return setPpm(std::stoi(value));
-    if (key == "offset_tuning")    return setOffsetTuning(value == "1" || value == "true" || value == "on");
     if (key == "tuner_bandwidth")  return setTunerBandwidth(std::stoul(value));
 
     // Advanced per‑stage gain controls (R820T manual mode)
@@ -411,6 +417,7 @@ bool RtlSdrDevice::validateSetting(const std::string& key,
     int integer = 0;
     uint32_t unsignedValue = 0;
     float gain = 0.0f;
+    bool boolean = false;
     if (key == "frequency" || key == "tuner_bandwidth")
         return DeviceSettings::parseUnsigned(value, unsignedValue);
     if (key == "gain")
@@ -418,7 +425,8 @@ bool RtlSdrDevice::validateSetting(const std::string& key,
     if (key == "ppm" || key == "lna_gain" || key == "mixer_gain"
             || key == "vga_gain")
         return DeviceSettings::parseInt(value, integer);
-    return key == "agc" || key == "bias_tee" || key == "offset_tuning";
+    return (key == "agc" || key == "bias_tee" || key == "offset_tuning")
+        && DeviceSettings::parseBoolean(value, boolean);
 }
 
 
@@ -575,8 +583,10 @@ bool RtlSdrDevice::validateAgainstTuner(const IniConfig::Section& cfg) {
     if (it == cfg.end())
         return true;
 
-    const std::string& value = it->second;
-    if (!(value == "1" || value == "true" || value == "on"))
+    // A value that is not a boolean at all is reported when the key is
+    // applied, so say nothing about it here and do not reject it twice.
+    bool enabled = false;
+    if (!DeviceSettings::parseBoolean(it->second, enabled) || !enabled)
         return true;
 
     if (!m_dev)
