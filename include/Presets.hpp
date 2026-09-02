@@ -93,6 +93,9 @@ constexpr auto presets = std::make_tuple(
 
 #endif
 
+template<SampleRate In>
+inline constexpr float dcRemovalAlpha =
+    (In == Rate_2_4_Mhz || In == Rate_2_56_Mhz) ? 0.0005f : 0.005f;
 
 /*
  * The plain preset carries a DC removal that is switched off by default. The
@@ -105,7 +108,7 @@ constexpr auto presets = std::make_tuple(
 template<SampleRate In, SampleRate Out, IQPipelineOptions sel>
 struct IQPipelineSelector {
     static auto make(const std::vector<float>&, bool dcRemoval = false) {
-        return make_pipeline(DCRemoval(0.005f, dcRemoval));
+        return make_pipeline(DCRemoval(dcRemovalAlpha<In>, dcRemoval));
     }
 };
 
@@ -126,13 +129,15 @@ struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_FILE> {
 template<SampleRate In, SampleRate Out>
 struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_RTL_SDR> {
     static auto make(const std::vector<float>&, bool dcRemoval = false) {
-        return make_pipeline(DCRemoval(0.005f, dcRemoval), IQLowPass<In, Out>());
+        return make_pipeline(DCRemoval(dcRemovalAlpha<In>, dcRemoval),
+                             IQLowPass<In, Out>());
     }
 };
 
 template<SampleRate In, SampleRate Out>
 struct IQPipelineSelector<In, Out, IQPipelineOptions::IQ_FIR_RTL_SDR_FILE> {
     static auto make(const std::vector<float>& taps, bool dcRemoval = false) {
-        return make_pipeline(DCRemoval(0.005f, dcRemoval), IQLowPassDynamic(taps));
+        return make_pipeline(DCRemoval(dcRemovalAlpha<In>, dcRemoval),
+                             IQLowPassDynamic(taps));
     }
 };
