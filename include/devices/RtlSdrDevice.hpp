@@ -40,6 +40,14 @@ public:
     bool validateConfigPostOpen(const IniConfig::Section& cfg) override;
     bool applyConfigPostOpen(const IniConfig::Section& cfg) override;
     
+    // Reject the combinations the device would not apply in full. Static
+    // because it does not touch the device: it can run before opening it.
+    static bool validateCombinations(const IniConfig::Section& cfg);
+
+    // Checks that need to know which tuner is inside, so they can only run
+    // once the device is open.
+    bool validateAgainstTuner(const IniConfig::Section& cfg);
+
 private:
     bool open_with_serial(uint64_t serial = 0);
     bool open_with_serial(const std::string& serial);
