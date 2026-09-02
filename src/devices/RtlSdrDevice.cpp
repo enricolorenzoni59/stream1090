@@ -5,8 +5,11 @@
  * Public License v3.0. See the top-level LICENSE file for details.
  */
 #include "devices/RtlSdrDevice.hpp"
+#include "devices/RtlSdrSerial.hpp"
 #include "Logger.hpp"
 #include <iostream>
+#include <string>
+#include <vector>
 
 static void rtlsdr_callback(unsigned char* buf, uint32_t len, void* ctx) {
     auto* self = static_cast<RtlSdrDevice*>(ctx);
@@ -26,17 +29,18 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
         return open_with_serial(static_cast<uint64_t>(0));
     }
 
-    std::size_t pos = 0;
-    try {
-        uint64_t numericSerial = std::stoull(serial, &pos, 0);
-        if (pos == serial.size()) {
-            return open_with_serial(numericSerial);
-        }
-    } catch (...) {
-        // Not numeric, attempt string-based lookup below.
+    const int deviceCount = static_cast<int>(rtlsdr_get_device_count());
+    std::vector<std::string> available;
+    available.reserve(deviceCount > 0 ? static_cast<std::size_t>(deviceCount) : 0);
+    for (int i = 0; i < deviceCount; ++i) {
+        char deviceSerial[256]{};
+        if (rtlsdr_get_device_usb_strings(i, nullptr, nullptr, deviceSerial) == 0)
+            available.emplace_back(deviceSerial);
+        else
+            available.emplace_back();
     }
 
-    int index = rtlsdr_get_index_by_serial(serial.c_str());
+    const int index = RtlSdrSerial::resolveIndex(serial, available);
     if (index < 0) {
         Log::error("RtlSdrDevice") << "No RTL-SDR device found with serial '"
                   << serial << "'";
