@@ -36,6 +36,36 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  # Build against the vendored RTL-SDR Blog fork instead of the system
+  # librtlsdr. It is a different library: the per-stage tuner gain entry points
+  # only exist there, and the code behind STREAM1090_HAVE_RTLSDR_BLOG is
+  # compiled in no other job, so it can rot without anyone noticing.
+  # librtlsdr-dev is deliberately not installed here, which also checks that
+  # the vendored build needs nothing from the system one.
+  build-vendored-rtlsdr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config libusb-1.0-0-dev libairspy-dev
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DENABLE_RTLSDR_BLOG=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   # The device backends are optional: CMakeLists.txt drops each one when its
   # library is missing. Nothing else builds that configuration, so it is easy
   # to break without noticing.
