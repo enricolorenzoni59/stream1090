@@ -21,6 +21,20 @@ import re
 #  CLI
 # ============================================================
 
+def non_negative(value):
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be zero or greater")
+    return parsed
+
+
+def worker_count(value):
+    parsed = int(value)
+    if parsed == -1 or parsed > 0:
+        return parsed
+    raise argparse.ArgumentTypeError("must be -1 or a positive integer")
+
+
 def parse_args():
     p = argparse.ArgumentParser(
         description="Differential Evolution FIR optimizer for stream1090"
@@ -62,15 +76,15 @@ def parse_args():
     p.add_argument("--df17-weight", type=float, default=1.0,
                    help="Weight for DF17 messages in the objective function")
 
-    p.add_argument("--patience", type=int, default=3,
+    p.add_argument("--patience", type=non_negative, default=3,
                    help="Stop after this many consecutive runs that fail to "
                         "improve the best score. 0 never stops, which is what "
                         "this script used to do")
 
-    p.add_argument("--max-runs", type=int, default=0,
+    p.add_argument("--max-runs", type=non_negative, default=0,
                    help="Hard cap on the number of runs, 0 for no cap")
 
-    p.add_argument("--workers", type=int, default=1,
+    p.add_argument("--workers", type=worker_count, default=1,
                    help="Parallel evaluations (-1 for all cores). Each one runs "
                         "a full stream1090 pass, so this scales close to linearly "
                         "until the disk gives out")
