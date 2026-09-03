@@ -59,16 +59,14 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
         return true;
     };
 
-    if (!check("rtlsdr_set_direct_sampling(0)",
-            rtlsdr_set_direct_sampling(m_dev, 0)))
+    // Set the frequency before the sample rate: R820T bandwidth setup retunes
+    // the current frequency, and immediately after open() that value is zero.
+    if (!check("rtlsdr_set_center_freq",
+            rtlsdr_set_center_freq(m_dev, 1090000000)))
         return false;
 
     if (!check("rtlsdr_set_sample_rate",
             rtlsdr_set_sample_rate(m_dev, getSampleRate())))
-        return false;
-
-    if (!check("rtlsdr_set_center_freq",
-            rtlsdr_set_center_freq(m_dev, 1090000000)))
         return false;
 
     if (!check("rtlsdr_reset_buffer",
@@ -119,16 +117,14 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
         return true;
     };
 
-    if (!check("rtlsdr_set_direct_sampling(0)",
-            rtlsdr_set_direct_sampling(m_dev, 0)))
-        return false;
-    
-    if (!check("rtlsdr_set_sample_rate",
-            rtlsdr_set_sample_rate(m_dev, getSampleRate())))
-        return false;
-
+    // Set the frequency before the sample rate: R820T bandwidth setup retunes
+    // the current frequency, and immediately after open() that value is zero.
     if (!check("rtlsdr_set_center_freq",
             rtlsdr_set_center_freq(m_dev, 1090000000)))
+        return false;
+
+    if (!check("rtlsdr_set_sample_rate",
+            rtlsdr_set_sample_rate(m_dev, getSampleRate())))
         return false;
 
     if (!check("rtlsdr_reset_buffer",
