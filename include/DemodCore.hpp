@@ -78,7 +78,7 @@ public:
 
 	/// True when the preamble in front of this candidate is strong enough to be
 	/// a real transmission. Disabled unless STREAM1090_PREAMBLE_GATE is defined.
-	bool preambleConfirms(int streamIndex) noexcept {
+	bool preambleConfirms([[maybe_unused]] int streamIndex) noexcept {
 	#if defined(STREAM1090_PREAMBLE_GATE) && STREAM1090_PREAMBLE_GATE
 		if (m_preambleFn == nullptr)
 			return false;
@@ -114,7 +114,7 @@ public:
 		logStats(Stats::NUM_ITERATIONS);
 	}
 
-	bool sendFrameLongAligned(int streamIndex,
+	bool sendFrameLongAligned(int,
 							  const uint8_t downlinkFormat, 
 							  CRC::crc_t crc,
 							  const Bits128& frame, 
@@ -164,7 +164,7 @@ public:
 		return true;
 	}
 
-	bool sendFrameShortAligned(int streamIndex, const uint8_t downlinkFormat, CRC::crc_t crc, const uint64_t& frameShort, const ICAOTable::Iterator& it) {
+	bool sendFrameShortAligned(int, const uint8_t downlinkFormat, CRC::crc_t crc, const uint64_t& frameShort, const ICAOTable::Iterator& it) {
 		auto& e = m_cache.getMsgStatEntry(it);
 		static constexpr uint64_t DUP_WINDOW_TICKS = 30 * NumStreams;
 		if ((m_currTime - e.last_time) < DUP_WINDOW_TICKS) {
@@ -598,20 +598,22 @@ public:
 			return false;
 		} else if (crc < 80) {
 			// PI is parity overlaid with the interrogator code (II/SI). Require
-			// a second, separate sighting before adding a new address to the cache.
+			// a second, separate sighting before promoting an address.
 			const auto icaoWithCA = ModeS::extractICAOWithCA_Short(frameShort);
 			if ((icaoWithCA & 0xffffffu) == 0)
 				return false;
-			if (!m_cache.findWithCA(icaoWithCA).isValid()) {
+			const auto e = m_cache.findWithCA(icaoWithCA);
+			if (!e.isValid() || !m_cache.isTrusted(e)) {
 				// PI is parity overlaid with the interrogator code (II/SI): the
 				// address is in the clear behind a small syndrome. One sighting
 				// proves nothing, noise draws addresses all the time; two
-				// sightings of the same address sharing the same small syndrome
-				// are an aircraft. Enter it trusted; the confirming frame stays
-				// silent, like the first one, and the next clean reply emits.
+				// sightings of the same address, even from different interrogators,
+				// are an aircraft. Mark it trusted, inserting it if needed; the
+				// confirming frame stays silent, like the first one, and the next
+				// reply emits.
 				if (!m_cache.confirmDF11Candidate(icaoWithCA))
 					return false;
-				const auto it = m_cache.insertWithCA(icaoWithCA);
+				const auto it = e.isValid() ? e : m_cache.insertWithCA(icaoWithCA);
 				m_cache.markAsTrustedSeen(it);
 				logStats(Stats::DF11_ICAO_CA_FOUND_GOOD_CRC);
 				return false;

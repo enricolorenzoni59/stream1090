@@ -9,9 +9,10 @@
 //     squawk is learned.
 //  Y  a single clean DF11, then a DF5: nothing may be emitted, one
 //     sighting proves nothing.
-//  Z  two DF11 replies with an interrogator overlay (small syndrome),
-//     then two DF5: the confirmed second reply promotes Z to trusted so a
-//     Mode-S only aircraft works end to end.
+//  Z  one clean DF11 followed by two replies with an interrogator overlay
+//     (small syndrome), then two DF5 around another overlaid reply: the
+//     overlaid pair promotes the existing untrusted entry, so a Mode-S only
+//     aircraft works end to end.
 
 #include "DemodCore.hpp"
 
@@ -135,6 +136,8 @@ int main() {
   feedFrame(demod, x5);   // squawk matches: emitted
   feedQuiet(demod, 300);
   feedFrame(demod, y5);   // Y is not trusted: must stay silent
+  feedQuiet(demod, 300);
+  feedFrame(demod, z11b); // clean first sighting of Z: cached untrusted
   feedQuiet(demod, 300);
   feedFrame(demod, z11a); // first sighting of Z: silent
   feedQuiet(demod, 300);

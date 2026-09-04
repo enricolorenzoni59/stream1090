@@ -84,7 +84,7 @@ encoding is currently treated as unavailable. Gillham values are checked
 against an altitude already established by Q=1 replies and cannot replace that
 reference value.
 
-DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interrogator code. Stream1090 accepts these replies for known aircraft. A first clean DF11 or DF17 sighting enters the cache as untrusted; the address becomes trusted only after a matching sighting between 100 microseconds and 30 seconds later. New addresses from interrogator-overlaid DF11 replies require two matching sightings between 100 microseconds and two seconds apart. ICAO address `000000` is always discarded.
+DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interrogator code. Stream1090 accepts these replies for known aircraft. A first clean DF11 or DF17 sighting enters the cache as untrusted; the address becomes trusted only after a matching sighting between 100 microseconds and 30 seconds later. Interrogator-overlaid DF11 replies require two sightings of the same address between 100 microseconds and two seconds apart; the II/SI codes may differ, and an existing untrusted cache entry does not bypass confirmation. ICAO address `000000` is always discarded.
 
 For DF0/4/5/16/20/21 address-parity replies, altitude and squawk checks normally reject implausible values. A rejected frame from an already active ICAO address is nevertheless accepted after the identical complete frame is received again between 100 microseconds and two seconds later. The first observation is withheld, short and long frames cannot confirm each other, and cache collisions can only discard a candidate. Corroborated Gillham or unsupported metric altitude replies do not update the stored altitude reference.
 
@@ -193,6 +193,5 @@ One thing that is important to know is that you can also use a complete log file
 So it remains the question when the script terminates. Currently it does not. If there is no new solution after some time, you can stop it with Ctrl+c. If you are not happy with the results, you can restart it and resume from the log file and hope for some luck. You may want to increase the margin then a bit.
 
 **ATTENTION** The above description is a very sloppy one. Everything is subject to change. This includes the scoring function and additional parameters. If you want to use the optimizer, always check this section for any remarks first.
-
 
 
