@@ -170,6 +170,7 @@ if(BUILD_TESTING)
     stream1090_add_test(rtlsdr_serial_test tests/RtlSdrSerialTest.cpp)
     stream1090_add_test(noise_false_positive_test tests/NoiseFalsePositiveTest.cpp)
     stream1090_add_test(trust_gate_test tests/TrustGateTest.cpp)
+    stream1090_add_test(trust_separation_test tests/TrustSeparationTest.cpp)
     target_compile_definitions(noise_false_positive_test PRIVATE
         ${PREAMBLE_GATE_DEF}
         ${PREAMBLE_THRESHOLD_DEF}

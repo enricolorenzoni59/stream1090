@@ -84,7 +84,7 @@ encoding is currently treated as unavailable. Gillham values are checked
 against an altitude already established by Q=1 replies and cannot replace that
 reference value.
 
-DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interrogator code. Stream1090 accepts these replies for known aircraft. A new ICAO address is added to the cache only after two matching DF11 replies separated in time, so phase duplicates or a single low CRC syndrome cannot seed the cache.
+DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interrogator code. Stream1090 accepts these replies for known aircraft. A first clean DF11 or DF17 sighting enters the cache as untrusted; the address becomes trusted only after a matching sighting between 100 microseconds and 30 seconds later. New addresses from interrogator-overlaid DF11 replies require two matching sightings between 100 microseconds and two seconds apart. ICAO address `000000` is always discarded.
 
 For DF0/4/5/16/20/21 address-parity replies, altitude and squawk checks normally reject implausible values. A rejected frame from an already active ICAO address is nevertheless accepted after the identical complete frame is received again between 100 microseconds and two seconds later. The first observation is withheld, short and long frames cannot confirm each other, and cache collisions can only discard a candidate. Corroborated Gillham or unsupported metric altitude replies do not update the stored altitude reference.
 
