@@ -18,3 +18,11 @@ CMakeUserPresets.json
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #cmake-build-*
 build/
+build-*
+__pycache__/
+diff_evolve_fir_temp_*.txt
+bench/rtl32/de32_*.out
+bench/rtl32/live_*.log
+bench/rtl32/live_*.txt
+bench/rtl32/capbw
+bench/rtl32/capbw_hb

@@ -71,7 +71,8 @@ class Arm:
         bits.append("fir=" + ("taps-file" if self.taps else ("built-in" if self.fir else "off")))
         bits.append("bw=" + ("default" if self.bw is None else str(self.bw)))
         bits.append("agc" if self.agc else f"gain={self.gain}")
-        bits.append(self.binary.parent.name)
+        parts = self.binary.parent.parts
+        bits.append("/".join(parts[-2:]) if len(parts) > 1 else self.binary.parent.name)
         return " ".join(bits)
 
     def cmd(self) -> list[str]:
