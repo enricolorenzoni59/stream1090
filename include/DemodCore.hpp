@@ -156,9 +156,16 @@ public:
 				return false;
 			m_cache.markAsSeen(it);
 		}
-		
+
 		logStatsSent(downlinkFormat);
-		e.last_time = m_currTime;		
+		e.last_time = m_currTime;
+		if ((downlinkFormat == 17 || downlinkFormat == 18)
+				&& isAirbornePosition(ModeS::extractMEType(frame))) {
+			m_cache.noteCprOutput(it,
+				ModeS::extractAirbornePositionCprOdd(frame),
+				ModeS::extractAirbornePositionCprLat(frame),
+				ModeS::extractAirbornePositionCprLon(frame), m_currTime);
+		}
 		m_messageHandler.handleLong(m_currTime, frame);
 		return true;
 	}
@@ -670,7 +677,8 @@ private:
 		const uint32_t lonCpr = ModeS::extractAirbornePositionCprLon(frame);
 
 		// The frame goes out with its raw CPR bits, and a receiver downstream
-		// pairs them with the opposite clean parity for a global decode. A
+		// pairs them with the most recently emitted opposite parity for a
+		// global decode. A
 		// flipped bit can decode locally within the gate yet move that global
 		// solution to another latitude zone, so the pair a receiver will
 		// actually form is what has to pass here. The repaired frame is the

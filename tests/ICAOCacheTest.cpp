@@ -242,9 +242,15 @@ bool cachedOppositeCprPairsAndAges() {
     const auto entry = table.insertWithCA(0x5abcde4);
     constexpr uint64_t now = 4'000;
 
+    // Clean observations seed the trusted reference, but a frame withheld by
+    // the demodulator must not pretend to be available to downstream decoders.
     table.noteCprClean(entry, false, 93000, 51372, now, 10'000);
     uint32_t latCpr = 0;
     uint32_t lonCpr = 0;
+    if (table.cachedOppositeCpr(entry, true, latCpr, lonCpr, now, 10'000))
+        return false;
+
+    table.noteCprOutput(entry, false, 93000, 51372, now);
 
     // an odd frame pairs against the stored even bits
     if (!table.cachedOppositeCpr(entry, true, latCpr, lonCpr, now, 10'000))
@@ -256,7 +262,7 @@ bool cachedOppositeCprPairsAndAges() {
     if (table.cachedOppositeCpr(entry, false, latCpr, lonCpr, now, 10'000))
         return false;
 
-    table.noteCprClean(entry, true, 74158, 50194, now + 100, 10'000);
+    table.noteCprOutput(entry, true, 74158, 50194, now + 100);
     // once the odd parity exists, an even frame pairs against it ...
     if (!table.cachedOppositeCpr(entry, false, latCpr, lonCpr, now + 100, 10'000))
         return false;

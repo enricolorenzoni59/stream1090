@@ -68,6 +68,41 @@ Bits128 makeRepairable(const Bits128& frame) {
 	return damaged;
 }
 
+bool repairedPairCannotBypassGlobalGate() {
+	CapturingHandler handler;
+	DemodCore<1, CapturingHandler> demod(handler);
+	constexpr uint32_t icao = 0x345678;
+
+	feedFrame(demod, makeIdentity(icao, 5));
+	feedSilence(demod, 128);
+	feedFrame(demod, makeIdentity(icao, 3));
+	const auto cleanEven = makePosition(icao, false, 93000, 51372);
+	const auto cleanOdd = makePosition(icao, true, 74158, 50194);
+	feedFrame(demod, cleanEven);
+	feedSilence(demod, 128);
+	feedFrame(demod, cleanOdd);
+
+	// Let both clean parities age out of the 10-second pairing window while
+	// keeping their decoded reference and the aircraft trust alive.
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentity(icao, 5));
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentity(icao, 3));
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentity(icao, 5));
+	feedSilence(demod, 1'500'000);
+
+	// This repaired even frame is locally 84 km from the reference, so it is
+	// safe by itself and is emitted. A following repaired odd frame is also
+	// locally near, but the two repaired parities form the 4700 km ghost pair.
+	// The second repair must be checked against the first emitted repair.
+	feedFrame(demod, makeRepairable(makePosition(icao, false, 76616, 51372)));
+	if (handler.longCount != 7)
+		return false;
+	feedFrame(demod, makeRepairable(cleanOdd));
+	return handler.longCount == 7;
+}
+
 } // namespace
 
 int main() {
@@ -175,5 +210,5 @@ int main() {
 	if (handler.longCount != 11)
 		return 11;
 
-	return 0;
+	return repairedPairCannotBypassGlobalGate() ? 0 : 12;
 }

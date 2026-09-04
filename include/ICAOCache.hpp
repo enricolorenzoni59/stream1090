@@ -71,6 +71,12 @@ public:
 		uint32_t cpr_odd_lon { 0 };
 		uint64_t cpr_even_time { 0 };
 		uint64_t cpr_odd_time { 0 };
+		uint32_t output_even_lat { 0 };
+		uint32_t output_even_lon { 0 };
+		uint32_t output_odd_lat { 0 };
+		uint32_t output_odd_lon { 0 };
+		uint64_t output_even_time { 0 };
+		uint64_t output_odd_time { 0 };
 		int32_t last_lat_e5 { 0 };
 		int32_t last_lon_e5 { 0 };
 		uint64_t position_time { 0 };
@@ -337,6 +343,23 @@ public:
 		state.position_time = now;
 	}
 
+	// Track what a downstream decoder actually received. Repaired positions
+	// can be safe individually but incompatible with one another as a global
+	// pair, so they must participate in the next opposite-parity check too.
+	void noteCprOutput(const Iterator& entry, bool odd, uint32_t latCpr,
+			uint32_t lonCpr, uint64_t now) noexcept {
+		auto& state = m_positionState[entry.key];
+		if (odd) {
+			state.output_odd_lat = latCpr;
+			state.output_odd_lon = lonCpr;
+			state.output_odd_time = now;
+		} else {
+			state.output_even_lat = latCpr;
+			state.output_even_lon = lonCpr;
+			state.output_even_time = now;
+		}
+	}
+
 	bool cachedPosition(const Iterator& entry, int32_t& latE5, int32_t& lonE5,
 			uint64_t now, uint64_t maxAge) const noexcept {
 		const auto& state = m_positionState[entry.key];
@@ -347,18 +370,19 @@ public:
 		return true;
 	}
 
-	// The stored CPR bits of the opposite parity, when they are fresh enough
-	// to pair globally with a frame that just arrived. This is the pair a
-	// downstream receiver would form, so a repaired frame must be validated
+	// The last emitted CPR bits of the opposite parity, when they are fresh
+	// enough to pair globally with a frame that just arrived. This is the pair
+	// a downstream receiver would form, so a repaired frame must be validated
 	// against exactly it: its raw CPR bits go out unchanged.
 	bool cachedOppositeCpr(const Iterator& entry, bool odd, uint32_t& latCpr,
 			uint32_t& lonCpr, uint64_t now, uint64_t maxAge) const noexcept {
 		const auto& state = m_positionState[entry.key];
-		const uint64_t otherTime = odd ? state.cpr_even_time : state.cpr_odd_time;
+		const uint64_t otherTime = odd
+			? state.output_even_time : state.output_odd_time;
 		if (otherTime == 0 || now - otherTime > maxAge)
 			return false;
-		latCpr = odd ? state.cpr_even_lat : state.cpr_odd_lat;
-		lonCpr = odd ? state.cpr_even_lon : state.cpr_odd_lon;
+		latCpr = odd ? state.output_even_lat : state.output_odd_lat;
+		lonCpr = odd ? state.output_even_lon : state.output_odd_lon;
 		return true;
 	}
 
