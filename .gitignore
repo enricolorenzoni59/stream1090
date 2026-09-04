@@ -26,3 +26,7 @@ bench/rtl32/live_*.log
 bench/rtl32/live_*.txt
 bench/rtl32/capbw
 bench/rtl32/capbw_hb
+bench/rtl32/droptest*.log
+bench/rtl32/smoke*.log
+bench/rtl32/regdump2_v
+bench/rtl32/regdump2_s
