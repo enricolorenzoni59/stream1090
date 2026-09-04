@@ -325,17 +325,6 @@ int main(int argc, char** argv) {
                 return 1;
             }
 
-            // Which librtlsdr the binary was built against is not visible
-            // from the outside, yet it changes the tuner state the same
-            // settings produce: the vendored fork re-initializes the tuner
-            // on the first frequency set, steve-m builds follow the sample
-            // rate. Name the backend on every run so bug reports carry it.
-            if (GlobalOptions::RtlSdrBlogAdvanced) {
-                std::cerr << "[Stream1090] RTL-SDR backend: vendored rtl-sdr-blog fork" << std::endl;
-            } else {
-                std::cerr << "[Stream1090] RTL-SDR backend: system librtlsdr" << std::endl;
-            }
-
         } else {
             std::cerr << "[Stream1090] Error. Config file does not contain [airspy] or [rtlsdr] section." << std::endl;
             return 1;
@@ -392,6 +381,23 @@ int main(int argc, char** argv) {
                     << float(c_vars.outputRate)/1'000'000.0f << " MHz\n";
         }
     }
+
+            // Which librtlsdr the binary was built against is not visible
+            // from the outside, yet it changes the tuner state the same
+            // settings produce: the vendored fork re-initializes the tuner
+            // on the first frequency set, steve-m builds follow the sample
+            // rate. Name the backend on every run so bug reports carry it.
+            if (GlobalOptions::RtlSdrBlogAdvanced) {
+                std::cerr << "[Stream1090] RTL-SDR backend: vendored rtl-sdr-blog fork" << std::endl;
+            } else {
+                std::cerr << "[Stream1090] RTL-SDR backend: system librtlsdr" << std::endl;
+                if (c_vars.inputRate == Rate_3_2_Mhz) {
+                    std::cerr << "[Stream1090] WARNING: the 3.2 Msps preset is tuned against the vendored\n"
+                                 "[Stream1090] rtl-sdr-blog fork (-DENABLE_RTLSDR_BLOG=ON). With the system\n"
+                                 "[Stream1090] librtlsdr the same ini settings land in a different tuner\n"
+                                 "[Stream1090] state and the preset loses ~35% frames." << std::endl;
+                }
+            }
 
     // ------------------------
     // Format and pipeline

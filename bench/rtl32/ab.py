@@ -17,7 +17,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
-TELEGRAM = "tgram://REDACTED
+
 
 INI = """[rtlsdr]
 serial = {serial}
@@ -41,8 +41,7 @@ def write_ini(path: Path, serial: str, gain: float | None, agc: bool,
 
 def notify(title: str, msg: str) -> None:
     try:
-        subprocess.run(["apprise", "-t", title, "-b", msg, TELEGRAM],
-                       capture_output=True, timeout=60)
+        print(msg)
     except Exception as e:
         print(f"telegram failed: {e}", file=sys.stderr, flush=True)
 
