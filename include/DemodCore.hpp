@@ -130,14 +130,14 @@ public:
 		// Address-parity frames (DF16/20/21) carry no checkable CRC, so the
 		// payload checks are all they have, and a noise frame can pass them by
 		// coincidence (a parity that matches a cached address plus a plausible
-		// altitude). Reject the ones that are ALSO at the local noise floor with
-		// no preamble in front of them: both are ratios, so the test transfers
-		// between receivers. DF17/18 reach here with a checkable CRC and are
-		// not gated.
-		if ((downlinkFormat == 16 || downlinkFormat == 20 || downlinkFormat == 21)
-				&& signalAtNoiseFloor(streamIndex) && !preambleConfirms(streamIndex)) {
+		// Address-parity frames name their address in the parity field, so a
+		// noise frame can claim any address in the table without ever clearing
+		// a CRC. Trust is repetition-based: only addresses that earned it
+		// through a second sighting may emit here.
+		if (!m_cache.isTrusted(it)) {
 			return false;
 		}
+		m_cache.markAsTrustedSeen(it);
 
 		if ((downlinkFormat == 20) || (downlinkFormat == 16)) {
 			const auto alt_bits = ModeS::extractSquawkAlt_Long(frame);
@@ -176,14 +176,18 @@ public:
 
 		// Same rationale as the long path: DF0/4/5 recover the address from the
 		// parity, so reject frames at the noise floor with no preamble.
-		if ((downlinkFormat == 0 || downlinkFormat == 4 || downlinkFormat == 5)
-				&& signalAtNoiseFloor(streamIndex) && !preambleConfirms(streamIndex)) {
-			return false;
-		}
 
 		if ((downlinkFormat == 4) || (downlinkFormat == 0)) {
 			const auto alt_bits = ModeS::extractSquawkAlt_Short(frameShort);
 			const auto alt = ModeS::decodeAltitude(alt_bits);
+		// Same as the long path: DF0/4/5 recover the address from the parity, so
+		// noise frame can claim any address in the table without ever clearing
+		// a CRC. Trust is repetition-based: only addresses that earned it
+		// through a second sighting may emit here.
+		if (!m_cache.isTrusted(it)) {
+			return false;
+		}
+		m_cache.markAsTrustedSeen(it);
 			const bool altitudeAccepted = alt
 				&& m_cache.checkAltitude(it, *alt);
 			if (!altitudeAccepted
