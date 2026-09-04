@@ -325,6 +325,14 @@ int main(int argc, char** argv) {
                 return 1;
             }
 
+            // Name whether librtlsdr is vendored or externally provided so
+            // bug reports carry the build configuration that selected it.
+            if (GlobalOptions::RtlSdrBlogAdvanced) {
+                std::cerr << "[Stream1090] RTL-SDR backend: vendored rtl-sdr-blog fork" << std::endl;
+            } else {
+                std::cerr << "[Stream1090] RTL-SDR backend: external librtlsdr" << std::endl;
+            }
+
         } else {
             std::cerr << "[Stream1090] Error. Config file does not contain [airspy] or [rtlsdr] section." << std::endl;
             return 1;
@@ -420,7 +428,6 @@ int main(int argc, char** argv) {
     }
     return *outcome ? 0 : 1;
 }
-
 
 
 
