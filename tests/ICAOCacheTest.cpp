@@ -6,6 +6,10 @@
 
 namespace {
 
+// Squawk/altitude state is touched by address-parity traffic on the hot path.
+// Keep CPR history in separate cold storage instead of inflating every entry.
+static_assert(sizeof(ICAOTable::SquawkAlt) <= 8);
+
 void tick(ICAOTable& table, uint32_t count) {
     while (count-- > 0)
         table.tick();

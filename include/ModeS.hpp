@@ -156,6 +156,9 @@ namespace ModeS {
 		double decodedOddLat = (360.0 / 59.0) * (double((j % 59 + 59) % 59) + oddLat);
 		if (decodedEvenLat >= 270.0) decodedEvenLat -= 360.0;
 		if (decodedOddLat >= 270.0) decodedOddLat -= 360.0;
+		if (decodedEvenLat < -90.0 || decodedEvenLat > 90.0
+				|| decodedOddLat < -90.0 || decodedOddLat > 90.0)
+			return false;
 		if (cprNl(decodedEvenLat) != cprNl(decodedOddLat))
 			return false;
 

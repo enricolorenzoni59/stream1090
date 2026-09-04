@@ -26,5 +26,15 @@ int main() {
 			&& std::abs(lon - 3.93891) < 0.001))
 		return 2;
 
+	// This pair resolves consistently in the same NL zone, but at 103.7
+	// degrees latitude. Airborne global CPR must reject the impossible fix.
+	if (ModeS::decodeCprGlobal(37776, 0, 0, 0, false, lat, lon))
+		return 3;
+
+	// Both latitudes are individually valid, but they straddle an NL boundary
+	// and therefore cannot form one globally unambiguous airborne fix.
+	if (ModeS::decodeCprGlobal(75765, 0, 106804, 0, false, lat, lon))
+		return 4;
+
 	return 0;
 }

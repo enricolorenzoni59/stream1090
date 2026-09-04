@@ -88,6 +88,8 @@ DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interroga
 
 For DF0/4/5/16/20/21 address-parity replies, altitude and squawk checks normally reject implausible values. A rejected frame from an already active ICAO address is nevertheless accepted after the identical complete frame is received again between 100 microseconds and two seconds later. The first observation is withheld, short and long frames cannot confirm each other, and cache collisions can only discard a candidate. Corroborated Gillham or unsupported metric altitude replies do not update the stored altitude reference.
 
+Repaired airborne-position frames are emitted only when their CPR position is within 100 km of a clean globally decoded position for the same aircraft from the previous 60 seconds. When a clean opposite-parity frame is available within the 10-second airborne CPR pairing window, stream1090 validates the exact global pair a downstream decoder will form; otherwise it falls back to local CPR decoding. Without a clean position reference the repair is rejected. Surface positions and altitude plausibility are not covered by this gate.
+
 Important: If you want to see the statistics for the whole file and not every 5 seconds. You can enable the a summary at the end by rebuilding stream with after the following cmake call in the build directory
 ```
 cmake ../ --fresh -DEND_STATS=ON -DENABLE_STATS=ON && make
@@ -193,6 +195,5 @@ One thing that is important to know is that you can also use a complete log file
 So it remains the question when the script terminates. Currently it does not. If there is no new solution after some time, you can stop it with Ctrl+c. If you are not happy with the results, you can restart it and resume from the log file and hope for some luck. You may want to increase the margin then a bit.
 
 **ATTENTION** The above description is a very sloppy one. Everything is subject to change. This includes the scoring function and additional parameters. If you want to use the optimizer, always check this section for any remarks first.
-
 
 
