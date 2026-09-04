@@ -3,6 +3,14 @@
 import sys
 import pyModeS as pms
 
+# pms.decode() arrived in pyModeS 3. On an older one every call below raises,
+# the except swallows it, and the script ends with '0 suspicious out of 0' --
+# which reads exactly like a clean stream. Say what is missing instead.
+if not hasattr(pms, "decode"):
+    sys.exit(
+        "suspicious.py needs pyModeS 3 or newer: this one has no pms.decode(). "
+        "Installed version: %s" % getattr(pms, "__version__", "unknown"))
+
 # Track ICAO appearances
 icao_seen = set()
 icao_df17_seen = set()
@@ -292,6 +300,7 @@ def parse_stream1090_line(line: str):
 
 total_messages = 0
 suspicious_messages = 0
+undecodable = 0
 
 for raw in sys.stdin:
     parsed = parse_stream1090_line(raw)
@@ -303,9 +312,11 @@ for raw in sys.stdin:
     try:
         decoded = pms.decode(frame_hex)
     except Exception:
+        undecodable = undecodable + 1
         continue
 
     if decoded is None:
+        undecodable = undecodable + 1
         continue
 
     df = decoded["df"]
@@ -331,3 +342,8 @@ for raw in sys.stdin:
     
     
 print(f"{suspicious_messages} suspicious out of {total_messages}")
+if undecodable:
+    # Not necessarily a problem -- a stream full of fabricated frames has
+    # plenty that decode to nothing -- but a run where everything was skipped
+    # is a broken run, not a clean stream, and the two used to look identical.
+    print(f"{undecodable} messages could not be decoded and were skipped")
