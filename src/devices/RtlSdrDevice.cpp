@@ -54,6 +54,21 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
     rtlsdr_get_device_usb_strings(index, nullptr, nullptr, buf);
     m_actualSerial = std::strtoull(buf, nullptr, 0);
 
+    // identify the tuner on every successful open: bug reports for RTL-SDR
+    // issues are ambiguous without it, and the r82xx behaviour in
+    // particular is what the tuner_bandwidth documentation is about.
+    const char* tuner_name = "?";
+    switch (rtlsdr_get_tuner_type(m_dev)) {
+        case RTLSDR_TUNER_R820T:  tuner_name = "R820T/R820T2"; break;
+        case RTLSDR_TUNER_R828D:  tuner_name = "R828D"; break;
+        case RTLSDR_TUNER_E4000:  tuner_name = "E4000"; break;
+        case RTLSDR_TUNER_FC0012: tuner_name = "FC0012"; break;
+        case RTLSDR_TUNER_FC0013: tuner_name = "FC0013"; break;
+        case RTLSDR_TUNER_FC2580: tuner_name = "FC2580"; break;
+        default: break;
+    }
+    std::cerr << "[RtlSdrDevice] Tuner: " << tuner_name << std::endl;
+
     auto check = [&](const char* name, int rc) {
         if (rc != 0) {
             Log::error("RtlSdrDevice") << "ERROR: " << name
@@ -110,6 +125,21 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
     char buf[256];
     rtlsdr_get_device_usb_strings(index, nullptr, nullptr, buf);
     m_actualSerial = std::strtoull(buf, nullptr, 0);
+
+    // identify the tuner on every successful open: bug reports for RTL-SDR
+    // issues are ambiguous without it, and the r82xx behaviour in
+    // particular is what the tuner_bandwidth documentation is about.
+    const char* tuner_name = "?";
+    switch (rtlsdr_get_tuner_type(m_dev)) {
+        case RTLSDR_TUNER_R820T:  tuner_name = "R820T/R820T2"; break;
+        case RTLSDR_TUNER_R828D:  tuner_name = "R828D"; break;
+        case RTLSDR_TUNER_E4000:  tuner_name = "E4000"; break;
+        case RTLSDR_TUNER_FC0012: tuner_name = "FC0012"; break;
+        case RTLSDR_TUNER_FC0013: tuner_name = "FC0013"; break;
+        case RTLSDR_TUNER_FC2580: tuner_name = "FC2580"; break;
+        default: break;
+    }
+    std::cerr << "[RtlSdrDevice] Tuner: " << tuner_name << std::endl;
     
     
     auto check = [&](const char* name, int rc) {
@@ -424,5 +454,18 @@ void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
             continue; // immutable
 
         applySetting(key, value);
+    }
+
+    // report the effective tuner bandwidth once: without an explicit
+    // tuner_bandwidth librtlsdr derives it from the sample rate, and the
+    // resulting state differs between librtlsdr builds. Bug reports for
+    // RTL-SDR issues are hard to read without this line.
+    if (!m_stateReported) {
+        m_stateReported = true;
+        std::cerr << "[RtlSdrDevice] Tuner bandwidth: "
+                  << (m_state.tuner_bandwidth
+                          ? std::to_string(m_state.tuner_bandwidth) + " Hz (explicit)"
+                          : std::string("auto (librtlsdr default, see configs/rtlsdr.ini)"))
+                  << std::endl;
     }
 }
