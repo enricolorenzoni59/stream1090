@@ -4,11 +4,11 @@ Priority: optional
 Maintainer: Joseph Prochazka <joe@swiftbyte.com>
 Build-Depends:
  debhelper-compat (= 13),
- cmake (>= 3.10),
+ cmake (>= 3.13),
  pkg-config,
  g++,
  libairspy-dev [linux-any],
- librtlsdr-dev [linux-any]
+ libusb-1.0-0-dev [linux-any]
 Standards-Version: 4.6.2
 Homepage: https://github.com/jprochazka/stream1090
 Rules-Requires-Root: no

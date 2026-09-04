@@ -37,18 +37,19 @@ This is a first draft of the new README. The old complicated one is [here](./OLD
 
 ## Compiling Stream1090
 Regardless of your hardware, you will need
-- cmake (3.10 or higher)
+- cmake (3.13 or higher)
 - C++ compiler that supports C++20
 
 Stream1090 has native device support for Airspy and RTL-SDR based dongles.
-For both, you will need the dev version of the corresponding libraries. 
+The vendored RTL-SDR Blog library is built from this repository; it needs
+libusb development headers. Airspy remains optional.
 
 - For Airspy ```sudo apt install libairspy-dev``` 
-- For RTL-SDR ```sudo apt install librtlsdr-dev``` 
+- For RTL-SDR ```sudo apt install libusb-1.0-0-dev```
 
 On macOS, install the build tools and device libraries with Homebrew:
 
-```brew install cmake pkgconf airspy rtl-sdr```
+```brew install cmake pkgconf airspy libusb```
 
 We are ready to compile. Switch to the stream1090 folder and do the usual cmake thing.
 
@@ -151,13 +152,13 @@ DF 21 : 251
 If stream1090 does not start up, you may want to add the ```-v``` flag which enables verbose output.
 If it works, your statistics will probably show a much lower message rate. However, the goal was to get stream1090 up and running. Now it is time to make use of its features.
 
-### RTL-SDR gain: two knobs, one of them a trap
-`configs/rtlsdr.ini` has two gain-related settings that are easy to confuse:
+### RTL-SDR gain in this test branch
 
-- `gain = <dB>` sets the **tuner** gain (manual mode). If you leave it out, stream1090 now puts the tuner into hardware automatic gain, which is what `--gain auto` means in readsb/dump1090.
-- `agc = true|false` toggles the **RTL2832U digital AGC** after the tuner. It rescales the 8-bit samples and lifts the noise floor between Mode-S pulses. On an RTL-SDR Blog V4 the shipped `agc = true` without a `gain` line decoded about five times fewer messages than `gain = 49.6` with `agc = false`.
-
-Start with `gain = 49.6` and `agc = false`, and lower the gain only if strong nearby aircraft overload the receiver.
+The adaptive controller is always active for RTL-SDR. It starts at the nearest
+supported tuner step to 49.6 dB with the RTL2832U digital AGC disabled, then
+adjusts the tuner from five-second IQ windows. The INI keys `gain`, `agc`,
+`adaptive_gain`, `lna_gain`, `mixer_gain`, and `vga_gain` are ignored, including
+on SIGHUP reload. Airspy gain settings are unaffected.
 
 ## Upsampling
 Stream1090 is build around the idea to take the samples from the SDR that come in at a rate specified via
@@ -306,29 +307,30 @@ cmake .. -DENABLE_STATS=OFF && cmake --build .
 
 There is now basic experimental support for the SIGHUP signal. This signal can be send via ```kill -HUP <process id of stream1090>``` telling stream1090 to reload the device specific ini file. You can figure out the PID via ```ps```or ```pidof stream1090``` when it is running.
 
-Clearly, there are some things you will not be able to change like serial (and sample rate which is not part of the ini anyways). The purpose is to not have to restart for adjusting gain settings. For airspy, make sure you know what you are doing when switching between manual and simple gain controls.
+Clearly, there are some things you will not be able to change like serial (and sample rate which is not part of the ini anyways). For RTL-SDR the gain controller remains active across reloads; for Airspy, make sure you know what you are doing when switching between manual and simple gain controls.
 
-### Advanced RTL-SDR gain controls
+### RTL-SDR backend
 
-If you have an RTL-SDR device and still not happy, you can push things further. Stream1090 comes with a hacked version of the [RTL-SDR-BLOG](https://github.com/rtlsdrblog/rtl-sdr-blog) lib which in turn is a fork of librtlsdr. There are two aspects here.
-- This lib behaves differently in terms of results. Might be in your favour.
-- If you have an R82xx tuner, this version gives you gain control over the LNA, MIX and VGA stages.
+This branch always builds the vendored [RTL-SDR Blog](https://github.com/rtlsdrblog/rtl-sdr-blog)
+fork and links it statically. A system `librtlsdr` is never selected. The
+adaptive controller may adjust VGA on R820T/R820T2 and R828D tuners; explicit
+per-stage settings in the INI are ignored.
 
-If you want to use it, there is no need to download anything nor building and such. Stream1090's CMake project will take care of it. Go to the build folder and rebuild with
-```
-cmake .. -DENABLE_RTLSDR_BLOG=1 && cmake --build .
-``` 
-Check if everything has worked out by running ```./stream1090 -h```. The native device support section should now list ```RTL-SDR Blog (advanced)```.
+### Adaptive gain diagnostics
 
-Regarding the manual gain control of the stages: I am not taking any responsibility here. It might work, it might not. I added these functions to the lib. There are usually good reasons that these functions are not exposed.
+Run RTL-SDR with `-v` to log each five-second gain decision and every tuner
+change. Every 30 seconds of continuous input, stderr also reports the current
+gain and LNA/MIX/VGA indexes, decoded short/long frames, sample-drop events,
+ADC RMS, the fraction of codes near the center and rails, and the 99th and
+99.9th percentiles of `|ADC code - 128|`. A second line gives a 16-bin
+histogram over all 8-bit ADC codes (0–15, 16–31, ... 240–255), in percent.
+The histogram can show clipping or a raised floor; it cannot identify the
+frequency of an interferer or reveal overload that happened before the ADC.
 
-
-However, in the ini file you can now add something like
-```
-lna_gain = 14
-mixer_gain = 13
-vga_gain = 10
-``` 
+The historical benchmark helpers in `bench/rtl32/` set a fixed-gain comparison
+receiver through its INI file. That setting is ignored in this test branch, so
+those helpers cannot compare fixed and adaptive gain here. For a volunteer
+run, follow [the RTL-SDR adaptive-gain test instructions](./RTLSDR-AUTOGAIN-TEST.md).
 
 ## FAQ & Troubleshooting
 - Why is my message rate 0-2 messages per second?

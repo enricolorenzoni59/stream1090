@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.13)
 project(stream1090 VERSION 1.0.0)
 
 # ------------------------------------------------------------
@@ -19,7 +19,6 @@ option(ENABLE_RSSI           "Compile with STREAM1090_ENABLE_RSSI" ON)
 option(ENABLE_PREAMBLE_GATE  "Reject address-parity frames that are weak and preamble-less" ON)
 set(PREAMBLE_GATE_THRESHOLD 1.2 CACHE STRING "Preamble score a real transmission must reach")
 set(MIN_SNR               2.5 CACHE STRING "Reject address-parity frames below this signal-to-noise ratio (0 disables; a ratio, so it transfers between receivers)")
-option(ENABLE_RTLSDR_BLOG    "Enable vendored RTL-SDR Blog fork" OFF)
 option(ENABLE_TOO_MUCH_CPU   "Unlocks the 40 and 48 Msps speeds" OFF)
 option(BUILD_TESTING         "Build tests" OFF)
 
@@ -66,38 +65,22 @@ else()
 endif()
 
 # ------------------------------------------------------------
-# RTL-SDR backend
+# RTL-SDR backend: this test branch always uses the vendored implementation.
 # ------------------------------------------------------------
-if(ENABLE_RTLSDR_BLOG)
-    message(STATUS "[stream1090] Using vendored RTL-SDR Blog fork")
-
-    set(DETACH_KERNEL_DRIVER ON CACHE BOOL "" FORCE)
-    add_subdirectory(thirdparty/rtl-sdr-blog)
-
-    list(APPEND DEVICE_SOURCES       src/devices/RtlSdrDevice.cpp)
-    list(APPEND DEVICE_LIBS          rtlsdr_static)
-    list(APPEND DEVICE_INCLUDE_DIRS  thirdparty/rtl-sdr-blog/include)
-    list(APPEND DEVICE_DEFINITIONS   STREAM1090_HAVE_RTLSDR)
-    list(APPEND DEVICE_DEFINITIONS   STREAM1090_HAVE_RTLSDR_BLOG)
-
-else()
-    message(STATUS "[stream1090] Trying system librtlsdr...")
-
-    find_package(PkgConfig)
-    pkg_check_modules(RTLSDR QUIET librtlsdr)
-
-    if(RTLSDR_FOUND)
-        message(STATUS "[stream1090] System librtlsdr found")
-
-        list(APPEND DEVICE_SOURCES       src/devices/RtlSdrDevice.cpp)
-        list(APPEND DEVICE_LIBS          ${RTLSDR_LDFLAGS})
-        list(APPEND DEVICE_INCLUDE_DIRS  ${RTLSDR_INCLUDE_DIRS})
-        list(APPEND DEVICE_DEFINITIONS   STREAM1090_HAVE_RTLSDR)
-
-    else()
-        message(STATUS "[stream1090] RTL-SDR support disabled (no Blog fork, no system librtlsdr)")
-    endif()
+if(DEFINED ENABLE_RTLSDR_BLOG AND NOT ENABLE_RTLSDR_BLOG)
+    message(FATAL_ERROR "This branch requires the vendored RTL-SDR Blog backend; remove -DENABLE_RTLSDR_BLOG=OFF")
 endif()
+message(STATUS "[stream1090] Using vendored RTL-SDR Blog fork")
+set(DETACH_KERNEL_DRIVER ON CACHE BOOL "" FORCE)
+# Only the static target linked by stream1090 is needed. Excluding the
+# subdirectory from ALL also keeps its shared-library install rules out of
+# stream1090 packages.
+add_subdirectory(thirdparty/rtl-sdr-blog EXCLUDE_FROM_ALL)
+
+list(APPEND DEVICE_SOURCES       src/devices/RtlSdrDevice.cpp)
+list(APPEND DEVICE_LIBS          rtlsdr_static)
+list(APPEND DEVICE_INCLUDE_DIRS  thirdparty/rtl-sdr-blog/include)
+list(APPEND DEVICE_DEFINITIONS   STREAM1090_HAVE_RTLSDR STREAM1090_HAVE_RTLSDR_BLOG)
 
 
 # ------------------------------------------------------------
@@ -169,6 +152,10 @@ if(BUILD_TESTING)
     stream1090_add_test(mode_s_position_test tests/ModeSPositionTest.cpp)
     stream1090_add_test(rtlsdr_serial_test tests/RtlSdrSerialTest.cpp)
     stream1090_add_test(sample_drop_event_gate_test tests/SampleDropEventGateTest.cpp)
+    stream1090_add_test(adaptive_gain_logic_test tests/AdaptiveGainLogicTest.cpp)
+    stream1090_add_test(adc_histogram_diagnostics_test tests/AdcHistogramDiagnosticsTest.cpp)
+    stream1090_add_test(device_lifecycle_test tests/DeviceLifecycleTest.cpp)
+    target_compile_definitions(device_lifecycle_test PRIVATE STREAM1090_VERSION=\"test\")
     stream1090_add_test(noise_false_positive_test tests/NoiseFalsePositiveTest.cpp)
     target_compile_definitions(noise_false_positive_test PRIVATE
         ${PREAMBLE_GATE_DEF}

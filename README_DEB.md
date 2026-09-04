@@ -9,21 +9,17 @@ derivatives such as Raspberry Pi OS.
 Install the build tools and device library headers:
 
 ```bash
-sudo apt install devscripts debhelper cmake pkg-config g++
+sudo apt install devscripts debhelper cmake pkg-config g++ libusb-1.0-0-dev
 ```
 
 Add whichever device library headers match your hardware:
 
 ```bash
-# For RTL-SDR dongles
-sudo apt install librtlsdr-dev
-
 # For Airspy
 sudo apt install libairspy-dev
 ```
 
-Both can be installed at the same time; the build system detects what is
-available and enables support accordingly.
+RTL-SDR uses the vendored Blog fork in every build. Airspy support is optional.
 
 ## Building the Package
 
@@ -46,14 +42,12 @@ ls ../stream1090_*.deb
 
 ### What the package build does differently from a manual build
 
-The Debian build passes two flags that differ from the defaults:
+The Debian build passes one flag that differs from the defaults:
 
 | Flag | Package value | Reason |
 |------|--------------|--------|
 | `ENABLE_STATS` | `OFF` | Statistics are printed to stderr, which produces noise in journal logs when running as a service |
-| `ENABLE_RTLSDR_BLOG` | `OFF` | The vendored RTL-SDR Blog fork conflicts with the system `librtlsdr0`; use the system library instead |
-
-If you need the RTL-SDR Blog fork or statistics output, build from source
+If you need statistics output, build from source
 using the [standard instructions](./README.md#compiling-stream1090).
 
 ## Installing the Package

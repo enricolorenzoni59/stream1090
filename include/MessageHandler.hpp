@@ -11,6 +11,7 @@
 #include "Bits128.hpp"
 #include "ModeS.hpp"
 #include "AVRWriter.hpp"
+#include "Counters.hpp"
 
 template<typename H>
 concept MessageHandler = requires(H h, uint64_t sampleIndex, uint64_t frameShort, const Bits128& frameLong) {
@@ -24,11 +25,13 @@ public:
     explicit StdOutMessageHandler() : m_writer(std::cout) {}
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
+        StreamCounters::decodedShort.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         m_writer.write_short_MLAT(MLAT_timeStamp, frame);
     }
 
     void handleLong(uint64_t sampleIndex, const Bits128& frame) {
+        StreamCounters::decodedLong.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         m_writer.write_long_MLAT(MLAT_timeStamp, frame);
     }
@@ -50,12 +53,14 @@ public:
           rssiProvider(rssi) {}
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
+        StreamCounters::decodedShort.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSIShort();
         m_writer.write_short_MLAT_RSSI(MLAT_timeStamp, frame, rssi);
     }
 
     void handleLong(uint64_t sampleIndex, const Bits128& frame) {
+        StreamCounters::decodedLong.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSILong();
         m_writer.write_long_MLAT_RSSI(MLAT_timeStamp, frame, rssi);

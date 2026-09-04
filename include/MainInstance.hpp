@@ -23,7 +23,17 @@
 #include <algorithm>
 #include <optional>
 #include <sstream>
+#include <thread>
 #include <unistd.h>
+
+// Shutdown must wait for the watchdog before the device is closed.  The
+// watchdog may be in a synchronous reload, which uses the same device handle.
+template<typename Device>
+void closeAfterWatchdog(Device& device, std::thread& watchdog) {
+    if (watchdog.joinable())
+        watchdog.join();
+    device.close();
+}
 
 
 template<typename Sampler>
@@ -303,16 +313,11 @@ public:
         // SHUTDOWN
         // -------------------------------
         Log::info("Stream1090", "Shutting down device.");
-        m_device->close();
+        closeAfterWatchdog(*m_device, watchdog);
         Log::info("Stream1090", "Device closed down.");
 
         auto end_wct = std::chrono::steady_clock::now();
         auto dur_wct_secs = std::chrono::duration_cast<std::chrono::milliseconds>(end_wct - start_wct).count();
-        if (watchdog.joinable()) {
-            Log::info("Stream1090", "Watchdog joining.");
-            watchdog.join();
-            Log::info("Stream1090", "Watchdog joined.");
-        }
         Log::info("Stream1090", "Shutdown completed.");
         Log::msg("Stream1090") << "Finished. (" << dur_wct_secs/1000.0 << "s)";
         // return if this shutdown was intended or not (lost device)
