@@ -321,8 +321,11 @@ public:
 
 		double lat = 0.0;
 		double lon = 0.0;
+		// the frame that just arrived is the more recent one, so the fix is
+		// recorded for its parity's solution; recording the older parity's
+		// solution would stamp a past position with the current time
 		if (!ModeS::decodeCprGlobal(state.cpr_even_lat, state.cpr_even_lon,
-				state.cpr_odd_lat, state.cpr_odd_lon, lat, lon))
+				state.cpr_odd_lat, state.cpr_odd_lon, odd, lat, lon))
 			return;
 		state.last_lat_e5 = int32_t(lat * 1e5);
 		state.last_lon_e5 = int32_t(lon * 1e5);
@@ -336,6 +339,21 @@ public:
 			return false;
 		latE5 = state.last_lat_e5;
 		lonE5 = state.last_lon_e5;
+		return true;
+	}
+
+	// The stored CPR bits of the opposite parity, when they are fresh enough
+	// to pair globally with a frame that just arrived. This is the pair a
+	// downstream receiver would form, so a repaired frame must be validated
+	// against exactly it: its raw CPR bits go out unchanged.
+	bool cachedOppositeCpr(const Iterator& entry, bool odd, uint32_t& latCpr,
+			uint32_t& lonCpr, uint64_t now, uint64_t maxAge) const noexcept {
+		const auto& state = m_squawkAlt[entry.key];
+		const uint64_t otherTime = odd ? state.cpr_even_time : state.cpr_odd_time;
+		if (otherTime == 0 || now - otherTime > maxAge)
+			return false;
+		latCpr = odd ? state.cpr_even_lat : state.cpr_odd_lat;
+		lonCpr = odd ? state.cpr_even_lon : state.cpr_odd_lon;
 		return true;
 	}
 

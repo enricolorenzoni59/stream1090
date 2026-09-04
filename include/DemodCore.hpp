@@ -656,18 +656,44 @@ private:
 
 		int32_t refLatE5 = 0;
 		int32_t refLonE5 = 0;
+		// fail closed: without a clean-pair reference there is nothing the
+		// frame can be near, so the promise "only near a clean-pair position"
+		// means the repair is rejected, not waved through
 		if (!m_cache.cachedPosition(entry, refLatE5, refLonE5,
 				m_currTime, PositionMaxAgeTicks))
-			return true;
+			return false;
 
 		const double refLat = refLatE5 * 1e-5;
 		const double refLon = refLonE5 * 1e-5;
+		const bool odd = ModeS::extractAirbornePositionCprOdd(frame);
+		const uint32_t latCpr = ModeS::extractAirbornePositionCprLat(frame);
+		const uint32_t lonCpr = ModeS::extractAirbornePositionCprLon(frame);
+
+		// The frame goes out with its raw CPR bits, and a receiver downstream
+		// pairs them with the opposite clean parity for a global decode. A
+		// flipped bit can decode locally within the gate yet move that global
+		// solution to another latitude zone, so the pair a receiver will
+		// actually form is what has to pass here. The repaired frame is the
+		// more recent one, so its parity's solution is the fix to check.
+		uint32_t otherLatCpr = 0;
+		uint32_t otherLonCpr = 0;
+		if (m_cache.cachedOppositeCpr(entry, odd, otherLatCpr, otherLonCpr,
+				m_currTime, CprPairWindowTicks)) {
+			double lat = 0.0;
+			double lon = 0.0;
+			if (!ModeS::decodeCprGlobal(odd ? otherLatCpr : latCpr,
+					odd ? otherLonCpr : lonCpr,
+					odd ? latCpr : otherLatCpr,
+					odd ? lonCpr : otherLonCpr, odd, lat, lon))
+				return false;
+			return distanceKm(refLat, refLon, lat, lon) <= RepairDistanceLimitKm;
+		}
+
+		// no pairable opposite parity behind the reference either: the local
+		// decode against the reference is all a receiver could reproduce
 		double lat = 0.0;
 		double lon = 0.0;
-		decodeCprRelative(refLat, refLon,
-			ModeS::extractAirbornePositionCprOdd(frame),
-			ModeS::extractAirbornePositionCprLat(frame),
-			ModeS::extractAirbornePositionCprLon(frame), lat, lon);
+		decodeCprRelative(refLat, refLon, odd, latCpr, lonCpr, lat, lon);
 		return distanceKm(refLat, refLon, lat, lon) <= RepairDistanceLimitKm;
 	}
 
