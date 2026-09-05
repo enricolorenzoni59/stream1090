@@ -136,7 +136,7 @@ bool fixturesHaveExpectedGeometry() {
 	return localSouthKm < 1.0 && farSouthKm > 300.0;
 }
 
-bool repairedPairCannotBypassGlobalGate() {
+bool repairedPairCannotBypassGlobalGate(bool followingClean) {
 	CapturingHandler handler;
 	DemodCore<1, CapturingHandler> demod(handler);
 	constexpr uint32_t icao = 0x345678;
@@ -160,16 +160,21 @@ bool repairedPairCannotBypassGlobalGate() {
 	feedFrame(demod, makeIdentification(icao, 1));
 	feedSilence(demod, 1'500'000);
 
-	// This repaired even frame is locally 84 km from the reference, so it is
-	// safe by itself and is emitted. A following repaired odd frame is also
-	// locally near, but the two repaired parities form the 4700 km ghost pair.
-	// The second repair must be checked against the first emitted repair.
+	// Locally near is insufficient: a later clean odd frame would pair with
+	// this repair into a 4700 km ghost. Reject it before it reaches output.
 	const auto repairedEven = makePosition(icao, false, 76616, 51372);
 	feedFrame(demod, makeRepairable(repairedEven));
-	if (handler.longCount != 7 || handler.lastLong != repairedEven)
+	if (handler.longCount != 6)
 		return false;
-	feedFrame(demod, makeRepairable(cleanOdd));
-	return handler.longCount == 7 && handler.lastLong == repairedEven;
+	feedFrame(demod, followingClean ? cleanOdd : makeRepairable(cleanOdd));
+	if (!followingClean)
+		return handler.longCount == 6;
+	if (handler.longCount != 7 || handler.lastLong != cleanOdd)
+		return false;
+
+	// Once a clean opposite parity is available, valid repairs resume.
+	feedFrame(demod, makeRepairable(cleanEven));
+	return handler.longCount == 8 && handler.lastLong == cleanEven;
 }
 
 } // namespace
@@ -177,6 +182,11 @@ bool repairedPairCannotBypassGlobalGate() {
 int main() {
 	if (!fixturesHaveExpectedGeometry())
 		return 1;
+
+	if (!repairedPairCannotBypassGlobalGate(true))
+		return 14;
+	if (!repairedPairCannotBypassGlobalGate(false))
+		return 15;
 
 	CapturingHandler handler;
 	DemodCore<1, CapturingHandler> demod(handler);
@@ -242,7 +252,7 @@ int main() {
 	if (handler.longCount != 5 || handler.lastLong != firstOdd)
 		return 8;
 
-	// --- a southern and western reference: the sign-safe local decode ---
+	// --- a southern and western reference ---
 
 	// 0x234567 becomes trusted like above.
 	feedFrame(demod, makeIdentification(0x234567, 1));
@@ -278,19 +288,20 @@ int main() {
 	if (handler.longCount != 11 || handler.lastLong != latestIdentification)
 		return 11;
 
-	// With the opposite parity stale, the local decode against the negative
-	// reference is all a receiver could reproduce: the sign-safe zone index
-	// must place this repair at the reference, not a zone away.
+	// Even a repair at the reference must wait for a fresh opposite parity.
 	feedFrame(demod, makeRepairable(southEven));
-	if (handler.longCount != 12 || handler.lastLong != southEven)
+	if (handler.longCount != 11 || handler.lastLong != latestIdentification)
 		return 12;
 
-	// and a repair decoding 400 km away from the southern reference, into a
-	// zone the pre-fix fmod decomposition used to land in, is rejected.
+	feedFrame(demod, southOdd);
+	feedFrame(demod, makeRepairable(southEven));
+	if (handler.longCount != 13 || handler.lastLong != southEven)
+		return 16;
+
 	const auto southFar = makePosition(0x234567, false, 0, 0);
 	feedFrame(demod, makeRepairable(southFar));
-	if (handler.longCount != 12 || handler.lastLong != southEven)
+	if (handler.longCount != 13 || handler.lastLong != southEven)
 		return 13;
 
-	return repairedPairCannotBypassGlobalGate() ? 0 : 14;
+	return 0;
 }

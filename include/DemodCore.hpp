@@ -623,28 +623,6 @@ private:
 			CprPairWindowTicks);
 	}
 
-	static void decodeCprRelative(double refLat, double refLon, bool odd,
-			uint32_t latCpr, uint32_t lonCpr, double& lat, double& lon) noexcept {
-		const double dlat = odd ? 360.0 / 59.0 : 360.0 / 60.0;
-		const double normalizedLat = double(latCpr) / 131072.0;
-		// DO-260C A.1.7.5: the zone index nearest the reference. Sign-safe: a
-		// floor/fmod decomposition is off by one zone whenever the reference is
-		// negative, because fmod keeps the dividend's sign.
-		lat = dlat * (std::floor(0.5 + refLat / dlat - normalizedLat)
-			+ normalizedLat);
-		if (lat > 90.0) lat -= 180.0;
-		if (lat < -90.0) lat += 180.0;
-
-		const int zones = ModeS::cprNl(lat) - (odd ? 1 : 0);
-		const int ni = zones > 1 ? zones : 1;
-		const double dlon = 360.0 / double(ni);
-		const double normalizedLon = double(lonCpr) / 131072.0;
-			lon = dlon * (std::floor(0.5 + refLon / dlon - normalizedLon)
-			+ normalizedLon);
-		if (lon > 180.0) lon -= 360.0;
-		if (lon < -180.0) lon += 360.0;
-	}
-
 	static double distanceKm(double lat1, double lon1, double lat2, double lon2) noexcept {
 		constexpr double EarthRadiusKm = 6371.0;
 		constexpr double DegreesToRadians = 3.14159265358979323846 / 180.0;
@@ -697,12 +675,9 @@ private:
 			return distanceKm(refLat, refLon, lat, lon) <= RepairDistanceLimitKm;
 		}
 
-		// no pairable opposite parity behind the reference either: the local
-		// decode against the reference is all a receiver could reproduce
-		double lat = 0.0;
-		double lon = 0.0;
-		decodeCprRelative(refLat, refLon, odd, latCpr, lonCpr, lat, lon);
-		return distanceKm(refLat, refLon, lat, lon) <= RepairDistanceLimitKm;
+		// A local fix cannot validate the pair a later clean frame will form.
+		// Withhold the repair until an emitted opposite parity is pairable.
+		return false;
 	}
 
 	const void* m_confidenceCtx = nullptr;
