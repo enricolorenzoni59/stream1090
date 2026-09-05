@@ -200,6 +200,7 @@ bool cleanCprPairSeedsPosition() {
     return table.cachedPosition(entry, lat, lon, now + 100, 60'000)
         && std::abs(lat - 5'226'578) < 10
         && std::abs(lon - 393'891) < 10
+        && table.cachedPosition(entry, lat, lon, now + 60'100, 60'000)
         && !table.cachedPosition(entry, lat, lon, now + 60'101, 60'000);
 }
 
@@ -269,9 +270,11 @@ bool cachedOppositeCprPairsAndAges() {
     if (latCpr != 74158 || lonCpr != 50194)
         return false;
 
-    // ... but only while it is younger than the pair window
-    return !table.cachedOppositeCpr(entry, false, latCpr, lonCpr,
-        now + 100 + 10'001, 10'000);
+    // ... through the exact pair-window boundary, but not one tick beyond it
+    return table.cachedOppositeCpr(entry, false, latCpr, lonCpr,
+            now + 100 + 10'000, 10'000)
+        && !table.cachedOppositeCpr(entry, false, latCpr, lonCpr,
+            now + 100 + 10'001, 10'000);
 }
 
 } // namespace
