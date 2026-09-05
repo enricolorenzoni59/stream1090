@@ -12,21 +12,25 @@
 // ########### ATTENTION #############
 namespace ModeS {
 
-    // Index adjusted BitRange that also carries the type of the field for 56 bit frames
-    template<typename T, std::size_t icao_lo, std::size_t icao_hi>
-    struct FrameField_Short : BitUtils::BitRange<(56 - icao_lo), (56 - icao_hi)> {
+    // Index adjusted BitRange that also carries the type of the field
+    template<typename T, std::size_t icao_lo, std::size_t icao_hi, std::size_t total_bits>
+    struct FrameFieldBase : BitUtils::BitRange<(total_bits - icao_lo), (total_bits - icao_hi)> {
         static_assert(icao_lo <= icao_hi);
+
+        static constexpr std::size_t Width = icao_hi - icao_lo + 1;
+        static_assert(sizeof(T) * 8 >= Width, "Type too small for field width");
+
         using Type = T;
-        static constexpr std::size_t MessageLength = 56;
+        static constexpr std::size_t MessageLength = total_bits;
     };
 
-    // Index adjusted BitRange that also carries the type of the field for 112 bit frames
+    // Field def struct for short 56 bits
     template<typename T, std::size_t icao_lo, std::size_t icao_hi>
-    struct FrameField_Long : BitUtils::BitRange<(112 - icao_lo), (112 - icao_hi)> {
-        static_assert(icao_lo <= icao_hi);
-        using Type = T;
-        static constexpr std::size_t MessageLength = 112;
-    };
+    using FrameField_Short = FrameFieldBase<T, icao_lo, icao_hi, 56>;
+
+    // Field def struct for long 112 bits
+    template<typename T, std::size_t icao_lo, std::size_t icao_hi>
+    using FrameField_Long = FrameFieldBase<T, icao_lo, icao_hi, 112>;
 
     template<typename Field>
     constexpr typename Field::Type getField(const uint64_t& bits) noexcept {
@@ -80,7 +84,7 @@ namespace ModeS {
         using CA            = FrameField_Long< uint8_t,  6,  8>;
         using ICAO          = FrameField_Long<uint32_t,  9, 32>;
         using ICAOWithCA    = FrameField_Long<uint32_t,  6, 32>;
-        using Message       = FrameField_Long<uint32_t, 33, 88>;
+        using Message       = FrameField_Long<uint64_t, 33, 88>;
         using Typecode      = FrameField_Long< uint8_t, 33, 37>;
 
         // Airborne position
