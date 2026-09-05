@@ -363,7 +363,7 @@ bool discardedRepairsDoNotRejuvenateCleanReference() {
 	if (handler.longCount != afterAging + 9)
 		return false;
 
-	// Cross the 60 s boundary (with margin): ~65 s since the reference was
+	// Cross the 60 s boundary (with margin): ~75.5 s since the reference was
 	// set by the time the check below runs.
 	for (int round = 0; round < 4; ++round) {
 		feedSilence(demod, 5'000'000);
@@ -425,17 +425,22 @@ bool consecutiveAcceptedRepairsDoNotExtendCleanReference() {
 	return handler.longCount == expected;
 }
 
-// The capture analysis in README_ADV.md found repaired positions discarded
-// for one aircraft coinciding with a later CRC-clean frame for the same
-// aircraft being withheld as if it were a brand-new address's first
-// sighting. This reproduces the mechanism: ICAOTable's cache-slot eviction
-// ttl (ICAOTable::TTL_not_trusted, decremented once per real second
-// independently of trust) is shorter than, and unrelated to, the position
-// gate. It only ever refreshes on an ACCEPTED message. A run of discarded
-// repairs contributes no refresh, so if nothing else reaches the address for
-// long enough, the slot -- and with it the aircraft's trusted state --
-// expires. This is an existing transition (ttl expiry, not a collision or
-// any new behavior); no production code changes here.
+// The capture analysis in README_ADV.md found, for one clean frame, its
+// address absent from the cache and unconfirmed at that point -- a possible
+// mechanism for some of the indirect message loss measured there, not a
+// demonstrated cause for every such event (the analysis did not separately
+// distinguish ttl expiry from a hash collision for that frame). This test
+// reproduces one candidate mechanism: ICAOTable's cache-slot eviction ttl
+// (TTL_not_trusted, decremented once per real second, independently of and
+// shorter than the trust ttl) only ever refreshes on an ACCEPTED message. It
+// is not enough to show one discard followed by long silence, though --
+// that alone would not separate "a discard contributed nothing" from "the
+// slot would have expired from silence regardless." The proof needs
+// repeated discards, closer together than the eviction ttl, for longer than
+// it, with the slot's own initial 30 s trust-candidate window (see below)
+// already spent beforehand on genuine traffic so it cannot mask the result.
+// This is an existing transition (ttl expiry, not a collision), reproduced
+// here as a possible mechanism; no production code changes here.
 bool discardedRepairsCanStarveCacheSlotAndDemoteNextCleanFrame() {
 	CapturingHandler handler;
 	DemodCore<1, CapturingHandler> demod(handler);
@@ -456,51 +461,56 @@ bool discardedRepairsCanStarveCacheSlotAndDemoteNextCleanFrame() {
 	if (handler.longCount != 3)
 		return false;
 
-	// A position implausible at any freshness (far outside the reference
-	// zone), so every one of these repairs is discarded on the distance
-	// check alone, independent of the pairing window's timing state.
-	// One repair attempted here, implausible at any freshness (far outside
-	// the reference zone) and so discarded regardless of the pairing
-	// window's timing state, demonstrating that a discard contributes
-	// nothing towards keeping the slot alive.
+	// The very first identifying frame above registered this address in
+	// ICAOTable's own 30 s trust-candidate window (the fallback for a second
+	// sighting arriving after the first one's cache slot already expired --
+	// see confirmTrustCandidate). That registration is never consumed by the
+	// second identifying frame right after it, because by then the address
+	// is already known through the ordinary path; it only lapses on its own
+	// after 30 s. Spend that window here on genuine clean traffic -- kept
+	// well inside the cache ttl throughout, so the slot itself stays alive
+	// on real messages, not yet on anything under test -- so it cannot later
+	// mask a discard's effect by confirming a next sighting on its own.
+	// Seven rounds of 5 s clear the 30 s window with margin.
+	auto afterTrustCandidateWindow = handler.longCount;
+	for (int round = 0; round < 7; ++round) {
+		feedSilence(demod, 5'000'000);
+		feedFrame(demod, makeIdentification(icao, (round % 2) ? 3 : 1));
+		++afterTrustCandidateWindow;
+		if (handler.longCount != afterTrustCandidateWindow)
+			return false;
+	}
+
+	// Now the actual test: repairs implausible at any freshness (far outside
+	// the reference zone), so every one is discarded on the distance check
+	// alone, independent of the pairing window's timing state -- attempted
+	// every 3 s, closer together than the cache ttl (ten sweep passes, one
+	// per real second, so on the order of ten seconds), for eighteen
+	// seconds, longer than it. If discards refreshed the slot the way an
+	// accepted message does, this stream of them, closer together than the
+	// ttl, would keep it alive indefinitely; the point is that they do not.
 	const auto farAway = makePosition(icao, false, 0, 0);
-	feedFrame(demod, makeRepairable(farAway));
-	if (handler.longCount != 3)
-		return false;
+	for (int round = 0; round < 6; ++round) {
+		feedSilence(demod, 3'000'000);
+		feedFrame(demod, makeRepairable(farAway));
+	}
+	if (handler.longCount != afterTrustCandidateWindow)
+		return false; // every repair above was discarded, as expected
 
-	// ICAOTable::tick() sweeps one cache slot per real second, at a phase
-	// fixed by that slot's hash key, so a given slot's ttl decrement can lag
-	// up to a full second behind when it was set, and eviction itself fires
-	// one sweep pass after ttl reaches zero: comfortably cleared here.
-	//
-	// Separately, the very first identifying frame at the top of this test
-	// registered this address in ICAOTable's own 30 s trust-candidate
-	// window (the fallback for a second sighting arriving after the first
-	// one's cache slot already expired -- see confirmTrustCandidate). That
-	// registration is never consumed by the second identifying frame right
-	// after it, because by then the address is already known through the
-	// ordinary path; it only lapses on its own after 30 s. So the silence
-	// here must clear ICAOTable::TrustCandidateMaxTicks too, measured from
-	// the very first frame in this test, or the eviction below would be
-	// masked by that unrelated, still-live registration confirming
-	// afterStarve on its own.
-	feedSilence(demod, 32'000'000);
-	if (handler.longCount != 3)
-		return false; // the repair above was discarded, as expected
-
-	// The cache slot has expired from twelve seconds with no accepted
-	// message. The next CRC-clean frame for this address is withheld,
-	// exactly like a brand-new address's first sighting -- not emitted as a
-	// known aircraft's next message.
+	// The cache slot has expired from eighteen seconds of nothing but
+	// discarded repairs. The next CRC-clean frame for this address is
+	// withheld, exactly like a brand-new address's first sighting -- not
+	// emitted as a known aircraft's next message. If the discards above had
+	// kept the slot alive, this would be emitted immediately instead.
 	const auto afterStarve = makeIdentification(icao, 1);
 	feedFrame(demod, afterStarve);
-	if (handler.longCount != 3)
+	if (handler.longCount != afterTrustCandidateWindow)
 		return false;
 
 	// A second sighting re-admits it, indistinguishable from a genuinely new
 	// address.
 	feedFrame(demod, makeIdentification(icao, 3));
-	return handler.longCount == 4;
+	return handler.longCount == afterTrustCandidateWindow + 1;
 }
 
 struct MlatEvent {
