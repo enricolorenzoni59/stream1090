@@ -90,6 +90,8 @@ For DF0/4/5/16/20/21 address-parity replies, altitude and squawk checks normally
 
 Repaired airborne-position frames are emitted only when their CPR position is within 100 km of a clean globally decoded position for the same aircraft from the previous 60 seconds. An emitted opposite-parity frame within the 10-second airborne CPR pairing window is also required: stream1090 validates the global pair with that frame, including pairs of repaired frames. Without either reference the repair is rejected. Local CPR proximity alone is insufficient because a later clean opposite-parity frame could turn the emitted repair into a distant global position. Surface positions and altitude plausibility are not covered by this gate.
 
+Rejection here has no buffer and no retroactive path back in: a discarded repair is dropped as soon as the check fails, and it never gets a second chance from a later frame. This applies even when the repair itself was correct. The gate cannot tell a correct repair with no confirming opposite parity apart from an incorrect one, so a discard means the repair could not be confirmed within these windows, not that the underlying message was necessarily false. Most discards happen simply because the opposite-parity frame had already aged out of the 10-second pairing window by the time the damaged frame arrived. Losing those repaired positions is the deliberate cost of never emitting an unconfirmed one.
+
 Important: If you want to see the statistics for the whole file and not every 5 seconds. You can enable the a summary at the end by rebuilding stream with after the following cmake call in the build directory
 ```
 cmake ../ --fresh -DEND_STATS=ON -DENABLE_STATS=ON && make
