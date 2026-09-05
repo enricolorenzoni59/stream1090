@@ -2,6 +2,7 @@
 
 #include "DemodCore.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <vector>
@@ -71,19 +72,58 @@ Bits128 makeIdentification(uint32_t icao, uint8_t meType = 1,
 	return frame;
 }
 
+template<int N, typename H>
+void feedSilenceN(DemodCore<N, H>& demod, uint32_t ticks) {
+	uint32_t value[N];
+	std::fill(std::begin(value), std::end(value), 0u);
+	for (uint32_t tick = 0; tick < ticks; ++tick)
+		demod.shiftInNewBits(value);
+}
+
 void feedSilence(DemodCore<1, CapturingHandler>& demod, uint32_t bits) {
-	for (uint32_t bit = 0; bit < bits; ++bit) {
-		uint32_t value[] = { 0 };
+	feedSilenceN(demod, bits);
+}
+
+template<int N, typename H>
+void feedFrameLongN(DemodCore<N, H>& demod, const Bits128& frame) {
+	for (int bit = 111; bit >= 0; --bit) {
+		uint32_t value[N];
+		std::fill(std::begin(value), std::end(value), uint32_t(frame.get(bit)));
 		demod.shiftInNewBits(value);
 	}
+	feedSilenceN(demod, 16);
 }
 
 void feedFrame(DemodCore<1, CapturingHandler>& demod, const Bits128& frame) {
-	for (int bit = 111; bit >= 0; --bit) {
-		uint32_t value[] = { uint32_t(frame.get(bit)) };
+	feedFrameLongN(demod, frame);
+}
+
+// One microsecond of raw bit stream per shiftInNewBits() call, regardless of
+// NumStreams: each call feeds NumStreams parallel phase-candidates for that
+// same microsecond, so the tick-count arguments used throughout this file
+// (frame lengths, pairing windows, silences) are valid unchanged at any
+// NumStreams. Broadcasting an identical bit to every stream makes all
+// NumStreams phases converge on the same content; only the lowest-indexed
+// stream actually reaches the dispatcher; the rest are filtered as phase
+// duplicates, exactly as real hardware would collapse redundant detections.
+template<int N, typename H>
+void feedFrameShortN(DemodCore<N, H>& demod, uint64_t frame) {
+	for (int bit = 55; bit >= 0; --bit) {
+		uint32_t value[N];
+		std::fill(std::begin(value), std::end(value), uint32_t((frame >> bit) & 1));
 		demod.shiftInNewBits(value);
 	}
-	feedSilence(demod, 16);
+	feedSilenceN(demod, 16);
+}
+
+uint64_t makeDF11(uint32_t icao, uint8_t capability = 5) {
+	// interrogatorCode 0 keeps the CRC clean (parity == checksum), taking the
+	// simplest DF11 accept path so short-frame traffic here needs no separate
+	// two-sighting corroboration beyond what the address already has.
+	uint64_t frame = (uint64_t(11) << 51)
+		| (uint64_t(capability) << 48)
+		| (uint64_t(icao) << 24);
+	return frame | CRC::compute<56>(Bits128(frame));
 }
 
 // Damaged so that the error table repair recovers the frame itself: the
@@ -218,6 +258,376 @@ bool repairedPairCannotBypassGlobalGate(bool followingClean) {
 		&& outputTimestampsAreMonotonic(handler);
 }
 
+// A discarded repair must not overwrite the emitted-CPR history slot for its
+// own parity: only an accepted send may do that. Proven with a repair whose
+// CPR is bit-identical to the value already on record there, so the only
+// thing a wrongful write could change is the *timestamp* -- and that is
+// exactly what a later, otherwise-identical repair for the opposite parity
+// would key off if the discard had (wrongly) refreshed it.
+bool discardedRepairDoesNotRefreshEmittedHistory() {
+	CapturingHandler handler;
+	DemodCore<1, CapturingHandler> demod(handler);
+	constexpr uint32_t icao = 0x445566;
+
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 128);
+	feedFrame(demod, makeIdentification(icao, 3));
+	if (handler.longCount != 1)
+		return false;
+
+	const auto even = makePosition(icao, false, 93000, 51372);
+	const auto odd = makePosition(icao, true, 74158, 50194);
+	feedFrame(demod, even);
+	feedSilence(demod, 128);
+	feedFrame(demod, odd);
+	if (handler.longCount != 3)
+		return false;
+
+	// Age both emitted parities out of the 10 s pairing window while
+	// identifying frames keep the entry alive and its clean reference fresh.
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentification(icao, 3));
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 1'500'000);
+	if (handler.longCount != 6)
+		return false;
+
+	// Discarded: the odd side's emitted output is stale, so this repair --
+	// even though it reconstructs the exact even value already on record --
+	// cannot be confirmed.
+	feedFrame(demod, makeRepairable(even));
+	if (handler.longCount != 6)
+		return false;
+
+	// If that discard had refreshed the emitted-even slot's timestamp, this
+	// odd repair would now see a fresh even partner (the same value, just a
+	// newer stamp) and pair straight back to the reference. It must still be
+	// rejected: the even slot the gate actually holds is the one set by the
+	// original clean pair, still stale by now.
+	feedFrame(demod, makeRepairable(odd));
+	return handler.longCount == 6;
+}
+
+// A discarded repair must not modify or rejuvenate the clean position
+// reference either. Proven purely on timing: several discards are attempted
+// on the way to the reference's 60 s lifetime, then, once a fresh opposite
+// parity is available again and only the reference's own age is left to
+// decide the outcome, the reference must behave as if none of those discards
+// had happened.
+bool discardedRepairsDoNotRejuvenateCleanReference() {
+	CapturingHandler handler;
+	DemodCore<1, CapturingHandler> demod(handler);
+	constexpr uint32_t icao = 0x556677;
+
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 128);
+	feedFrame(demod, makeIdentification(icao, 3));
+
+	const auto even = makePosition(icao, false, 93000, 51372);
+	const auto odd = makePosition(icao, true, 74158, 50194);
+	feedFrame(demod, even);
+	feedSilence(demod, 128);
+	feedFrame(demod, odd);
+	if (handler.longCount != 3)
+		return false;
+
+	// Age the opposite parity out of its 10 s pairing window first, so every
+	// repair attempted below starts out discarded purely for staleness, not
+	// by the accident of still catching a fresh pairing.
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentification(icao, 3));
+	feedSilence(demod, 3'000'000);
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 1'500'000);
+	const auto afterAging = handler.longCount;
+
+	// Still comfortably within the reference's 60 s lifetime from here.
+	// Every opposite parity stays stale throughout (nothing refreshes it),
+	// so every repair attempted along the way is discarded for that reason.
+	// Identifying frames every 5 s keep the entry alive without ever
+	// touching position state. Alternating even/odd matters here: a repair
+	// that wrongly re-seeded the clean-pair tracker (rather than the
+	// reference directly) would only show up once both sides of that
+	// tracker were refreshed close together, so a discard stream of only
+	// one parity could hide it.
+	for (int round = 0; round < 9; ++round) {
+		feedSilence(demod, 5'000'000);
+		feedFrame(demod, makeIdentification(icao, (round % 2) ? 3 : 1));
+		feedFrame(demod, makeRepairable((round % 2 == 0) ? even : odd));
+	}
+	if (handler.longCount != afterAging + 9)
+		return false;
+
+	// Cross the 60 s boundary (with margin): ~65 s since the reference was
+	// set by the time the check below runs.
+	for (int round = 0; round < 4; ++round) {
+		feedSilence(demod, 5'000'000);
+		feedFrame(demod, makeIdentification(icao, (round % 2) ? 3 : 1));
+	}
+
+	// A genuine clean frame here cannot rejuvenate the reference either --
+	// its own clean counterpart (the even side) is itself long past the
+	// noteCprClean's internal 10 s pairing window -- but it does refresh the
+	// emitted-odd slot, isolating what is left to decide the next repair to
+	// the reference's own age.
+	feedFrame(demod, odd);
+	const auto afterFreshOpposite = handler.longCount;
+
+	// If any discard above had rejuvenated the reference, it would still
+	// look fresh here and this would be accepted. It must not be: the
+	// reference is now genuinely past its 60 s lifetime.
+	feedFrame(demod, makeRepairable(even));
+	return handler.longCount == afterFreshOpposite;
+}
+
+// An unbroken chain of ACCEPTED repairs must not extend the clean reference's
+// lifetime either, because repairs never call the reference-setting code
+// path -- only a CRC-clean odd/even pair does. Six repairs, 9 s apart, each
+// riding the previous one's freshly emitted opposite parity, keep succeeding
+// right up to 54 s after the original clean pair; a seventh, still with a
+// fresh opposite parity, at 63 s must fail on the reference's age alone.
+bool consecutiveAcceptedRepairsDoNotExtendCleanReference() {
+	CapturingHandler handler;
+	DemodCore<1, CapturingHandler> demod(handler);
+	constexpr uint32_t icao = 0x667788;
+
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 128);
+	feedFrame(demod, makeIdentification(icao, 3));
+
+	const auto even = makePosition(icao, false, 93000, 51372);
+	const auto odd = makePosition(icao, true, 74158, 50194);
+	feedFrame(demod, even);
+	feedSilence(demod, 128);
+	feedFrame(demod, odd);
+	if (handler.longCount != 3)
+		return false;
+	auto expected = handler.longCount;
+
+	for (int round = 0; round < 6; ++round) {
+		feedSilence(demod, 9'000'000);
+		feedFrame(demod, makeRepairable((round % 2 == 0) ? odd : even));
+		++expected;
+		if (handler.longCount != expected)
+			return false;
+	}
+
+	// 63 s after the original clean pair, only 9 s after the last accepted
+	// repair (so its opposite parity is still fresh): the reference itself
+	// must have expired despite the unbroken chain of successes above.
+	feedSilence(demod, 9'000'000);
+	feedFrame(demod, makeRepairable(odd));
+	return handler.longCount == expected;
+}
+
+// The capture analysis in README_ADV.md found repaired positions discarded
+// for one aircraft coinciding with a later CRC-clean frame for the same
+// aircraft being withheld as if it were a brand-new address's first
+// sighting. This reproduces the mechanism: ICAOTable's cache-slot eviction
+// ttl (ICAOTable::TTL_not_trusted, decremented once per real second
+// independently of trust) is shorter than, and unrelated to, the position
+// gate. It only ever refreshes on an ACCEPTED message. A run of discarded
+// repairs contributes no refresh, so if nothing else reaches the address for
+// long enough, the slot -- and with it the aircraft's trusted state --
+// expires. This is an existing transition (ttl expiry, not a collision or
+// any new behavior); no production code changes here.
+bool discardedRepairsCanStarveCacheSlotAndDemoteNextCleanFrame() {
+	CapturingHandler handler;
+	DemodCore<1, CapturingHandler> demod(handler);
+	constexpr uint32_t icao = 0x778899;
+
+	feedFrame(demod, makeIdentification(icao, 1));
+	feedSilence(demod, 128);
+	const auto firstId = makeIdentification(icao, 3);
+	feedFrame(demod, firstId);
+	if (handler.longCount != 1 || handler.lastLong != firstId)
+		return false;
+
+	const auto even = makePosition(icao, false, 93000, 51372);
+	const auto odd = makePosition(icao, true, 74158, 50194);
+	feedFrame(demod, even);
+	feedSilence(demod, 128);
+	feedFrame(demod, odd);
+	if (handler.longCount != 3)
+		return false;
+
+	// A position implausible at any freshness (far outside the reference
+	// zone), so every one of these repairs is discarded on the distance
+	// check alone, independent of the pairing window's timing state.
+	// One repair attempted here, implausible at any freshness (far outside
+	// the reference zone) and so discarded regardless of the pairing
+	// window's timing state, demonstrating that a discard contributes
+	// nothing towards keeping the slot alive.
+	const auto farAway = makePosition(icao, false, 0, 0);
+	feedFrame(demod, makeRepairable(farAway));
+	if (handler.longCount != 3)
+		return false;
+
+	// ICAOTable::tick() sweeps one cache slot per real second, at a phase
+	// fixed by that slot's hash key, so a given slot's ttl decrement can lag
+	// up to a full second behind when it was set, and eviction itself fires
+	// one sweep pass after ttl reaches zero: comfortably cleared here.
+	//
+	// Separately, the very first identifying frame at the top of this test
+	// registered this address in ICAOTable's own 30 s trust-candidate
+	// window (the fallback for a second sighting arriving after the first
+	// one's cache slot already expired -- see confirmTrustCandidate). That
+	// registration is never consumed by the second identifying frame right
+	// after it, because by then the address is already known through the
+	// ordinary path; it only lapses on its own after 30 s. So the silence
+	// here must clear ICAOTable::TrustCandidateMaxTicks too, measured from
+	// the very first frame in this test, or the eviction below would be
+	// masked by that unrelated, still-live registration confirming
+	// afterStarve on its own.
+	feedSilence(demod, 32'000'000);
+	if (handler.longCount != 3)
+		return false; // the repair above was discarded, as expected
+
+	// The cache slot has expired from twelve seconds with no accepted
+	// message. The next CRC-clean frame for this address is withheld,
+	// exactly like a brand-new address's first sighting -- not emitted as a
+	// known aircraft's next message.
+	const auto afterStarve = makeIdentification(icao, 1);
+	feedFrame(demod, afterStarve);
+	if (handler.longCount != 3)
+		return false;
+
+	// A second sighting re-admits it, indistinguishable from a genuinely new
+	// address.
+	feedFrame(demod, makeIdentification(icao, 3));
+	return handler.longCount == 4;
+}
+
+struct MlatEvent {
+	bool isLong;
+	uint64_t mlatTime;
+};
+
+// Mirrors what StdOutMessageHandler actually does in production: converts
+// the raw sample index to the MLAT timestamp for the configured NumStreams
+// before recording it, instead of observing the raw sample index directly.
+struct ProductionCapturingHandler {
+	static constexpr int NumStreams = 24;
+
+	void handleShort(uint64_t sampleIndex, uint64_t frame) {
+		events.push_back({ false,
+			MLAT::sampleIndexToMlatTime<NumStreams>(sampleIndex) });
+		shortFrames.push_back(frame);
+		++shortCount;
+	}
+
+	void handleLong(uint64_t sampleIndex, const Bits128& frame) {
+		events.push_back({ true,
+			MLAT::sampleIndexToMlatTime<NumStreams>(sampleIndex) });
+		longFrames.push_back(frame);
+		lastLong = frame;
+		++longCount;
+	}
+
+	uint32_t shortCount { 0 };
+	uint32_t longCount { 0 };
+	Bits128 lastLong;
+	std::vector<MlatEvent> events;
+	std::vector<uint64_t> shortFrames;
+	std::vector<Bits128> longFrames;
+};
+
+// A significant mixed sequence at a production stream count (24, matching
+// the deployed 6/10 -> 24 Msps configuration): short and long frames,
+// accepted and discarded repairs, all interleaved with live short-frame
+// (DF11) traffic that keeps flowing regardless of what the position gate is
+// doing. Checks the actual emitted MLAT timestamps -- what a downstream
+// Beast/AVR consumer sees -- stay ordered, and separately that the discarded
+// frame never appears anywhere in the output. Nondecreasing MLAT order alone
+// would also pass for a bounded buffer replayed strictly in order; it is the
+// second check, not the first, that rules out buffering and retroactive
+// emission.
+bool productionMlatTimestampsStayOrderedAcrossMixedTraffic() {
+	ProductionCapturingHandler handler;
+	DemodCore<ProductionCapturingHandler::NumStreams, ProductionCapturingHandler> demod(handler);
+	constexpr uint32_t icao = 0x99aabb;
+
+	feedFrameLongN(demod, makeIdentification(icao, 1));
+	feedSilenceN(demod, 128);
+	feedFrameLongN(demod, makeIdentification(icao, 3));
+	feedSilenceN(demod, 128);
+	feedFrameShortN(demod, makeDF11(icao));
+
+	const auto even = makePosition(icao, false, 93000, 51372);
+	const auto odd = makePosition(icao, true, 74158, 50194);
+	feedSilenceN(demod, 128);
+	feedFrameLongN(demod, even);
+	feedSilenceN(demod, 128);
+	feedFrameShortN(demod, makeDF11(icao));
+	feedSilenceN(demod, 128);
+	feedFrameLongN(demod, odd);
+	if (handler.longCount != 3 || handler.shortCount != 2)
+		return false;
+
+	// An accepted repair, close on the heels of live short-frame traffic.
+	feedSilenceN(demod, 128);
+	feedFrameShortN(demod, makeDF11(icao));
+	feedSilenceN(demod, 128);
+	feedFrameLongN(demod, makeRepairable(even));
+	if (handler.longCount != 4 || handler.shortCount != 3)
+		return false;
+
+	// Age the pairing window out while short-frame traffic keeps flowing --
+	// production surveillance does not stop because a position repair is
+	// unavailable. The extra silence after each DF11 send settles this
+	// harness's own broadcast-to-every-stream fixture (see feedFrameShortN)
+	// before the next round starts; it is fixture bookkeeping, not part of
+	// the behavior under test.
+	for (int round = 0; round < 4; ++round) {
+		feedSilenceN(demod, 3'000'000);
+		feedFrameShortN(demod, makeDF11(icao));
+		feedSilenceN(demod, 4096);
+	}
+	if (handler.shortCount != 7)
+		return false;
+
+	// Discarded for a stale opposite parity, mid-stream of otherwise-flowing
+	// short traffic.
+	const auto ghost = makePosition(icao, false, 76616, 51372);
+	feedSilenceN(demod, 128);
+	feedFrameLongN(demod, makeRepairable(ghost));
+	feedSilenceN(demod, 4096);
+	if (handler.longCount != 4)
+		return false;
+	feedSilenceN(demod, 128);
+	feedFrameShortN(demod, makeDF11(icao));
+	feedSilenceN(demod, 4096);
+	if (handler.shortCount != 8)
+		return false;
+
+	// A fresh clean opposite parity, then a repair resumes.
+	feedSilenceN(demod, 128);
+	feedFrameLongN(demod, odd);
+	feedSilenceN(demod, 4096);
+	feedFrameShortN(demod, makeDF11(icao));
+	feedSilenceN(demod, 4096);
+	feedFrameLongN(demod, makeRepairable(even));
+	feedSilenceN(demod, 4096);
+	if (handler.longCount != 6 || handler.shortCount != 9)
+		return false;
+
+	for (size_t i = 1; i < handler.events.size(); ++i) {
+		if (handler.events[i].mlatTime < handler.events[i - 1].mlatTime)
+			return false;
+	}
+
+	for (const auto& emitted : handler.longFrames) {
+		if (emitted == ghost)
+			return false;
+	}
+	return true;
+}
+
 } // namespace
 
 int main() {
@@ -228,6 +638,17 @@ int main() {
 		return 14;
 	if (!repairedPairCannotBypassGlobalGate(false))
 		return 15;
+
+	if (!discardedRepairDoesNotRefreshEmittedHistory())
+		return 19;
+	if (!discardedRepairsDoNotRejuvenateCleanReference())
+		return 20;
+	if (!consecutiveAcceptedRepairsDoNotExtendCleanReference())
+		return 21;
+	if (!discardedRepairsCanStarveCacheSlotAndDemoteNextCleanFrame())
+		return 22;
+	if (!productionMlatTimestampsStayOrderedAcrossMixedTraffic())
+		return 23;
 
 	CapturingHandler handler;
 	DemodCore<1, CapturingHandler> demod(handler);
