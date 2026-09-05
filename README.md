@@ -91,6 +91,8 @@ The latter ones are passed via command line, while the device specific ones are 
 The stream1090 directory contains a folder named ```./configs```. There you can find two device specific files, ```rtlsdr.ini``` and ```airspy.ini```. 
 Edit the corresponding file for your device and read the comments. For now you may only want to adjust the gain settings with one exception:
 
+For RTL-SDR devices, the startup diagnostics identify the linked librtlsdr backend, the detected tuner, and whether the tuner bandwidth was explicitly configured. An `auto` bandwidth setting means librtlsdr derives it from the selected sample rate.
+
 **Important:** If you are powering an LNA via bias-tee, you have to turn that on by setting ```bias_tee = true```. It is off by default.
 
 For common R820T/R820T2 receivers, the supplied `rtlsdr.ini` pins

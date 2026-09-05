@@ -138,7 +138,21 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
 }
 
 bool RtlSdrDevice::open() {
-    return open_with_serial(m_serialString);
+    if (!open_with_serial(m_serialString))
+        return false;
+
+    const char* tunerName = "unknown";
+    switch (rtlsdr_get_tuner_type(m_dev)) {
+        case RTLSDR_TUNER_R820T:  tunerName = "R820T/R820T2"; break;
+        case RTLSDR_TUNER_R828D:  tunerName = "R828D"; break;
+        case RTLSDR_TUNER_E4000:  tunerName = "E4000"; break;
+        case RTLSDR_TUNER_FC0012: tunerName = "FC0012"; break;
+        case RTLSDR_TUNER_FC0013: tunerName = "FC0013"; break;
+        case RTLSDR_TUNER_FC2580: tunerName = "FC2580"; break;
+        default: break;
+    }
+    std::cerr << "[RtlSdrDevice] Tuner: " << tunerName << std::endl;
+    return true;
 }
 
 // ----------------------
@@ -437,5 +451,16 @@ void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
             continue; // immutable
 
         applySetting(key, value);
+    }
+
+    // Report the bandwidth setting once. librtlsdr has no read-back API for
+    // the effective bandwidth it derives when tuner_bandwidth is omitted.
+    if (!m_stateReported) {
+        m_stateReported = true;
+        std::cerr << "[RtlSdrDevice] Tuner bandwidth setting: "
+                  << (m_state.tuner_bandwidth
+                          ? std::to_string(m_state.tuner_bandwidth) + " Hz (explicit)"
+                          : std::string("auto (derived by librtlsdr from sample rate)"))
+                  << std::endl;
     }
 }
