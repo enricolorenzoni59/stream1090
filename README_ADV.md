@@ -88,6 +88,22 @@ DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interroga
 
 For DF0/4/5/16/20/21 address-parity replies, altitude and squawk checks normally reject implausible values. A rejected frame from an already active ICAO address is nevertheless accepted after the identical complete frame is received again between 100 microseconds and two seconds later. The first observation is withheld, short and long frames cannot confirm each other, and cache collisions can only discard a candidate. Corroborated Gillham or unsupported metric altitude replies do not update the stored altitude reference.
 
+### Open regressions (red-phase tests, not yet fixed)
+
+The following three CTest targets express known, currently-open bugs as failing tests. They are deliberately red: no production code has been changed to fix the behavior they describe. A discard or a false emission they report is evidence of the underlying issue, not proof the aircraft in question does not exist -- the framing throughout this project's plausibility checks applies here too.
+
+Build with `-DBUILD_TESTING=ON` as usual, then run just these three:
+
+```
+ctest -R "df18_fine_tisb_regression_test|df19_repair_trust_regression_test|df11_pi_icao_bypass_regression_test" --output-on-failure
+```
+
+- `df18_fine_tisb_regression_test`: `Plausibility::checkDF17()` is applied to every extended squitter reaching the first-sighting insert, DF18 included. On DF18 the same bit position holds CF (Control Field), not DF17's CA (transponder capability); CF=2 ("Fine TIS-B Message", a genuine ICAO address, see readsb's `mode_s.c`, `decodeExtendedSquitter()`) falls in the range `checkDF17()` rejects for CA. A legitimate CF=2 report can never earn trust.
+- `df19_repair_trust_regression_test`: the DF19-to-DF17 promotion (flip bit 108, adjust the CRC, treat a crc==0 result as a clean squitter) reaches the same "not known" trust door a genuinely clean DF17 uses, with nothing distinguishing a guessed repair from an actual clean reception. A repeated, structurally-plausible DF19-shaped signal can create trust for an address that was never cleanly received (case A). The test also asserts, separately, that the same promotion still recovers the original DF17 frame for an address *already* trusted through clean sightings (case B) -- that half is expected to pass on upstream and this branch, but to fail on 16075b9 for an unrelated reason: the generic CRC error table there is not known to cover this exact single-bit syndrome. Report case A and case B separately.
+- `df11_pi_icao_bypass_regression_test`: specific to this branch (not upstream). Every other insertion point (DF17's own first-sighting insert, DF11's own crc==0 first-sighting and confirmed-second-sighting inserts, and the shared helper the crc==0 path funnels through) calls `Plausibility::checkICAO()` before inserting. The DF11 `crc<80` (PI-overlaid) path's confirming second sighting inserts and trusts the address directly instead, skipping that call entirely for that one path.
+
+None of these were fixed here; see the commit/PR history for when (if) they are.
+
 Important: If you want to see the statistics for the whole file and not every 5 seconds. You can enable the a summary at the end by rebuilding stream with after the following cmake call in the build directory
 ```
 cmake ../ --fresh -DEND_STATS=ON -DENABLE_STATS=ON && make
