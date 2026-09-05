@@ -432,6 +432,19 @@ void RtlSdrDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
 // Reload logic
 // ----------------------
 void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
+    if (!m_initialConfigApplied) {
+        m_initialConfigApplied = true;
+
+        if (!cfg.count("tuner_bandwidth")
+                && rtlsdr_get_tuner_type(m_dev) == RTLSDR_TUNER_R820T) {
+            Log::warn("RtlSdrDevice")
+                << "No tuner_bandwidth configured for this R820T/R820T2 tuner; "
+                   "automatic IF filter selection depends on the sample rate and "
+                   "librtlsdr implementation. Set it explicitly (for example, "
+                   "3000000 at 2.4 or 2.56 Msps) to make the tuner state reproducible.";
+        }
+    }
+
     for (auto& [key, value] : cfg) {
 
         if (key == "serial")

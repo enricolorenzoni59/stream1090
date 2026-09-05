@@ -60,6 +60,7 @@ private:
     };
 
     ShadowState m_state;
+    bool m_initialConfigApplied = false;
     bool m_stateReported = false;
 
     rtlsdr_dev_t* m_dev = nullptr;
