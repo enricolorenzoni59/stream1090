@@ -19,6 +19,7 @@
 #include "ShiftRegisters.hpp"
 #include "MessageHandler.hpp"
 #include "Plausibility.hpp"
+#include "Logger.hpp"
 
 template<int NumStreams, MessageHandler Handler>
 class DemodCore {
