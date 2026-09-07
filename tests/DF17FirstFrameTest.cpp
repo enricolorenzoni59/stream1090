@@ -49,43 +49,54 @@ void feedFrame(DemodCore<1, CapturingHandler>& demod, const Bits128& frame) {
 } // namespace
 
 int main() {
-    // Interleave two unknown aircraft. Confirming the second one first must not
-    // cause either held first sighting to be emitted behind newer RF time.
-    const auto first = makeDF17(0xabcdef, 1);
-    const auto second = makeDF17(0xabcdef, 2, 7);
-    const auto otherFirst = makeDF17(0x123456, 1);
-    const auto otherSecond = makeDF17(0x123456, 2, 7);
-    auto repairCandidate = makeDF17(0xabcdef, 3);
-    repairCandidate.flip(30);
+    // A first sighting of an unknown address is not emitted: trust reaches the
+    // trusted set only on a second, separate sighting.
+    {
+        CapturingHandler handler;
+        DemodCore<1, CapturingHandler> demod(handler);
+        const auto first = makeDF17(0x1638f5, 1);
+        feedFrame(demod, first);
+        feedSilence(demod, 128);
+        if (handler.longCount != 0)
+            return 1;
 
-    CapturingHandler handler;
-    DemodCore<1, CapturingHandler> demod(handler);
-    feedFrame(demod, first);
-    feedSilence(demod, 128);
-    feedFrame(demod, otherFirst);
-    feedSilence(demod, 128);
-    feedFrame(demod, repairCandidate);
-    if (handler.longCount != 0)
-        return 1;
+        // The validating second sighting of the same address hits the known
+        // branch and is the only observation that reaches the output.
+        const auto second = makeDF17(0x1638f5, 2);
+        feedFrame(demod, second);
+        if (!(handler.longCount == 1 && handler.frames[0] == second))
+            return 2;
+    }
 
-    // Only each current confirming observation is emitted. The historical
-    // first sightings remain internal evidence and output stays monotonic.
-    feedSilence(demod, 128);
-    feedFrame(demod, otherSecond);
-    feedSilence(demod, 128);
-    feedFrame(demod, second);
-    if (!(handler.longCount == 2 && handler.frames[0] == otherSecond && handler.frames[1] == second &&
-          handler.sampleTimes[0] <= handler.sampleTimes[1]))
-        return 2;
+    // Interleaved unknowns: each is held on its first sighting and released
+    // only by its own confirming second sighting, so the output stays strictly
+    // in RF-time order. A CRC-damaged frame is never repaired into an untrusted
+    // address, and so cannot establish one.
+    {
+        CapturingHandler handler;
+        DemodCore<1, CapturingHandler> demod(handler);
+        const auto a1 = makeDF17(0x5170aa, 1);
+        const auto a2 = makeDF17(0x5170aa, 2);
+        const auto o1 = makeDF17(0x7e0a02, 1, 7);
+        const auto o2 = makeDF17(0x7e0a02, 2, 7);
+        auto damaged = makeDF17(0xa1b2c3, 3, 7);
+        damaged.flip(30);
+        feedFrame(demod, a1);
+        feedFrame(demod, o1);
+        feedFrame(demod, damaged);
+        if (handler.longCount != 0)
+            return 3;
 
-    // If no confirmation arrives inside the window the held frame is dropped.
-    CapturingHandler expiredHandler;
-    DemodCore<1, CapturingHandler> expiredDemod(expiredHandler);
-    feedFrame(expiredDemod, first);
-    feedSilence(expiredDemod, 2'000'001);
-    feedFrame(expiredDemod, second);
-    if (!(expiredHandler.longCount == 1 && expiredHandler.frames[0] == second))
-        return 3;
+        feedSilence(demod, 128);
+        feedFrame(demod, a2);
+        if (!(handler.longCount == 1 && handler.frames[0] == a2))
+            return 4;
+
+        feedSilence(demod, 128);
+        feedFrame(demod, o2);
+        if (!(handler.longCount == 2 && handler.frames[1] == o2 && handler.sampleTimes[0] <= handler.sampleTimes[1]))
+            return 5;
+    }
 
     return 0;
 }

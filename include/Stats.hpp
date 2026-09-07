@@ -29,7 +29,7 @@ enum EventType {
     DF17_BAD_MESSAGE,  //
     DF17_REPAIR_SUCCESS,
     DF17_REPAIR_FAILED,
-    DF17_FIRST_SIGHTING, // CRC-clean unknown ICAO held for confirmation
+    DF17_FIRST_SIGHTING,  // CRC-clean unknown ICAO held for confirmation
     DF17_FIRST_CONFIRMED, // later CRC-clean sighting confirmed the held ICAO
 
     //COMM_B_HEADER,

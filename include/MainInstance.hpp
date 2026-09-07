@@ -164,29 +164,36 @@ template <typename preset> class MainInstance {
         m_device->markAsAlive();
         Log::info("Stream1090", "Devices has been marked as alive.");
 
+        // flag that indicates if the shutdown was intended
+        // or the watchhdog killed the device
+        bool intendedShutdown = true;
+
         // -------------------------------
         // WATCHDOG THREAD
         // -------------------------------
-        std::thread watchdog([this] {
+        std::thread watchdog([this, &intendedShutdown] {
             using namespace std::chrono_literals;
             Log::info("Watchdog", "Started.");
             while (!ProcessSignals::shutdownRequested()) {
-                // 1) Device health check. Is the device still alive?
-                if (m_device && m_device->lastSignOfLife() > 1000ms) {
-                    Log::error("Watchdog", "No samples for 1000ms. Device lost? Initiating shutdown.");
-                    // Only wake the pipeline here, and leave the device to the
-                    // shutdown path below, which closes it in every case.
-                    // Closing from this thread as well means two threads run
-                    // close() concurrently: both reach rtlsdr_close/airspy_close
-                    // on the same handle and both join the same reader thread.
-                    m_device->shutdownWriter();
-                    ProcessSignals::handle_sigint(0);
-                    break;
-                }
-
-                // 2) Device health check. Issue a warning if the device falls behind.
-                if (m_device && m_device->lastSignOfLife() > 200ms) {
-                    Log::warn("Watchdog", "No samples for more than 200ms. The device is falling behind.");
+                if (m_device) {
+                    const auto lastSign = m_device->lastSignOfLife();
+                    if (lastSign > 1000ms) {
+                        // 1) Device health check. Is the device still alive?
+                        Log::error("Watchdog") << "No samples for more than 1000ms. Device lost? Initiating shutdown.";
+                        // Only wake the pipeline here, and leave the device to the
+                        // shutdown path below, which closes it in every case.
+                        // Closing from this thread as well means two threads run
+                        // close() concurrently: both reach rtlsdr_close/airspy_close
+                        // on the same handle and both join the same reader thread.
+                        m_device->shutdownWriter();
+                        ProcessSignals::handle_sigint(0);
+                        // mark that the shutdown was not intended
+                        intendedShutdown = false;
+                        break;
+                    } else if (lastSign > 100ms) {
+                        // 2) Device health check. Issue a warning if the device falls behind.
+                        Log::warn("Watchdog") << "No samples for " << lastSign << ". The device is falling behind.";
+                    }
                 }
 
                 // 3) Reload request (SIGHUP)
@@ -239,7 +246,8 @@ template <typename preset> class MainInstance {
         }
         Log::info("Stream1090", "Shutdown completed.");
         Log::msg("Stream1090") << "Finished. (" << dur_wct_secs / 1000.0 << "s)";
-        return true;
+        // return if this shutdown was intended or not (lost device)
+        return intendedShutdown;
     }
 
     bool run_sync_stdin(auto& iqPipeline) {

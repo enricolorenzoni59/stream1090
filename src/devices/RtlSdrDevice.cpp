@@ -5,8 +5,11 @@
  * Public License v3.0. See the top-level LICENSE file for details.
  */
 #include "devices/RtlSdrDevice.hpp"
+#include "devices/RtlSdrSerial.hpp"
 #include "Logger.hpp"
 #include <iostream>
+#include <string>
+#include <vector>
 
 static void rtlsdr_callback(unsigned char* buf, uint32_t len, void* ctx) {
     auto* self = static_cast<RtlSdrDevice*>(ctx);
@@ -26,17 +29,18 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
         return open_with_serial(static_cast<uint64_t>(0));
     }
 
-    std::size_t pos = 0;
-    try {
-        uint64_t numericSerial = std::stoull(serial, &pos, 0);
-        if (pos == serial.size()) {
-            return open_with_serial(numericSerial);
-        }
-    } catch (...) {
-        // Not numeric, attempt string-based lookup below.
+    const int deviceCount = static_cast<int>(rtlsdr_get_device_count());
+    std::vector<std::string> available;
+    available.reserve(deviceCount > 0 ? static_cast<std::size_t>(deviceCount) : 0);
+    for (int i = 0; i < deviceCount; ++i) {
+        char deviceSerial[256]{};
+        if (rtlsdr_get_device_usb_strings(i, nullptr, nullptr, deviceSerial) == 0)
+            available.emplace_back(deviceSerial);
+        else
+            available.emplace_back();
     }
 
-    int index = rtlsdr_get_index_by_serial(serial.c_str());
+    const int index = RtlSdrSerial::resolveIndex(serial, available);
     if (index < 0) {
         Log::error("RtlSdrDevice") << "No RTL-SDR device found with serial '" << serial << "'";
         return false;
@@ -57,13 +61,12 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
         return true;
     };
 
-    if (!check("rtlsdr_set_direct_sampling(0)", rtlsdr_set_direct_sampling(m_dev, 0)))
+    // Set the frequency before the sample rate: R820T bandwidth setup retunes
+    // the current frequency, and immediately after open() that value is zero.
+    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
         return false;
 
     if (!check("rtlsdr_set_sample_rate", rtlsdr_set_sample_rate(m_dev, getSampleRate())))
-        return false;
-
-    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
         return false;
 
     if (!check("rtlsdr_reset_buffer", rtlsdr_reset_buffer(m_dev)))
@@ -111,13 +114,12 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
         return true;
     };
 
-    if (!check("rtlsdr_set_direct_sampling(0)", rtlsdr_set_direct_sampling(m_dev, 0)))
+    // Set the frequency before the sample rate: R820T bandwidth setup retunes
+    // the current frequency, and immediately after open() that value is zero.
+    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
         return false;
 
     if (!check("rtlsdr_set_sample_rate", rtlsdr_set_sample_rate(m_dev, getSampleRate())))
-        return false;
-
-    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
         return false;
 
     if (!check("rtlsdr_reset_buffer", rtlsdr_reset_buffer(m_dev)))
@@ -126,7 +128,34 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
 }
 
 bool RtlSdrDevice::open() {
-    return open_with_serial(m_serialString);
+    if (!open_with_serial(m_serialString))
+        return false;
+
+    const char* tunerName = "unknown";
+    switch (rtlsdr_get_tuner_type(m_dev)) {
+    case RTLSDR_TUNER_R820T:
+        tunerName = "R820T/R820T2";
+        break;
+    case RTLSDR_TUNER_R828D:
+        tunerName = "R828D";
+        break;
+    case RTLSDR_TUNER_E4000:
+        tunerName = "E4000";
+        break;
+    case RTLSDR_TUNER_FC0012:
+        tunerName = "FC0012";
+        break;
+    case RTLSDR_TUNER_FC0013:
+        tunerName = "FC0013";
+        break;
+    case RTLSDR_TUNER_FC2580:
+        tunerName = "FC2580";
+        break;
+    default:
+        break;
+    }
+    std::cerr << "[RtlSdrDevice] Tuner: " << tunerName << std::endl;
+    return true;
 }
 
 // ----------------------
@@ -399,11 +428,32 @@ void RtlSdrDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
 // Reload logic
 // ----------------------
 void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
+    if (!m_initialConfigApplied) {
+        m_initialConfigApplied = true;
+
+        if (!cfg.count("tuner_bandwidth") && rtlsdr_get_tuner_type(m_dev) == RTLSDR_TUNER_R820T) {
+            Log::warn("RtlSdrDevice") << "No tuner_bandwidth configured for this R820T/R820T2 tuner; "
+                                         "automatic IF filter selection depends on the sample rate and "
+                                         "librtlsdr implementation. Set it explicitly (for example, "
+                                         "3000000 at 2.4 or 2.56 Msps) to make the tuner state reproducible.";
+        }
+    }
+
     for (auto& [key, value] : cfg) {
 
         if (key == "serial")
             continue; // immutable
 
         applySetting(key, value);
+    }
+
+    // Report the bandwidth setting once. librtlsdr has no read-back API for
+    // the effective bandwidth it derives when tuner_bandwidth is omitted.
+    if (!m_stateReported) {
+        m_stateReported = true;
+        std::cerr << "[RtlSdrDevice] Tuner bandwidth setting: "
+                  << (m_state.tuner_bandwidth ? std::to_string(m_state.tuner_bandwidth) + " Hz (explicit)"
+                                              : std::string("auto (derived by librtlsdr from sample rate)"))
+                  << std::endl;
     }
 }

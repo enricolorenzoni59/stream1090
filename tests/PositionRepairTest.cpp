@@ -63,13 +63,13 @@ int main() {
     // sighting seeds trust but remains internal; only the second is emitted.
     feedFrame(demod, makeIdentity(0x123456));
     feedSilence(demod, 128);
-    feedFrame(demod, makeIdentity(0x123456, 7));
+    feedFrame(demod, makeIdentity(0x123456));
     if (handler.longCount != 1)
         return 1;
 
     // A repaired position for a trusted aircraft with no clean odd/even pair
     // behind it must be rejected (repairs never establish the first position).
-    auto firstRepair = makePosition(0x123456, false, 93000, 51372, 7);
+    auto firstRepair = makePosition(0x123456, false, 93000, 51372);
     firstRepair.flip(0);
     feedSilence(demod, 128);
     feedFrame(demod, firstRepair);
@@ -77,16 +77,16 @@ int main() {
         return 2;
 
     // A CRC-clean even/odd pair establishes the reference position.
-    const auto firstEven = makePosition(0x123456, false, 93000, 51372, 7);
+    const auto firstEven = makePosition(0x123456, false, 93000, 51372);
     feedFrame(demod, firstEven);
     feedSilence(demod, 128);
-    const auto firstOdd = makePosition(0x123456, true, 74158, 50194, 7);
+    const auto firstOdd = makePosition(0x123456, true, 74158, 50194);
     feedFrame(demod, firstOdd);
     if (handler.longCount != 3)
         return 3;
 
     // A single-bit damage repair landing near the established position passes.
-    auto nearby = makePosition(0x123456, false, 93000, 51372, 7);
+    auto nearby = makePosition(0x123456, false, 93000, 51372);
     nearby.flip(0);
     feedSilence(demod, 128);
     feedFrame(demod, nearby);
@@ -94,7 +94,7 @@ int main() {
         return 4;
 
     // A repair that would place the aircraft > 100 km away is rejected.
-    auto farAway = makePosition(0x123456, false, 0, 0, 7);
+    auto farAway = makePosition(0x123456, false, 0, 0);
     farAway.flip(0);
     feedSilence(demod, 128);
     feedFrame(demod, farAway);

@@ -19,8 +19,10 @@
 ########################################################################
 # Project setup
 ########################################################################
-# 3.13 for target_link_directories(), used by src/CMakeLists.txt to propagate
-# the pkg-config libusb search path to consumers of the vendored library.
+# 3.13 for target_link_directories(), which src/CMakeLists.txt needs to put
+# LIBUSB_LIBRARY_DIRS on the link line. Declared here rather than in the
+# parent project so it only binds builds that actually add this directory,
+# i.e. -DENABLE_RTLSDR_BLOG=ON.
 cmake_minimum_required(VERSION 3.13)
 
 # workaround for https://gitlab.kitware.com/cmake/cmake/issues/16967

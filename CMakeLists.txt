@@ -363,10 +363,17 @@ if(BUILD_TESTING)
     stream1090_add_test(sampler_test tests/SamplerTest.cpp)
     stream1090_add_test(mode_s_altitude_test tests/ModeSAltitudeTest.cpp)
     stream1090_add_test(mode_s_position_test tests/ModeSPositionTest.cpp)
-    stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
+stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
     stream1090_add_test(df17_first_frame_test tests/DF17FirstFrameTest.cpp)
     stream1090_add_test(sampler_interp_sharpening_test tests/SamplerInterpolationTest.cpp)
     target_compile_definitions(sampler_interp_sharpening_test PRIVATE STREAM1090_INTERP=6)
+    stream1090_add_test(rtlsdr_serial_test tests/RtlSdrSerialTest.cpp)
+    stream1090_add_test(noise_false_positive_test tests/NoiseFalsePositiveTest.cpp)
+    target_compile_definitions(noise_false_positive_test PRIVATE
+        ${PREAMBLE_GATE_DEF}
+        ${PREAMBLE_THRESHOLD_DEF}
+        ${MIN_SNR_DEF}
+    )
 endif()
 
 # ------------------------------------------------------------

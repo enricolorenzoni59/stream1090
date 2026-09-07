@@ -14,7 +14,7 @@
 #include <chrono>
 #include <optional>
 
-#define STREAM1090_VERSION "260812"
+#define STREAM1090_VERSION "260905"
 
 #include "MainInstance.hpp"
 
@@ -111,7 +111,8 @@ void print_help() {
                  "                       See configs/airspy.ini or configs/rtlsdr.ini\n"
                  "  -q                   Enables IQ FIR filter with built-in taps\n"
                  "  -f <taps file>       Taps to load that are used for the IQ FIR filter\n"
-                 "  -v                   Verbose output\n"
+                 "  -v, --verbose        Verbose output\n"
+                 "  --debug              Debug output (implies verbose)\n"
                  "  -h, --help           Show this help message\n\n";
 
     print_rate_pairs();
@@ -128,6 +129,7 @@ struct CliArgs {
     std::string tapsFile = "";
     bool iq_filter = false;
     bool verbose = false;
+    bool debug = false;
 };
 
 bool parse_cli(int argc, char** argv, CliArgs& out) {
@@ -164,8 +166,13 @@ bool parse_cli(int argc, char** argv, CliArgs& out) {
             continue;
         }
 
-        if (arg == "-v") {
+        if ((arg == "-v") || (arg == "--verbose")) {
             out.verbose = true;
+            continue;
+        }
+
+        if (arg == "--debug") {
+            out.debug = true;
             continue;
         }
 
@@ -282,7 +289,8 @@ int main(int argc, char** argv) {
 
     CliArgs args;
     if (!parse_cli(argc, argv, args)) {
-        std::cerr << "Usage: stream1090 -s <rate> -u <rate> [-d <device.ini>] [-f <taps file>] [-q] [-v] [-h]\n";
+        std::cerr << "Usage: stream1090 -s <rate> -u <rate> [-d <device.ini>] [-f <taps file>] [-q] [--verbose] "
+                     "[--debug] [-h]\n";
         return 1;
     }
 
@@ -291,7 +299,11 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    Log::Logger::instance().setVerbose(args.verbose);
+    if (args.verbose)
+        Log::setLevel(Log::Level::INFO);
+    if (args.debug)
+        Log::setLevel(Log::Level::DEBUG);
+
     // ------------------------
     // Device config loading
     // ------------------------
@@ -331,6 +343,14 @@ int main(int argc, char** argv) {
             if (!GlobalOptions::NativeRtlSdrSupport) {
                 std::cerr << "[Stream1090] Error. No native device support for rtlsdr" << std::endl;
                 return 1;
+            }
+
+            // Name whether librtlsdr is vendored or externally provided so
+            // bug reports carry the build configuration that selected it.
+            if (GlobalOptions::RtlSdrBlogAdvanced) {
+                std::cerr << "[Stream1090] RTL-SDR backend: vendored rtl-sdr-blog fork" << std::endl;
+            } else {
+                std::cerr << "[Stream1090] RTL-SDR backend: external librtlsdr" << std::endl;
             }
 
         } else {

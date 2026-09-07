@@ -166,6 +166,33 @@ class ICAOTable {
         return false;
     }
 
+    // The trust door asks a new address for a second sighting instead of
+    // noise-floor evidence. A transponder squitters at 2 Hz, so two sightings
+    // of the same address within thirty seconds are routine; noise clearing
+    // 24 parity bits twice on the same random address is not. The window
+    // matches the trust TTL, and sparse emitters (TIS-B at a fraction of a
+    // hertz) still make the pair. A persistently weak aircraft opens the
+    // door on its second squitter, and stays in.
+    static constexpr uint32_t TrustCandidateMinTicks{100};
+    static constexpr uint32_t TrustCandidateMaxTicks{30'000'000};
+
+    bool confirmTrustCandidate(uint32_t icaoWithCA) noexcept {
+        auto& candidate = m_trustCandidates[trustCandidateIndex(icaoWithCA)];
+        const auto age = m_df11Clock - candidate.firstSeen;
+
+        if (candidate.icaoWithCA != 0 && candidate.icaoWithCA == icaoWithCA) {
+            if (age >= TrustCandidateMinTicks && age <= TrustCandidateMaxTicks) {
+                candidate = TrustCandidate{};
+                return true;
+            }
+            if (age < TrustCandidateMinTicks)
+                return false;
+        }
+
+        candidate = TrustCandidate{icaoWithCA, m_df11Clock};
+        return false;
+    }
+
     bool confirmRejectedShort(uint32_t icao, uint64_t frame) noexcept {
         return confirmRejectedFrame(icao, 0, frame, 56);
     }
@@ -327,6 +354,15 @@ class ICAOTable {
 
     static constexpr size_t RejectedCandidateCount{2048};
 
+    struct TrustCandidate {
+        uint32_t icaoWithCA{0};
+        uint64_t firstSeen{0};
+    };
+
+    static constexpr size_t trustCandidateIndex(uint32_t icaoWithCA) noexcept {
+        return (icaoWithCA * 0x9e3779b1u) >> 23;
+    }
+
     // Full-frame identity makes confirmation exact. This is direct-mapped so a
     // collision can replace a candidate, but can never confirm a different one.
     bool confirmRejectedFrame(uint32_t icao, uint64_t high, uint64_t low, uint8_t bits) noexcept {
@@ -381,6 +417,7 @@ class ICAOTable {
     }
 
     std::array<uint64_t, Size / 64> m_occupiedBits{};
+    std::array<TrustCandidate, 512> m_trustCandidates{};
 
     void doTickForEntry(uint16_t index) noexcept {
         auto& entry = m_table[index];
