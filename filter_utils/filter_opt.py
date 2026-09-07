@@ -84,7 +84,7 @@ args = parse_args()
 #  Config
 # ============================================================
 
-STREAM1090_EXE = "../build/stream1090"
+STREAM1090_EXE = os.environ.get("STREAM1090_EXE", "../build/stream1090")
 DATA_PATH = args.data
 
 
