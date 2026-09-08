@@ -18,6 +18,8 @@
 #include <cmath>
 #include "ShiftRegisters.hpp"
 #include "MessageHandler.hpp"
+#include "Plausibility.hpp"
+#include "Logger.hpp"
 
 template<int NumStreams, MessageHandler Handler>
 class DemodCore {
@@ -276,13 +278,24 @@ public:
 
 	/// @brief Handler for the extended squitter messages
 	/// @return returns true if a message has been send to the output
-	bool handleExtSquitterLongMessage(int streamIndex, const uint8_t& downlinkFormat) {
+	bool handleExtSquitterLongMessage(int streamIndex, uint8_t downlinkFormat) {
 		auto frame = m_shiftRegisters.extractAlignedFrameLong(streamIndex);
 
 		if (phaseDupCheckLong(frame))
 			return false;
 
 		auto crc = m_shiftRegisters.getCRC_112(streamIndex);
+
+		// This is very hacky. However, we do not know about DF-19 nor seems to be many decoders.
+		// We will give it a try as a DF-17 message since 17 and 19 have hamming distance 1
+		if (downlinkFormat==19) {
+            // flip the bit so 19 -> 17
+            frame.flip(108);
+            // adjust the crc for the flipped bit
+            crc = crc ^ CRC::delta<108>();
+            // and for statistics
+            downlinkFormat = 17;
+        } 
 
 		// if the crc is zero, we have a correct message
 		if (crc == 0) {
@@ -298,8 +311,35 @@ public:
 				// and send the 112 bit message to the output
 				return sendFrameLongAligned(streamIndex, downlinkFormat, crc, frame, e);
 			} else {
-				m_cache.markAsTrustedSeen(m_cache.insertWithCA(icaoWithCA));
-			} 
+				if (!Plausibility::checkICAO(icaoWithCA & 0xFFFFFF)) {
+					Log::debug("DemodCore") << "Trying to insert invalid icao from DF-17 " << std::hex << (icaoWithCA & 0xFFFFFF);
+					return false;
+				}
+
+				if (!Plausibility::checkDF17(frame)) {
+					Log::debug("DemodCore") << "Trying to insert by wrong DF-17 message  " << std::hex << (icaoWithCA & 0xFFFFFF);
+					return false;
+				}
+				// This is the only door into the trusted set. The first
+				// sighting of a new address enters it untrusted: the parity
+				// routes see it (their own noise-floor gates still apply),
+				// but the error table repair, the erasure repair and the DF11
+				// parity overwrite wait for trust. Trust arrives with the
+				// second sighting, through the known branch above. Noise
+				// clears 24 bits of CRC often enough to invent an address
+				// every four seconds, but it never repeats the same random
+				// address, so the second sighting is where noise dies.
+				const bool confirmed = m_cache.confirmTrustCandidate(icaoWithCA);
+				const auto it = m_cache.insertWithCA(icaoWithCA);
+				if (confirmed) {
+					// the entry had expired since the first sighting, so the
+					// second sighting does not reach the known branch
+					m_cache.markAsTrustedSeen(it);
+					return sendFrameLongAligned(streamIndex, downlinkFormat, crc, frame, it);
+				}
+				m_cache.markAsSeen(it);
+				return false;
+			}
 		} else {
 			// the crc is not zero, so we might have a broken message
 			logStats(Stats::DF17_BAD_MESSAGE);
@@ -476,6 +516,10 @@ public:
 			// put it there, but make sure this is not some repaired msg and 
 			// that we are not resetting an existing entry with the same icao.
 			if (!repaired && !m_cache.find(icaoWithCA & 0xFFFFFF).isValid()) {
+				if (!Plausibility::checkICAO(icaoWithCA & 0xFFFFFF)) {
+					Log::debug("DemodCore") << "Trying to insert invalid icao from DF-11 " << std::hex << (icaoWithCA & 0xFFFFFF);
+					return false;
+				}
 				// insert and mark it as seen.
 				const auto it = m_cache.insertWithCA(icaoWithCA);
 				m_cache.markAsSeen(it);
@@ -509,9 +553,33 @@ public:
 		if (crc == 0) {
 			// A 24-bit CRC passes on noise about once per 16M candidate windows,
 			// and each such DF11 inserts an address that then licenses
-			// address-parity frames of its own. Reject the noise-floor,
-			// preamble-less ones to break that loop.
-			if (signalAtNoiseFloor(streamIndex) && !preambleConfirms(streamIndex)) {
+			// address-parity frames of its own. A new address gets in untrusted
+			// on the first sighting and becomes trusted on the second, like the
+			// DF17 door: noise never repeats a random address, an aircraft
+			// repeats all the time.
+			const auto icaoWithCA = ModeS::extractICAOWithCA_Short(frameShort);
+			if (!m_cache.findWithCA(icaoWithCA).isValid()) {
+				if (m_cache.confirmTrustCandidate(icaoWithCA)) {
+					if (!Plausibility::checkICAO(icaoWithCA & 0xFFFFFF)) {
+						Log::debug("DemodCore") << "Trying to insert invalid icao from DF-11 " << std::hex << (icaoWithCA & 0xFFFFFF);
+						return false;
+					}
+					// second sighting within the window: trusted, and emitted
+					const auto it = m_cache.insertWithCA(icaoWithCA);
+					m_cache.markAsTrustedSeen(it);
+					logStats(Stats::DF11_ICAO_CA_FOUND_GOOD_CRC);
+					return handleDF11ShortMessageWithZeroCRC(streamIndex, frameShort, false);
+				}
+				// first sighting: enter untrusted so the parity routes see the
+				// address, but emit nothing and leave the repairs locked
+				if (!m_cache.find(icaoWithCA & 0xFFFFFF).isValid()) {
+					if (!Plausibility::checkICAO(icaoWithCA & 0xFFFFFF)) {
+						Log::debug("DemodCore") << "Trying to insert invalid icao from DF-11 " << std::hex << (icaoWithCA & 0xFFFFFF);
+						return false;
+					}
+					const auto it = m_cache.insertWithCA(icaoWithCA);
+					m_cache.markAsSeen(it);
+				}
 				return false;
 			}
 			logStats(Stats::DF11_ICAO_CA_FOUND_GOOD_CRC);

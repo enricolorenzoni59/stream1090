@@ -1,0 +1,160 @@
+name: binary-size-report
+
+# Runs after the binary-size workflow, which only measures and uploads
+# artifacts. Because this triggers on workflow_run it executes in the trusted
+# context of the target repository with a full-payload token, so it can post a
+# PR comment even when the measurement ran from a fork pull request (a fork PR
+# would give the measure workflow a read-only token and a 403 on the comments
+# API).
+#
+# Comments are upserted in place: the body is tagged with a marker and we
+# search for it before posting so a push never grows a comment pile.
+on:
+  workflow_run:
+    workflows: ["binary-size"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download size artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: sizes
+          pattern: sizes-*
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Render table
+        id: render
+        run: |
+          python3 - <<'EOF'
+          import glob, json, os, sys
+
+          rows = []
+          for path in glob.glob("sizes/sizes_*.json"):
+              with open(path) as f:
+                  rows.extend(json.load(f))
+
+          # Expected matrix so a toolchain whose artifact is missing (job
+          # failed before upload) still shows up as a row instead of silently
+          # disappearing from the table.
+          expected = [
+              "GNU gcc / Ubuntu x64",
+              "LLVM clang / Ubuntu x64",
+              "Apple clang / macOS x64",
+              "Apple clang / macOS arm64",
+              "GNU gcc / macOS x64 (Homebrew)",
+          ]
+          configs = ["Airspy + RTL-SDR", "Airspy only", "RTL-SDR only", "Neither"]
+          grid = {}
+          for r in rows:
+              grid.setdefault(r["platform"], {})[r["config"]] = r
+          rows = []
+          for p in expected:
+              for c in configs:
+                  r = grid.get(p, {}).get(c)
+                  if r is None:
+                      r = {"platform": p, "config": c, "built": False,
+                           "size_bytes": None, "peak_rss_kb": None,
+                           "tests": None, "warnings": None,
+                           "build_time_s": None, "error": "no artifact"}
+                  rows.append(r)
+
+          def kb(n):
+              if n is None:
+                  return "fail"
+              return f"{n/1024:.0f} KB"
+
+          def rss(n):
+              if n is None:
+                  return "fail"
+              return f"{n/1024:.0f} MB"
+
+          def tests(t):
+              if t is None:
+                  return "n/a"
+              if "total_n" in t:
+                  mark = "ok" if t["passed"] else "FAIL"
+                  return f"{t['passed_n']}/{t['total_n']} ({mark})"
+              return "ok" if t["passed"] else "FAIL"
+
+          def secs(n):
+              if n is None:
+                  return "fail"
+              return f"{n:.0f}s"
+
+          lines = [
+              f"## stream1090 backend build matrix",
+              "",
+              f"Measured at `{os.environ['GITHUB_SHA'][:7]}` in a clean tree "
+              "(`-DCMAKE_BUILD_TYPE=Release`). Peak RSS is the `stream1090` "
+              "target with `-j1` (the `main.cpp` TU compiling every preset); "
+              "tests are `ctest`; warnings are from the full build log.",
+              "",
+              "| Toolchain | Backends | Binary | Peak RSS | Tests | Warnings | Build time |",
+              "|---|---|---|---|---|---|---|",
+          ]
+          for r in rows:
+              lines.append(
+                  f"| {r['platform']} | {r['config']} "
+                  f"| {kb(r['size_bytes'])} | {rss(r['peak_rss_kb'])} "
+                  f"| {tests(r['tests'])} | {r['warnings'] if r['warnings'] is not None else 'fail'} "
+                  f"| {secs(r['build_time_s'])} |"
+              )
+          body = "\n".join(lines) + "\n"
+          with open("table.md", "w") as f:
+              f.write(body)
+          print(body, end="")
+
+          bad = [r for r in rows if not r["built"] or (r["tests"] and not r["tests"]["passed"])]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"failed={'true' if bad else 'false'}\n")
+          with open("failures.txt", "w") as f:
+              for r in bad:
+                  f.write(f"{r['platform']} / {r['config']}: {r['error'] or 'tests failed'}\n")
+          EOF
+
+      - name: Upsert PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync("table.md", "utf8").trimEnd();
+            const marker = "<!-- stream1090-binary-size-table -->";
+            const prs = context.payload.workflow_run?.pull_requests ?? [];
+            if (prs.length === 0) {
+              console.log("workflow run is not attached to a PR; skipping comment");
+              return;
+            }
+            const pr = prs[0];
+            const { owner, repo } = context.repo;
+            const full = body + "\n\n" + marker;
+            const list = await github.rest.issues.listComments({
+              owner, repo, issue_number: pr.number, per_page: 100,
+            });
+            const existing = list.data.find(c => c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: existing.id, body: full,
+              });
+              console.log(`updated comment ${existing.id} on PR ${pr.number}`);
+            } else {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: pr.number, body: full,
+              });
+              console.log(`created comment on PR ${pr.number}`);
+            }
+
+      - name: Verify all configurations built and tested
+        if: steps.render.outputs.failed == 'true'
+        run: |
+          cat failures.txt
+          exit 1

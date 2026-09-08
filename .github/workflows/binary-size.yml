@@ -1,0 +1,158 @@
+name: binary-size
+
+# Measure the stream1090 backend matrix (binary size, peak compiler RSS,
+# ctest results, warnings, wall-time) for every toolchain. This workflow only
+# measures and uploads artifacts; the PR comment is assembled by the separate
+# binary-size-report workflow, triggered by workflow_run, so it runs with the
+# full token of the target repo even when this workflow runs from a fork pull
+# request (a fork PR gets a read-only token and could never post the comment
+# itself).
+#
+# "Airspy only" / "RTL-SDR only" hide the other backend from pkg-config (a
+# shadow copy of both .pc directories without the file to hide), because every
+# library is installed on the runner regardless.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binary-size-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: ubuntu-gcc,    cc: gcc,     cxx: g++,      label: "GNU gcc / Ubuntu x64" }
+          - { os: ubuntu-latest, name: ubuntu-clang,  cc: clang,   cxx: clang++,   label: "LLVM clang / Ubuntu x64" }
+          - { os: macos-14,      name: macos-clang,   cc: clang,   cxx: clang++,   label: "Apple clang / macOS x64" }
+          - { os: macos-15,      name: macos-arm,     cc: clang,   cxx: clang++,   label: "Apple clang / macOS arm64" }
+          - { os: macos-14,      name: macos-gcc,     cc: gcc,     cxx: g++,       label: "GNU gcc / macOS x64 (Homebrew)" }
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      MATRIX_LABEL: ${{ matrix.label }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config libusb-1.0-0-dev \
+            libairspy-dev librtlsdr-dev
+
+      - name: Install dependencies (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          brew install --quiet cmake pkg-config librtlsdr airspy gcc
+
+      - name: Prepare pkg-config shadow directories
+        run: |
+          RTL_PCDIR="$(pkg-config --variable=pcfiledir librtlsdr)"
+          AIR_PCDIR="$(pkg-config --variable=pcfiledir libairspy)"
+          for d in pc-rtl pc-air pc-none; do rm -rf "$d"; mkdir -p "$d"; done
+          for d in pc-rtl pc-air; do
+            for f in "$RTL_PCDIR"/*.pc "$AIR_PCDIR"/*.pc; do cp "$f" "$d"; done
+          done
+          rm -f pc-air/librtlsdr.pc
+          rm -f pc-rtl/libairspy.pc
+
+      - name: Build and measure all four configurations
+        # Peak RSS per configuration: each config is built in a forked child so
+        # its ru_maxrss measures only that build, not an accumulated maximum.
+        # The RS build is stream1090 alone with -j1; that is where main.cpp.o
+        # (the TU instantiating every preset) compiles. ru_maxrss is in KB on
+        # Linux and in bytes on macOS, hence the OS-aware conversion.
+        run: |
+          python3 - <<'EOF'
+          import json, multiprocessing, os, re, resource, subprocess, sys, time
+
+          ctx = multiprocessing.get_context("fork")
+          root = os.environ["GITHUB_WORKSPACE"]
+          compiler = os.environ["CXX"]
+          platform = os.environ.get("MATRIX_LABEL", os.environ.get("RUNNER_OS", "?"))
+
+          def measure(cfg):
+              build_dir = os.path.join(root, "build-" + cfg["name"])
+              env = dict(os.environ)
+              if cfg["pkg"] is None:
+                  env.pop("PKG_CONFIG_LIBDIR", None)
+              else:
+                  env["PKG_CONFIG_LIBDIR"] = cfg["pkg"]
+              r = {
+                  "compiler": compiler,
+                  "platform": platform,
+                  "config": cfg["label"],
+                  "size_bytes": None, "peak_rss_kb": None,
+                  "tests": None, "warnings": None, "build_time_s": None,
+                  "built": True, "error": None,
+              }
+              t0 = time.monotonic()
+              try:
+                  subprocess.run(
+                      ["cmake", "-S", ".", "-B", build_dir,
+                       "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=ON"],
+                      env=env, check=True, cwd=root)
+                  subprocess.run(
+                      ["cmake", "--build", build_dir, "--parallel", "1",
+                       "--target", "stream1090"],
+                      env=env, check=True, cwd=root)
+                  r["peak_rss_kb"] = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+                  if sys.platform == "darwin":
+                      r["peak_rss_kb"] //= 1024
+                  r["size_bytes"] = os.path.getsize(os.path.join(build_dir, "stream1090"))
+                  b = subprocess.run(
+                      ["cmake", "--build", build_dir, "--parallel", "2"],
+                      env=env, capture_output=True, text=True, cwd=root, check=True)
+                  r["warnings"] = len(re.findall(r": warning:", b.stdout + b.stderr))
+                  r["build_time_s"] = round(time.monotonic() - t0, 1)
+                  tp = subprocess.run(["ctest", "--test-dir", build_dir,
+                                       "--output-on-failure"],
+                                      env=env, capture_output=True, text=True, cwd=root)
+                  m = re.search(r"(\d+)% tests passed, (\d+) tests failed out of (\d+)",
+                                tp.stdout)
+                  r["tests"] = {"passed": bool(tp.returncode == 0)}
+                  if m:
+                      total = int(m.group(3))
+                      failed = int(m.group(2))
+                      r["tests"].update(passed_n=total - failed,
+                                        failed_n=failed,
+                                        total_n=total)
+              except subprocess.CalledProcessError as e:
+                  r["built"] = False
+                  r["error"] = str(e)
+              return r
+
+          configs = [
+              {"name": "both", "label": "Airspy + RTL-SDR", "pkg": None},
+              {"name": "air",  "label": "Airspy only",      "pkg": os.path.join(root, "pc-air")},
+              {"name": "rtl",  "label": "RTL-SDR only",     "pkg": os.path.join(root, "pc-rtl")},
+              {"name": "none", "label": "Neither",          "pkg": os.path.join(root, "pc-none")},
+          ]
+          # Per-config RSS: run each build in a separate forked child so its
+          # ru_maxrss measures only that build, not the max across all four.
+          rows = [None] * len(configs)
+          for i, cfg in enumerate(configs):
+              q = ctx.Queue()
+              p = ctx.Process(target=lambda c=cfg, q=q: q.put(measure(c)))
+              p.start()
+              p.join()
+              rows[i] = q.get()
+
+          with open("sizes_%s.json" % compiler.replace("/", "_"), "w") as f:
+              json.dump(rows, f)
+          print("measured", len(rows), "configurations for", platform)
+          EOF
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: sizes-${{ matrix.name }}
+          path: sizes_*.json

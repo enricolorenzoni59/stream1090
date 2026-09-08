@@ -8,11 +8,14 @@
 
 namespace Log {
 
-    enum class Level { INFO, MSG, WARN, ERROR, DEBUG };
+    enum class Level {
+        ERROR = 0,
+        WARN  = 1,
+        MSG   = 2,
+        INFO  = 3,
+        DEBUG = 4
+    };
 
-    // ------------------------------------------------------------
-    // Short timestamp helper: HH:MM:SS.mmm
-    // ------------------------------------------------------------
     inline std::string short_timestamp() {
         using namespace std::chrono;
 
@@ -26,9 +29,6 @@ namespace Log {
         return oss.str();
     }
 
-    // ------------------------------------------------------------
-    // Logger core
-    // ------------------------------------------------------------
     class Logger {
     public:
         static Logger& instance() {
@@ -36,23 +36,21 @@ namespace Log {
             return inst;
         }
 
-        void setVerbose(bool v) {
+        void setLevel(Level lvl) {
             std::lock_guard<std::mutex> lock(mutex_);
-            verbose_ = v;
+            max_level_ = lvl;
         }
 
-        bool isVerbose() const {
-            return verbose_;
+        Level level() const {
+            return max_level_;
         }
 
         void write(Level lvl, const std::string& src, const std::string& msg) {
             std::lock_guard<std::mutex> lock(mutex_);
 
-            // Filter based on verbosity
-            if (!verbose_) {
-                if (lvl == Level::INFO || lvl == Level::DEBUG)
-                    return;
-            }
+            // New rule: print if lvl <= max_level_
+            if (lvl > max_level_)
+                return;
 
             std::cerr << short_timestamp()
                       << " [" << src << "] "
@@ -62,12 +60,10 @@ namespace Log {
     private:
         Logger() = default;
         mutable std::mutex mutex_;
-        bool verbose_ = false;   // default: quiet mode
+        Level max_level_ = Level::WARN;   // default: WARN + ERROR
     };
 
-    // ------------------------------------------------------------
-    // Stream proxy
-    // ------------------------------------------------------------
+
     class Stream {
     public:
         Stream(Level lvl, const std::string& src)
@@ -89,47 +85,39 @@ namespace Log {
         std::ostringstream buffer_;
     };
 
-    // ------------------------------------------------------------
-    // Stream-style API
-    // ------------------------------------------------------------
-    inline Stream info(const std::string& src)  { return Stream(Level::INFO,  src); }
-    inline Stream msg(const std::string& src)   { return Stream(Level::MSG,   src); }
-    inline Stream warn(const std::string& src)  { return Stream(Level::WARN,  src); }
+
     inline Stream error(const std::string& src) { return Stream(Level::ERROR, src); }
+    inline Stream warn (const std::string& src) { return Stream(Level::WARN,  src); }
+    inline Stream msg  (const std::string& src) { return Stream(Level::MSG,   src); }
+    inline Stream info (const std::string& src) { return Stream(Level::INFO,  src); }
     inline Stream debug(const std::string& src) { return Stream(Level::DEBUG, src); }
 
-    // ------------------------------------------------------------
-    // Direct-message overloads
-    // ------------------------------------------------------------
-    inline void info(const std::string& src, const std::string& msg) {
-        Logger::instance().write(Level::INFO, src, msg);
-    }
-
-    inline void msg(const std::string& src, const std::string& msg) {
-        Logger::instance().write(Level::MSG, src, msg);
+    inline void error(const std::string& src, const std::string& msg) {
+        Logger::instance().write(Level::ERROR, src, msg);
     }
 
     inline void warn(const std::string& src, const std::string& msg) {
         Logger::instance().write(Level::WARN, src, msg);
     }
 
-    inline void error(const std::string& src, const std::string& msg) {
-        Logger::instance().write(Level::ERROR, src, msg);
+    inline void msg(const std::string& src, const std::string& msg) {
+        Logger::instance().write(Level::MSG, src, msg);
+    }
+
+    inline void info(const std::string& src, const std::string& msg) {
+        Logger::instance().write(Level::INFO, src, msg);
     }
 
     inline void debug(const std::string& src, const std::string& msg) {
         Logger::instance().write(Level::DEBUG, src, msg);
     }
 
-    // ------------------------------------------------------------
-    // Verbosity control
-    // ------------------------------------------------------------
-    inline void setVerbose(bool v) {
-        Logger::instance().setVerbose(v);
+    inline void setLevel(Level lvl) {
+        Logger::instance().setLevel(lvl);
     }
 
-    inline bool isVerbose() {
-        return Logger::instance().isVerbose();
+    inline Level getLevel() {
+        return Logger::instance().level();
     }
 
-}
+} // namespace Log

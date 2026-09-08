@@ -13,23 +13,25 @@
 #include <iomanip>
 #include <chrono>
 #include <optional>
+#include "BitUtils.hpp"
+#include "ModeS_BitFields.hpp"
 
 namespace ModeS {
 
 	constexpr inline uint32_t extractICAOWithCA_Short(const uint64_t& frameShort) {
-		return ((frameShort >> 24) & 0x7ffffffull);
+		return getField<DF11::ICAOWithCA>(frameShort);
 	}
 
 	constexpr inline uint32_t extractICAOWithCA_Long(const Bits128& frameLong) {
-		return ((frameLong.high() >> 16) & (0x7ffffffull));
+		return getField<DF17::ICAOWithCA>(frameLong);
 	}
 
 	constexpr inline uint16_t extractSquawkAlt_Long(const Bits128& frameLong) {
-		return ((frameLong.high() >> 16) & 0x1fff);
+		return getField<CommB::SquawkAlt>(frameLong);
 	}
 
 	constexpr inline uint16_t extractSquawkAlt_Short(const uint64_t& frameShort) {
-		return ((frameShort >> 24) & 0x1fff);
+		return getField<Surv::SquawkAlt>(frameShort);
 	}
 
 	constexpr inline uint8_t extractSurvInterrogator_Short(const uint64_t& frameShort) {
@@ -110,19 +112,23 @@ namespace ModeS {
 	}
 
 	constexpr inline uint8_t extractMEType(const Bits128& frame) noexcept {
-		return uint8_t((frame.high() >> 11) & 0x1f);
+		//return uint8_t((frame.high() >> 11) & 0x1f);
+		return getField<DF17::Typecode>(frame); 
 	}
 
 	constexpr inline uint8_t extractAirbornePositionCprOdd(const Bits128& frame) noexcept {
-		return uint8_t((frame.low() >> 58) & 1);
+		//return uint8_t((frame.low() >> 58) & 1);
+		return getField<DF17::CPR_Odd>(frame); 
 	}
 
 	constexpr inline uint32_t extractAirbornePositionCprLat(const Bits128& frame) noexcept {
-		return uint32_t((frame.low() >> 41) & 0x1ffff);
+		//return uint32_t((frame.low() >> 41) & 0x1ffff);
+		return getField<DF17::CPR_Lat>(frame); 
 	}
 
 	constexpr inline uint32_t extractAirbornePositionCprLon(const Bits128& frame) noexcept {
-		return uint32_t((frame.low() >> 24) & 0x1ffff);
+		//return uint32_t((frame.low() >> 24) & 0x1ffff);
+		return getField<DF17::CPR_Lon>(frame); 
 	}
 
 	// Number of longitude zones for a given latitude, per ADS-B CPR. 59 at the
