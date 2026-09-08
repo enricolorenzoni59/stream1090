@@ -183,9 +183,17 @@ jobs:
           import glob, json, os, re, sys
 
           rows = []
-          for path in glob.glob("sizes/sizes_*.json"):
+          print("sizes tree:")
+          for p in glob.glob("sizes/**/*", recursive=True):
+              print("  ", p)
+          for path in glob.glob("sizes/**/sizes_*.json", recursive=True):
               with open(path) as f:
                   rows.extend(json.load(f))
+          if not rows:
+              import pathlib
+              for p in pathlib.Path("sizes").rglob("*"):
+                  print("  file:", p)
+              sys.exit("no size artifacts found")
           expected = [
               "GNU gcc / Ubuntu x64",
               "LLVM clang / Ubuntu x64",
