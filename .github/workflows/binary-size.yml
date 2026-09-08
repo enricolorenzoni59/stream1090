@@ -1,24 +1,21 @@
 name: binary-size
 
-# Build the stream1090 backend matrix and post a table of binary size, peak
-# compiler RSS (the main.cpp TU instantiating every preset), warning count,
-# build wall-time and test results as a PR comment, one row per toolchain and
-# backend configuration. Justifies the preset gating: only the backends whose
-# library was detected by CMake compile their templated DSP presets.
+# Measure the stream1090 backend matrix (binary size, peak compiler RSS,
+# ctest results, warnings, wall-time) for every toolchain. This workflow only
+# measures and uploads artifacts; the PR comment is assembled by the separate
+# binary-size-report workflow, triggered by workflow_run, so it runs with the
+# full token of the target repo even when this workflow runs from a fork pull
+# request (a fork PR gets a read-only token and could never post the comment
+# itself).
 #
 # "Airspy only" / "RTL-SDR only" hide the other backend from pkg-config (a
 # shadow copy of both .pc directories without the file to hide), because every
 # library is installed on the runner regardless.
-#
-# Extend the matrix include with other toolchains/OSes as needed; each entry
-# adds its own column of rows to the comment.
 on:
   pull_request:
 
 permissions:
   contents: read
-  issues: write
-  pull-requests: write
 
 concurrency:
   group: binary-size-${{ github.ref }}
@@ -70,7 +67,7 @@ jobs:
       - name: Build and measure all four configurations
         # Peak RSS per configuration: each config is built in a forked child so
         # its ru_maxrss measures only that build, not an accumulated maximum.
-        # The RSS build is stream1090 alone with -j1; that is where main.cpp.o
+        # The RS build is stream1090 alone with -j1; that is where main.cpp.o
         # (the TU instantiating every preset) compiles. ru_maxrss is in KB on
         # Linux and in bytes on macOS, hence the OS-aware conversion.
         run: |
@@ -114,8 +111,7 @@ jobs:
                   b = subprocess.run(
                       ["cmake", "--build", build_dir, "--parallel", "2"],
                       env=env, capture_output=True, text=True, cwd=root, check=True)
-                  out = b.stdout + b.stderr
-                  r["warnings"] = len(re.findall(r": warning:", out))
+                  r["warnings"] = len(re.findall(r": warning:", b.stdout + b.stderr))
                   r["build_time_s"] = round(time.monotonic() - t0, 1)
                   tp = subprocess.run(["ctest", "--test-dir", build_dir,
                                        "--output-on-failure"],
@@ -124,9 +120,11 @@ jobs:
                                 tp.stdout)
                   r["tests"] = {"passed": bool(tp.returncode == 0)}
                   if m:
-                      r["tests"].update(passed_n=int(m.group(1)),
-                                        failed_n=int(m.group(2)),
-                                        total_n=int(m.group(3)))
+                      total = int(m.group(3))
+                      failed = int(m.group(2))
+                      r["tests"].update(passed_n=total - failed,
+                                        failed_n=failed,
+                                        total_n=total)
               except subprocess.CalledProcessError as e:
                   r["built"] = False
                   r["error"] = str(e)
@@ -158,134 +156,3 @@ jobs:
         with:
           name: sizes-${{ matrix.name }}
           path: sizes_*.json
-
-  report:
-    needs: measure
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: sizes
-          pattern: sizes-*
-          merge-multiple: true
-
-      - name: Render table
-        id: render
-        run: |
-          python3 - <<'EOF'
-          import glob, json, os, sys
-
-          rows = []
-          for path in glob.glob("sizes/sizes_*.json"):
-              with open(path) as f:
-                  rows.extend(json.load(f))
-
-          # Expected matrix so a toolchain whose artifact is missing (job
-          # failed before upload) still shows up as a row instead of silently
-          # disappearing from the table.
-          expected = [
-              "GNU gcc / Ubuntu x64",
-              "LLVM clang / Ubuntu x64",
-              "Apple clang / macOS x64",
-              "Apple clang / macOS arm64",
-              "GNU gcc / macOS x64 (Homebrew)",
-          ]
-          configs = ["Airspy + RTL-SDR", "Airspy only", "RTL-SDR only", "Neither"]
-          grid = {}
-          for r in rows:
-              grid.setdefault(r["platform"], {})[r["config"]] = r
-          rows = []
-          for p in expected:
-              for c in configs:
-                  r = grid.get(p, {}).get(c)
-                  if r is None:
-                      r = {"platform": p, "config": c, "built": False,
-                           "size_bytes": None, "peak_rss_kb": None,
-                           "tests": None, "warnings": None,
-                           "build_time_s": None, "error": "no artifact"}
-                  rows.append(r)
-
-          def kb(n):
-              if n is None:
-                  return "fail"
-              return f"{n/1024:.0f} KB"
-
-          def rss(n):
-              if n is None:
-                  return "fail"
-              return f"{n/1024:.0f} MB"
-
-          def tests(t):
-              if t is None:
-                  return "n/a"
-              if "total_n" in t:
-                  mark = "ok" if t["passed"] else "FAIL"
-                  return f"{t['passed_n']}/{t['total_n']} ({mark})"
-              return "ok" if t["passed"] else "FAIL"
-
-          def warn(n):
-              if n is None:
-                  return "fail"
-              w = n if n != 0 else 0
-              return str(w)
-
-          def secs(n):
-              if n is None:
-                  return "fail"
-              return f"{n:.0f}s"
-
-          lines = [
-              f"## stream1090 backend build matrix",
-              "",
-              f"Measured at `{os.environ['GITHUB_SHA'][:7]}` in a clean tree "
-              "(`-DCMAKE_BUILD_TYPE=Release`). Peak RSS is the `stream1090` "
-              "target with `-j1` (the `main.cpp` TU compiling every preset); "
-              "tests are `ctest` on the same build; warnings are from the full "
-              "build log.",
-              "",
-              "| Toolchain | Backends | Binary | Peak RSS | Tests | Warnings | Build time |",
-              "|---|---|---|---|---|---|---|",
-          ]
-          for r in rows:
-              lines.append(
-                  f"| {r['platform']} | {r['config']} "
-                  f"| {kb(r['size_bytes'])} | {rss(r['peak_rss_kb'])} "
-                  f"| {tests(r['tests'])} | {warn(r['warnings'])} "
-                  f"| {secs(r['build_time_s'])} |"
-              )
-          body = "\n".join(lines) + "\n"
-          print(body, end="")
-
-          bad = [r for r in rows if not r["built"] or (r["tests"] and not r["tests"]["passed"])]
-          with open("table.md", "w") as f:
-              f.write(body)
-          if bad:
-              with open("build-failures.txt", "w") as f:
-                  for r in bad:
-                      f.write(f"{r['platform']} / {r['config']}: "
-                              f"{r['error'] or 'tests failed'}\n")
-                  f.write("\nsome configurations failed: check the rows above\n")
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"failed={'true' if bad else 'false'}\n")
-          EOF
-
-      - name: Save table
-        id: table
-        run: |
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          cat table.md >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-
-      - uses: peter-evans/create-or-update-comment@v4
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          comment-tag: binary-size
-          mode: upsert
-          body: ${{ steps.table.outputs.body }}
-
-      - name: Verify all configurations built and tested
-        if: steps.render.outputs.failed == 'true'
-        run: |
-          cat build-failures.txt
-          exit 1
