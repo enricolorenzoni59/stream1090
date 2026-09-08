@@ -1,14 +1,17 @@
 name: binary-size
 
 # Build the stream1090 backend matrix and post a table of binary size, peak
-# compiler RSS (the main.cpp TU with all preset instantiations) and test
-# results as a PR comment, one row per compiler/configuration. Reused without
-# changes to justify the preset gating: only the backends whose library was
-# detected by CMake compile their templated DSP presets.
+# compiler RSS (the main.cpp TU instantiating every preset), warning count,
+# build wall-time and test results as a PR comment, one row per toolchain and
+# backend configuration. Justifies the preset gating: only the backends whose
+# library was detected by CMake compile their templated DSP presets.
 #
-# "Airspy only" / "RTL-SDR only" are produced by hiding the other backend from
-# pkg-config (a copy of the .pc directory without the file to hide), because
-# both libraries are installed on the runner regardless.
+# "Airspy only" / "RTL-SDR only" hide the other backend from pkg-config (a
+# shadow copy of both .pc directories without the file to hide), because every
+# library is installed on the runner regardless.
+#
+# Extend the matrix include with other toolchains/OSes as needed; each entry
+# adds its own column of rows to the comment.
 on:
   pull_request:
 
@@ -23,65 +26,79 @@ concurrency:
 
 jobs:
   measure:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        compiler: [gcc, clang]
+        include:
+          - { os: ubuntu-latest, name: ubuntu-gcc,    cc: gcc,     cxx: g++,      label: "GNU gcc / Ubuntu x64" }
+          - { os: ubuntu-latest, name: ubuntu-clang,  cc: clang,   cxx: clang++,   label: "LLVM clang / Ubuntu x64" }
+          - { os: macos-14,      name: macos-clang,   cc: clang,   cxx: clang++,   label: "Apple clang / macOS x64" }
+          - { os: macos-15,      name: macos-arm,     cc: clang,   cxx: clang++,   label: "Apple clang / macOS arm64" }
+          - { os: macos-14,      name: macos-gcc,     cc: gcc,     cxx: g++,       label: "GNU gcc / macOS x64 (Homebrew)" }
     env:
-      CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
-      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      MATRIX_LABEL: ${{ matrix.label }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies (Ubuntu)
+        if: startsWith(matrix.os, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake pkg-config libusb-1.0-0-dev \
             libairspy-dev librtlsdr-dev
 
+      - name: Install dependencies (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          brew install --quiet cmake pkg-config librtlsdr airspy gcc
+
       - name: Prepare pkg-config shadow directories
         run: |
-          PCROOT="$(pkg-config --variable=pcfiledir librtlsdr)"
-          rm -rf pc-rtl pc-air pc-none
-          mkdir -p pc-rtl pc-air pc-none
-          for f in "$PCROOT"/*.pc; do
-            cp "$f" pc-rtl/
-            cp "$f" pc-air/
+          RTL_PCDIR="$(pkg-config --variable=pcfiledir librtlsdr)"
+          AIR_PCDIR="$(pkg-config --variable=pcfiledir libairspy)"
+          for d in pc-rtl pc-air pc-none; do rm -rf "$d"; mkdir -p "$d"; done
+          for d in pc-rtl pc-air; do
+            for f in "$RTL_PCDIR"/*.pc "$AIR_PCDIR"/*.pc; do cp "$f" "$d"; done
           done
-          rm -f pc-rtl/libairspy.pc
           rm -f pc-air/librtlsdr.pc
+          rm -f pc-rtl/libairspy.pc
 
       - name: Build and measure all four configurations
-        # Peak RSS per configuration: each config is built in a forked child
-        # process so its ru_maxrss is this build's, not an accumulated
-        # maximum. The measured build is stream1090 alone with -j1; that is
-        # where main.cpp.o (the TU instantiating every preset) compiles.
+        # Peak RSS per configuration: each config is built in a forked child so
+        # its ru_maxrss measures only that build, not an accumulated maximum.
+        # The RSS build is stream1090 alone with -j1; that is where main.cpp.o
+        # (the TU instantiating every preset) compiles. ru_maxrss is in KB on
+        # Linux and in bytes on macOS, hence the OS-aware conversion.
         run: |
           python3 - <<'EOF'
-          import json, multiprocessing, os, re, resource, subprocess, sys
+          import json, multiprocessing, os, re, resource, subprocess, sys, time
 
           ctx = multiprocessing.get_context("fork")
           root = os.environ["GITHUB_WORKSPACE"]
           compiler = os.environ["CXX"]
+          platform = os.environ.get("MATRIX_LABEL", os.environ.get("RUNNER_OS", "?"))
 
           def measure(cfg):
-              # Returns a dict for one backend configuration.
               build_dir = os.path.join(root, "build-" + cfg["name"])
               env = dict(os.environ)
               if cfg["pkg"] is None:
-                  # both backends found via the platform default
                   env.pop("PKG_CONFIG_LIBDIR", None)
               else:
                   env["PKG_CONFIG_LIBDIR"] = cfg["pkg"]
               r = {
                   "compiler": compiler,
+                  "platform": platform,
                   "config": cfg["label"],
                   "size_bytes": None, "peak_rss_kb": None,
-                  "tests": None, "built": True, "error": None,
+                  "tests": None, "warnings": None, "build_time_s": None,
+                  "built": True, "error": None,
               }
-              def build():
+              t0 = time.monotonic()
+              try:
                   subprocess.run(
                       ["cmake", "-S", ".", "-B", build_dir,
                        "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=ON"],
@@ -90,13 +107,16 @@ jobs:
                       ["cmake", "--build", build_dir, "--parallel", "1",
                        "--target", "stream1090"],
                       env=env, check=True, cwd=root)
-                  return resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
-              try:
-                  rss = build()
-                  r["peak_rss_kb"] = rss
+                  r["peak_rss_kb"] = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+                  if sys.platform == "darwin":
+                      r["peak_rss_kb"] //= 1024
                   r["size_bytes"] = os.path.getsize(os.path.join(build_dir, "stream1090"))
-                  subprocess.run(["cmake", "--build", build_dir, "--parallel", "2"],
-                                 env=env, check=True, cwd=root)
+                  b = subprocess.run(
+                      ["cmake", "--build", build_dir, "--parallel", "2"],
+                      env=env, capture_output=True, text=True, cwd=root, check=True)
+                  out = b.stdout + b.stderr
+                  r["warnings"] = len(re.findall(r": warning:", out))
+                  r["build_time_s"] = round(time.monotonic() - t0, 1)
                   tp = subprocess.run(["ctest", "--test-dir", build_dir,
                                        "--output-on-failure"],
                                       env=env, capture_output=True, text=True, cwd=root)
@@ -128,18 +148,16 @@ jobs:
               p.join()
               rows[i] = q.get()
 
-          if not rows:
-              sys.exit("no configurations measured")
-          with open("sizes.json", "w") as f:
+          with open("sizes_%s.json" % compiler.replace("/", "_"), "w") as f:
               json.dump(rows, f)
-          print("measured", len(rows), "configurations")
+          print("measured", len(rows), "configurations for", platform)
           EOF
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: sizes-${{ matrix.compiler }}
-          path: sizes.json
+          name: sizes-${{ matrix.name }}
+          path: sizes_*.json
 
   report:
     needs: measure
@@ -159,21 +177,43 @@ jobs:
           import glob, json, os, sys
 
           rows = []
-          for path in glob.glob("sizes/sizes.json"):
+          for path in glob.glob("sizes/sizes_*.json"):
               with open(path) as f:
                   rows.extend(json.load(f))
-          if not rows:
-              sys.exit("no size artifacts found")
-          rows.sort(key=lambda r: (r["compiler"], r["config"]))
+
+          # Expected matrix so a toolchain whose artifact is missing (job
+          # failed before upload) still shows up as a row instead of silently
+          # disappearing from the table.
+          expected = [
+              "GNU gcc / Ubuntu x64",
+              "LLVM clang / Ubuntu x64",
+              "Apple clang / macOS x64",
+              "Apple clang / macOS arm64",
+              "GNU gcc / macOS x64 (Homebrew)",
+          ]
+          configs = ["Airspy + RTL-SDR", "Airspy only", "RTL-SDR only", "Neither"]
+          grid = {}
+          for r in rows:
+              grid.setdefault(r["platform"], {})[r["config"]] = r
+          rows = []
+          for p in expected:
+              for c in configs:
+                  r = grid.get(p, {}).get(c)
+                  if r is None:
+                      r = {"platform": p, "config": c, "built": False,
+                           "size_bytes": None, "peak_rss_kb": None,
+                           "tests": None, "warnings": None,
+                           "build_time_s": None, "error": "no artifact"}
+                  rows.append(r)
 
           def kb(n):
               if n is None:
-                  return "n/a"
+                  return "fail"
               return f"{n/1024:.0f} KB"
 
           def rss(n):
               if n is None:
-                  return "n/a"
+                  return "fail"
               return f"{n/1024:.0f} MB"
 
           def tests(t):
@@ -184,22 +224,35 @@ jobs:
                   return f"{t['passed_n']}/{t['total_n']} ({mark})"
               return "ok" if t["passed"] else "FAIL"
 
+          def warn(n):
+              if n is None:
+                  return "fail"
+              w = n if n != 0 else 0
+              return str(w)
+
+          def secs(n):
+              if n is None:
+                  return "fail"
+              return f"{n:.0f}s"
+
           lines = [
               f"## stream1090 backend build matrix",
               "",
-              f"Measured at `{os.environ['GITHUB_SHA'][:7]}` on `ubuntu-latest` "
-              "(clean tree, `-DCMAKE_BUILD_TYPE=Release`). Peak RSS is the "
-              "`stream1090` target with `-j1` (the `main.cpp` TU compiling every "
-              "preset); tests are `ctest` on the same build.",
+              f"Measured at `{os.environ['GITHUB_SHA'][:7]}` in a clean tree "
+              "(`-DCMAKE_BUILD_TYPE=Release`). Peak RSS is the `stream1090` "
+              "target with `-j1` (the `main.cpp` TU compiling every preset); "
+              "tests are `ctest` on the same build; warnings are from the full "
+              "build log.",
               "",
-              "| Compiler | Backends | Binary | Peak RSS | Tests |",
-              "|---|---|---|---|---|",
+              "| Toolchain | Backends | Binary | Peak RSS | Tests | Warnings | Build time |",
+              "|---|---|---|---|---|---|---|",
           ]
           for r in rows:
               lines.append(
-                  f"| {r['compiler']} | {r['config']} "
+                  f"| {r['platform']} | {r['config']} "
                   f"| {kb(r['size_bytes'])} | {rss(r['peak_rss_kb'])} "
-                  f"| {tests(r['tests'])} |"
+                  f"| {tests(r['tests'])} | {warn(r['warnings'])} "
+                  f"| {secs(r['build_time_s'])} |"
               )
           body = "\n".join(lines) + "\n"
           print(body, end="")
@@ -210,7 +263,7 @@ jobs:
           if bad:
               with open("build-failures.txt", "w") as f:
                   for r in bad:
-                      f.write(f"{r['compiler']} / {r['config']}: "
+                      f.write(f"{r['platform']} / {r['config']}: "
                               f"{r['error'] or 'tests failed'}\n")
                   f.write("\nsome configurations failed: check the rows above\n")
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
