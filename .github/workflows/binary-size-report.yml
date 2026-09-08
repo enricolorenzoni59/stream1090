@@ -7,7 +7,7 @@ name: binary-size-report
 # would give the measure workflow a read-only token and a 403 on the comments
 # API).
 #
-# Comments are upserted in place: the body is tagged with a marker and we
+# Comments are upserted in place (fork test): the body is tagged with a marker and we
 # search for it before posting so a push never grows a comment pile.
 on:
   workflow_run:
