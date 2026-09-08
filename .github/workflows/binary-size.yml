@@ -1,9 +1,10 @@
 name: binary-size
 
-# Build the stream1090 preset matrix and post a table of binary sizes as a PR
-# comment, one row per compiler. Reused to justify the preset gating: only the
-# backends whose library was detected by CMake compile their templated DSP
-# presets, and this makes that visible on every PR.
+# Build the stream1090 backend matrix and post a table of binary size, peak
+# compiler RSS (the main.cpp TU with all preset instantiations) and test
+# results as a PR comment, one row per compiler/configuration. Reused without
+# changes to justify the preset gating: only the backends whose library was
+# detected by CMake compile their templated DSP presets.
 #
 # "Airspy only" / "RTL-SDR only" are produced by hiding the other backend from
 # pkg-config (a copy of the .pc directory without the file to hide), because
@@ -43,52 +44,102 @@ jobs:
       - name: Prepare pkg-config shadow directories
         run: |
           PCROOT="$(pkg-config --variable=pcfiledir librtlsdr)"
-          for d in pc-rtl pc-air pc-none; do rm -rf "$d"; mkdir -p "$d"; done
+          rm -rf pc-rtl pc-air pc-none
+          mkdir -p pc-rtl pc-air pc-none
           for f in "$PCROOT"/*.pc; do
             cp "$f" pc-rtl/
             cp "$f" pc-air/
           done
-          rm -f pc-rtl/libairspy*.pc
-          rm -f pc-air/librtlsdr*.pc
+          rm -f pc-rtl/libairspy.pc
+          rm -f pc-air/librtlsdr.pc
 
-      - name: Build (both backends)
+      - name: Build and measure all four configurations
+        # Peak RSS per configuration: each config is built in a forked child
+        # process so its ru_maxrss is this build's, not an accumulated
+        # maximum. The measured build is stream1090 alone with -j1; that is
+        # where main.cpp.o (the TU instantiating every preset) compiles.
         run: |
-          cmake -S . -B build-both -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-          cmake --build build-both --parallel 2
+          python3 - <<'EOF'
+          import json, multiprocessing, os, re, resource, subprocess, sys
 
-      - name: Build (Airspy only)
-        run: |
-          PKG_CONFIG_LIBDIR="$PWD/pc-air" cmake -S . -B build-air \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-          cmake --build build-air --parallel 2
+          ctx = multiprocessing.get_context("fork")
+          root = os.environ["GITHUB_WORKSPACE"]
+          compiler = os.environ["CXX"]
 
-      - name: Build (RTL-SDR only)
-        run: |
-          PKG_CONFIG_LIBDIR="$PWD/pc-rtl" cmake -S . -B build-rtl \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-          cmake --build build-rtl --parallel 2
+          def measure(cfg):
+              # Returns a dict for one backend configuration.
+              build_dir = os.path.join(root, "build-" + cfg["name"])
+              env = dict(os.environ)
+              if cfg["pkg"] is None:
+                  # both backends found via the platform default
+                  env.pop("PKG_CONFIG_LIBDIR", None)
+              else:
+                  env["PKG_CONFIG_LIBDIR"] = cfg["pkg"]
+              r = {
+                  "compiler": compiler,
+                  "config": cfg["label"],
+                  "size_bytes": None, "peak_rss_kb": None,
+                  "tests": None, "built": True, "error": None,
+              }
+              def build():
+                  subprocess.run(
+                      ["cmake", "-S", ".", "-B", build_dir,
+                       "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=ON"],
+                      env=env, check=True, cwd=root)
+                  subprocess.run(
+                      ["cmake", "--build", build_dir, "--parallel", "1",
+                       "--target", "stream1090"],
+                      env=env, check=True, cwd=root)
+                  return resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+              try:
+                  rss = build()
+                  r["peak_rss_kb"] = rss
+                  r["size_bytes"] = os.path.getsize(os.path.join(build_dir, "stream1090"))
+                  subprocess.run(["cmake", "--build", build_dir, "--parallel", "2"],
+                                 env=env, check=True, cwd=root)
+                  tp = subprocess.run(["ctest", "--test-dir", build_dir,
+                                       "--output-on-failure"],
+                                      env=env, capture_output=True, text=True, cwd=root)
+                  m = re.search(r"(\d+)% tests passed, (\d+) tests failed out of (\d+)",
+                                tp.stdout)
+                  r["tests"] = {"passed": bool(tp.returncode == 0)}
+                  if m:
+                      r["tests"].update(passed_n=int(m.group(1)),
+                                        failed_n=int(m.group(2)),
+                                        total_n=int(m.group(3)))
+              except subprocess.CalledProcessError as e:
+                  r["built"] = False
+                  r["error"] = str(e)
+              return r
 
-      - name: Build (no backends)
-        run: |
-          PKG_CONFIG_LIBDIR="$PWD/pc-none" cmake -S . -B build-none \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
-          cmake --build build-none --parallel 2
+          configs = [
+              {"name": "both", "label": "Airspy + RTL-SDR", "pkg": None},
+              {"name": "air",  "label": "Airspy only",      "pkg": os.path.join(root, "pc-air")},
+              {"name": "rtl",  "label": "RTL-SDR only",     "pkg": os.path.join(root, "pc-rtl")},
+              {"name": "none", "label": "Neither",          "pkg": os.path.join(root, "pc-none")},
+          ]
+          # Per-config RSS: run each build in a separate forked child so its
+          # ru_maxrss measures only that build, not the max across all four.
+          rows = [None] * len(configs)
+          for i, cfg in enumerate(configs):
+              q = ctx.Queue()
+              p = ctx.Process(target=lambda c=cfg, q=q: q.put(measure(c)))
+              p.start()
+              p.join()
+              rows[i] = q.get()
 
-      - name: Emit sizes
-        run: |
-          BOTH=$(stat -c %s build-both/stream1090)
-          AIR=$(stat -c %s build-air/stream1090)
-          RTL=$(stat -c %s build-rtl/stream1090)
-          NONE=$(stat -c %s build-none/stream1090)
-          printf '{"compiler":"%s","airspy_only":%d,"rtlsdr_only":%d,"both":%d,"none":%d}\n' \
-            "${{ matrix.compiler }}" "$AIR" "$RTL" "$BOTH" "$NONE" > sizes.json
-          mkdir -p sizes
-          mv sizes.json sizes/
+          if not rows:
+              sys.exit("no configurations measured")
+          with open("sizes.json", "w") as f:
+              json.dump(rows, f)
+          print("measured", len(rows), "configurations")
+          EOF
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload
+        uses: actions/upload-artifact@v4
         with:
           name: sizes-${{ matrix.compiler }}
-          path: sizes
+          path: sizes.json
 
   report:
     needs: measure
@@ -102,35 +153,68 @@ jobs:
           merge-multiple: true
 
       - name: Render table
+        id: render
         run: |
           python3 - <<'EOF'
-          import glob, json, os
+          import glob, json, os, sys
 
           rows = []
-          for path in glob.glob("sizes/*.json"):
+          for path in glob.glob("sizes/sizes.json"):
               with open(path) as f:
-                  rows.append(json.load(f))
-          assert rows, "no size artifacts found"
-          rows.sort(key=lambda r: r["compiler"])
+                  rows.extend(json.load(f))
+          if not rows:
+              sys.exit("no size artifacts found")
+          rows.sort(key=lambda r: (r["compiler"], r["config"]))
 
           def kb(n):
+              if n is None:
+                  return "n/a"
               return f"{n/1024:.0f} KB"
 
+          def rss(n):
+              if n is None:
+                  return "n/a"
+              return f"{n/1024:.0f} MB"
+
+          def tests(t):
+              if t is None:
+                  return "n/a"
+              if "total_n" in t:
+                  mark = "ok" if t["passed"] else "FAIL"
+                  return f"{t['passed_n']}/{t['total_n']} ({mark})"
+              return "ok" if t["passed"] else "FAIL"
+
           lines = [
-              f"## stream1090 binary size (measured at `{os.environ['GITHUB_SHA'][:7]}` on `ubuntu-latest` in a clean tree)",
+              f"## stream1090 backend build matrix",
               "",
-              "| Compiler | Airspy only | RTL-SDR only | Airspy + RTL-SDR | Neither |",
+              f"Measured at `{os.environ['GITHUB_SHA'][:7]}` on `ubuntu-latest` "
+              "(clean tree, `-DCMAKE_BUILD_TYPE=Release`). Peak RSS is the "
+              "`stream1090` target with `-j1` (the `main.cpp` TU compiling every "
+              "preset); tests are `ctest` on the same build.",
+              "",
+              "| Compiler | Backends | Binary | Peak RSS | Tests |",
               "|---|---|---|---|---|",
           ]
           for r in rows:
               lines.append(
-                  f"| {r['compiler']} | {kb(r['airspy_only'])} | {kb(r['rtlsdr_only'])} "
-                  f"| {kb(r['both'])} | {kb(r['none'])} |"
+                  f"| {r['compiler']} | {r['config']} "
+                  f"| {kb(r['size_bytes'])} | {rss(r['peak_rss_kb'])} "
+                  f"| {tests(r['tests'])} |"
               )
           body = "\n".join(lines) + "\n"
+          print(body, end="")
+
+          bad = [r for r in rows if not r["built"] or (r["tests"] and not r["tests"]["passed"])]
           with open("table.md", "w") as f:
               f.write(body)
-          print(body, end="")
+          if bad:
+              with open("build-failures.txt", "w") as f:
+                  for r in bad:
+                      f.write(f"{r['compiler']} / {r['config']}: "
+                              f"{r['error'] or 'tests failed'}\n")
+                  f.write("\nsome configurations failed: check the rows above\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"failed={'true' if bad else 'false'}\n")
           EOF
 
       - name: Save table
@@ -146,3 +230,9 @@ jobs:
           comment-tag: binary-size
           mode: upsert
           body: ${{ steps.table.outputs.body }}
+
+      - name: Verify all configurations built and tested
+        if: steps.render.outputs.failed == 'true'
+        run: |
+          cat build-failures.txt
+          exit 1
