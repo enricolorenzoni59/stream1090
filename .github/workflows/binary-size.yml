@@ -1,0 +1,148 @@
+name: binary-size
+
+# Build the stream1090 preset matrix and post a table of binary sizes as a PR
+# comment, one row per compiler. Reused to justify the preset gating: only the
+# backends whose library was detected by CMake compile their templated DSP
+# presets, and this makes that visible on every PR.
+#
+# "Airspy only" / "RTL-SDR only" are produced by hiding the other backend from
+# pkg-config (a copy of the .pc directory without the file to hide), because
+# both libraries are installed on the runner regardless.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: binary-size-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
+      CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config libusb-1.0-0-dev \
+            libairspy-dev librtlsdr-dev
+
+      - name: Prepare pkg-config shadow directories
+        run: |
+          PCROOT="$(pkg-config --variable=pcfiledir librtlsdr)"
+          for d in pc-rtl pc-air pc-none; do rm -rf "$d"; mkdir -p "$d"; done
+          for f in "$PCROOT"/*.pc; do
+            cp "$f" pc-rtl/
+            cp "$f" pc-air/
+          done
+          rm -f pc-rtl/libairspy*.pc
+          rm -f pc-air/librtlsdr*.pc
+
+      - name: Build (both backends)
+        run: |
+          cmake -S . -B build-both -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-both --parallel 2
+
+      - name: Build (Airspy only)
+        run: |
+          PKG_CONFIG_LIBDIR="$PWD/pc-air" cmake -S . -B build-air \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-air --parallel 2
+
+      - name: Build (RTL-SDR only)
+        run: |
+          PKG_CONFIG_LIBDIR="$PWD/pc-rtl" cmake -S . -B build-rtl \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-rtl --parallel 2
+
+      - name: Build (no backends)
+        run: |
+          PKG_CONFIG_LIBDIR="$PWD/pc-none" cmake -S . -B build-none \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
+          cmake --build build-none --parallel 2
+
+      - name: Emit sizes
+        run: |
+          BOTH=$(stat -c %s build-both/stream1090)
+          AIR=$(stat -c %s build-air/stream1090)
+          RTL=$(stat -c %s build-rtl/stream1090)
+          NONE=$(stat -c %s build-none/stream1090)
+          printf '{"compiler":"%s","airspy_only":%d,"rtlsdr_only":%d,"both":%d,"none":%d}\n' \
+            "${{ matrix.compiler }}" "$AIR" "$RTL" "$BOTH" "$NONE" > sizes.json
+          mkdir -p sizes
+          mv sizes.json sizes/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sizes-${{ matrix.compiler }}
+          path: sizes
+
+  report:
+    needs: measure
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: sizes
+          pattern: sizes-*
+          merge-multiple: true
+
+      - name: Render table
+        run: |
+          python3 - <<'EOF'
+          import glob, json, os
+
+          rows = []
+          for path in glob.glob("sizes/*.json"):
+              with open(path) as f:
+                  rows.append(json.load(f))
+          assert rows, "no size artifacts found"
+          rows.sort(key=lambda r: r["compiler"])
+
+          def kb(n):
+              return f"{n/1024:.0f} KB"
+
+          lines = [
+              f"## stream1090 binary size (measured at `{os.environ['GITHUB_SHA'][:7]}` on `ubuntu-latest` in a clean tree)",
+              "",
+              "| Compiler | Airspy only | RTL-SDR only | Airspy + RTL-SDR | Neither |",
+              "|---|---|---|---|---|",
+          ]
+          for r in rows:
+              lines.append(
+                  f"| {r['compiler']} | {kb(r['airspy_only'])} | {kb(r['rtlsdr_only'])} "
+                  f"| {kb(r['both'])} | {kb(r['none'])} |"
+              )
+          body = "\n".join(lines) + "\n"
+          with open("table.md", "w") as f:
+              f.write(body)
+          print(body, end="")
+          EOF
+
+      - name: Save table
+        id: table
+        run: |
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          cat table.md >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - uses: peter-evans/create-or-update-comment@v4
+        with:
+          issue-number: ${{ github.event.pull_request.number }}
+          comment-tag: binary-size
+          mode: upsert
+          body: ${{ steps.table.outputs.body }}
