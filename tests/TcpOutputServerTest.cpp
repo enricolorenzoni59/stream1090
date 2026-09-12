@@ -4,20 +4,17 @@
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
+#include <array>
 #include <cassert>
 #include <chrono>
-#include <cctype>
-#include <cstdio>
+#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <poll.h>
 #include <string>
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <thread>
 #include <atomic>
-#include <sys/wait.h>
-#include <signal.h>
 #include <unistd.h>
 #include <vector>
 
@@ -232,64 +229,233 @@ void promptStopAndInvalidBind() {
     assert(!error.empty());
 }
 
-#ifdef STREAM1090_READSB_TEST_EXECUTABLE
-void realReadsbAcceptsFrame(bool beast) {
+// ---------------------------------------------------------------------------
+// Independent wire-format decoders.
+//
+// The interop check used to shell out to readsb when it happened to be on
+// PATH, so it silently disappeared on machines without it. These parsers are
+// written from the protocol description, not from the encoder, so they still
+// catch a wrong encoder while running everywhere.
+// ---------------------------------------------------------------------------
+
+struct ParsedFrame {
+    uint64_t timestamp { 0 };
+    bool hasSignal { false };
+    uint8_t signal { 0 };
+    bool isLong { false };
+    uint64_t payload { 0 }; // short frame
+    uint64_t high { 0 };    // long frame, top 48 bits
+    uint64_t low { 0 };     // long frame, bottom 64 bits
+};
+
+/// One AVR line (without the trailing newline): '@' or '<', twelve timestamp
+/// hex digits, an optional signal byte, then 14 (short) or 28 (long) payload
+/// hex digits and ';'.
+bool parseAvr(const std::string& line, ParsedFrame& out) {
+    if (line.size() < 2 || line.back() != ';')
+        return false;
+    out.hasSignal = line[0] == '<';
+    if (line[0] != '@' && line[0] != '<')
+        return false;
+
+    size_t pos = 1;
+    const auto hex = [&](size_t digits, uint64_t& value) {
+        if (pos + digits > line.size() - 1)
+            return false;
+        value = 0;
+        for (size_t i = 0; i < digits; ++i) {
+            const char c = line[pos++];
+            const int d = (c >= '0' && c <= '9')   ? c - '0'
+                          : (c >= 'A' && c <= 'F') ? c - 'A' + 10
+                                                   : -1;
+            if (d < 0)
+                return false;
+            value = (value << 4) | uint64_t(d);
+        }
+        return true;
+    };
+
+    if (!hex(12, out.timestamp))
+        return false;
+    uint64_t signal = 0;
+    if (out.hasSignal && !hex(2, signal))
+        return false;
+    out.signal = uint8_t(signal);
+
+    const size_t payloadDigits = (line.size() - 1) - pos;
+    if (payloadDigits == 14) {
+        out.isLong = false;
+        return hex(14, out.payload) && pos == line.size() - 1;
+    }
+    if (payloadDigits == 28) {
+        out.isLong = true;
+        return hex(12, out.high) && hex(16, out.low);
+    }
+    return false;
+}
+
+/// One Beast message starting at `start`. Returns 1 on success, 0 when more
+/// bytes are needed, -1 on a malformed stream. A body 0x1a must be doubled; a
+/// lone 0x1a there is corruption, not a new start marker.
+int parseBeast(const std::vector<uint8_t>& bytes, size_t start, ParsedFrame& out, size_t& consumed) {
+    if (start >= bytes.size())
+        return 0;
+    if (bytes[start] != 0x1A)
+        return -1;
+    if (start + 1 >= bytes.size())
+        return 0;
+
+    const uint8_t type = bytes[start + 1];
+    const size_t payloadBytes = (type == '2') ? 7 : (type == '3') ? 14 : 0;
+    if (payloadBytes == 0)
+        return -1;
+
+    const size_t logicalBytes = 6 + 1 + payloadBytes;
+    std::array<uint8_t, 21> body{};
+    size_t got = 0;
+    size_t pos = start + 2;
+    while (got < logicalBytes) {
+        if (pos >= bytes.size())
+            return 0;
+        const uint8_t b = bytes[pos++];
+        if (b == 0x1A) {
+            if (pos >= bytes.size())
+                return 0;
+            if (bytes[pos] != 0x1A)
+                return -1;
+            ++pos;
+        }
+        body[got++] = b;
+    }
+
+    out.timestamp = 0;
+    for (size_t i = 0; i < 6; ++i)
+        out.timestamp = (out.timestamp << 8) | body[i];
+    out.hasSignal = true;
+    out.signal = body[6];
+    out.isLong = (type == '3');
+    if (out.isLong) {
+        for (size_t i = 0; i < 6; ++i)
+            out.high = (out.high << 8) | body[7 + i];
+        for (size_t i = 0; i < 8; ++i)
+            out.low = (out.low << 8) | body[13 + i];
+    } else {
+        for (size_t i = 0; i < 7; ++i)
+            out.payload = (out.payload << 8) | body[7 + i];
+    }
+    consumed = pos - start;
+    return 1;
+}
+
+std::vector<std::string> readAvrFrames(int fd, size_t count) {
+    std::string buffer;
+    std::vector<std::string> lines;
+    while (lines.size() < count) {
+        pollfd event{ fd, POLLIN, 0 };
+        assert(::poll(&event, 1, 3000) == 1);
+        char chunk[4096];
+        const ssize_t n = ::recv(fd, chunk, sizeof(chunk), 0);
+        assert(n > 0);
+        buffer.append(chunk, size_t(n));
+        size_t newline;
+        while ((newline = buffer.find('\n')) != std::string::npos) {
+            lines.push_back(buffer.substr(0, newline));
+            buffer.erase(0, newline + 1);
+        }
+    }
+    return lines;
+}
+
+std::vector<ParsedFrame> readBeastFrames(int fd, size_t count) {
+    std::vector<uint8_t> buffer;
+    std::vector<ParsedFrame> frames;
+    while (frames.size() < count) {
+        pollfd event{ fd, POLLIN, 0 };
+        assert(::poll(&event, 1, 3000) == 1);
+        uint8_t chunk[4096];
+        const ssize_t n = ::recv(fd, chunk, sizeof(chunk), 0);
+        assert(n > 0);
+        buffer.insert(buffer.end(), chunk, chunk + n);
+
+        size_t pos = 0;
+        while (pos < buffer.size()) {
+            ParsedFrame frame;
+            size_t consumed = 0;
+            const int result = parseBeast(buffer, pos, frame, consumed);
+            if (result == 0)
+                break;
+            assert(result == 1); // a lone 0x1a in the body would break the framing
+            frames.push_back(frame);
+            pos += consumed;
+        }
+        buffer.erase(buffer.begin(), buffer.begin() + ptrdiff_t(pos));
+    }
+    return frames;
+}
+
+/// Both wire formats, decoded by the independent parsers above, byte for byte.
+/// The frames carry 0x1a in the timestamp, the signal and the payload so the
+/// Beast escaping is exercised rather than assumed.
+void referenceDecoderValidatesWireFormat() {
     TcpOutputConfig config;
     config.bindAddress = "127.0.0.1";
-    config.enableAvr = !beast;
-    config.enableBeast = beast;
+    config.avrPort = 0;
+    config.beastPort = 0;
+    config.enableAvr = true;
+    config.enableBeast = true;
+
     TcpOutputServer server(config);
     std::string error;
     assert(server.start(error));
 
-    int output[2];
-    assert(::pipe(output) == 0);
-    const pid_t child = ::fork();
-    assert(child >= 0);
-    if (child == 0) {
-        ::close(output[0]);
-        ::dup2(output[1], STDOUT_FILENO);
-        ::dup2(output[1], STDERR_FILENO);
-        ::close(output[1]);
-        const uint16_t port = beast ? server.beastPort() : server.avrPort();
-        const std::string connector = "--net-connector=127.0.0.1," + std::to_string(port) +
-                                      (beast ? ",beast_in" : ",raw_in");
-        ::execl(STREAM1090_READSB_TEST_EXECUTABLE, STREAM1090_READSB_TEST_EXECUTABLE,
-                "--net-only", connector.c_str(), "--no-interactive", "--show-only=40621d", nullptr);
-        _exit(127);
-    }
-    ::close(output[1]);
-    waitForClients(server, 1);
+    const int avr = connectLoopback(server.avrPort());
+    const int beast = connectLoopback(server.beastPort());
+    waitForClients(server, 2);
 
-    const auto knownDf17 = ModeSFrame::longFrame(
-        0x010203040506ULL, Bits128(0x00008D40621D58C3ULL, 0x82D690C8AC2863A7ULL), 0x60, true);
-    for (int i = 0; i < 20; ++i) {
-        assert(server.tryPublish(knownDf17));
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    ::kill(child, SIGTERM);
-    int status = 0;
-    assert(::waitpid(child, &status, 0) == child);
+    const std::vector<ModeSFrame> frames {
+        ModeSFrame::shortFrame(0x001A02030405ULL, 0x111A334455661AULL, 0x1A, true),
+        ModeSFrame::shortFrame(0x010203040506ULL, 0x11223344556677ULL, 0x00, false),
+        ModeSFrame::longFrame(0x010203040506ULL, Bits128(0x0000112233445566ULL, 0x778899AABBCCDDEEULL), 0x44, true),
+    };
+    for (const auto& frame : frames)
+        assert(server.tryPublish(frame));
 
-    std::string captured;
-    std::array<char, 4096> chunk{};
-    for (;;) {
-        const ssize_t n = ::read(output[0], chunk.data(), chunk.size());
-        if (n <= 0)
-            break;
-        captured.append(chunk.data(), size_t(n));
+    const auto avrLines = readAvrFrames(avr, frames.size());
+    for (size_t i = 0; i < frames.size(); ++i) {
+        ParsedFrame parsed;
+        assert(parseAvr(avrLines[i], parsed));
+        const bool isLong = frames[i].length == ModeSFrameLength::Long;
+        assert(parsed.timestamp == frames[i].mlatTimestamp);
+        assert(parsed.isLong == isLong);
+        assert(parsed.hasSignal == frames[i].signalAvailable);
+        if (frames[i].signalAvailable)
+            assert(parsed.signal == frames[i].signalLevel);
+        if (isLong) {
+            assert(parsed.high == frames[i].high);
+            assert(parsed.low == frames[i].low);
+        } else {
+            assert(parsed.payload == frames[i].low);
+        }
     }
-    ::close(output[0]);
+
+    const auto beastFrames = readBeastFrames(beast, frames.size());
+    for (size_t i = 0; i < frames.size(); ++i) {
+        const bool isLong = frames[i].length == ModeSFrameLength::Long;
+        assert(beastFrames[i].timestamp == frames[i].mlatTimestamp);
+        assert(beastFrames[i].isLong == isLong);
+        assert(beastFrames[i].signal == (frames[i].signalAvailable ? frames[i].signalLevel : 0));
+        if (isLong) {
+            assert(beastFrames[i].high == frames[i].high);
+            assert(beastFrames[i].low == frames[i].low);
+        } else {
+            assert(beastFrames[i].payload == frames[i].low);
+        }
+    }
+
+    ::close(avr);
+    ::close(beast);
     server.stop();
-
-    for (char& c : captured)
-        c = char(std::tolower(static_cast<unsigned char>(c)));
-    if (captured.find("8d40621d58c382d690c8ac2863a7") == std::string::npos)
-        std::fprintf(stderr, "readsb output did not contain the test frame:\n%s\n", captured.c_str());
-    assert(captured.find("8d40621d58c382d690c8ac2863a7") != std::string::npos);
 }
-#endif
 } // namespace
 
 int main() {
@@ -297,8 +463,5 @@ int main() {
     orderedDeliveryAndReconnect();
     slowClientDoesNotBlockHealthyClient();
     promptStopAndInvalidBind();
-#ifdef STREAM1090_READSB_TEST_EXECUTABLE
-    realReadsbAcceptsFrame(false);
-    realReadsbAcceptsFrame(true);
-#endif
+    referenceDecoderValidatesWireFormat();
 }

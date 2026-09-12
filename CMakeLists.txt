@@ -402,11 +402,6 @@ stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
     stream1090_add_test(tcp_output_server_test tests/TcpOutputServerTest.cpp)
     target_sources(tcp_output_server_test PRIVATE src/TcpOutputServer.cpp)
     target_link_libraries(tcp_output_server_test PRIVATE Threads::Threads)
-    find_program(STREAM1090_READSB_TEST_EXECUTABLE readsb)
-    if(STREAM1090_READSB_TEST_EXECUTABLE)
-        target_compile_definitions(tcp_output_server_test PRIVATE
-            STREAM1090_READSB_TEST_EXECUTABLE="${STREAM1090_READSB_TEST_EXECUTABLE}")
-    endif()
     target_compile_definitions(noise_false_positive_test PRIVATE
         ${PREAMBLE_GATE_DEF}
         ${PREAMBLE_THRESHOLD_DEF}
