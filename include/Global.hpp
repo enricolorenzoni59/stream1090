@@ -14,6 +14,10 @@
 #define STREAM1090_VERSION "260905"
 #endif
 
+#ifndef STREAM1090_GIT_COMMIT
+#define STREAM1090_GIT_COMMIT "unknown"
+#endif
+
 struct GlobalOptions {
 #ifdef STATS_ENABLED
     static constexpr bool StatsEnabled = (STATS_ENABLED != 0);

@@ -3,6 +3,7 @@
 
 #include "ModeSFrameEncoder.hpp"
 #include "SpscFrameQueue.hpp"
+#include "Logger.hpp"
 
 #include <algorithm>
 #include <array>
@@ -24,6 +25,10 @@
 
 namespace {
 enum class Protocol { Avr, Beast };
+
+const char* protocolName(Protocol protocol) {
+    return protocol == Protocol::Avr ? "avr" : "beast";
+}
 
 struct Client {
     int fd = -1;
@@ -63,6 +68,9 @@ struct TcpOutputServer::Impl {
     std::atomic<size_t> connectedClients{0};
     std::atomic<uint64_t> dropped{0};
     std::atomic<uint64_t> slowDisconnects{0};
+    std::atomic<uint64_t> rejectedClients{0};
+    std::atomic<uint64_t> avrEncoded{0};
+    std::atomic<uint64_t> beastEncoded{0};
     int controlRead = -1;
     int controlWrite = -1;
     int avrListener = -1;
@@ -178,6 +186,13 @@ struct TcpOutputServer::Impl {
                     continue;
                 return;
             }
+            if (clients.size() >= config.maxClients) {
+                const uint64_t rejected = rejectedClients.fetch_add(1, std::memory_order_relaxed) + 1;
+                if ((rejected & 0x3F) == 1)
+                    Log::warn("TCP") << "refusing client: " << config.maxClients << " already connected";
+                ::close(fd);
+                continue;
+            }
             if (!setNonBlockingCloseOnExec(fd)) {
                 ::close(fd);
                 continue;
@@ -194,6 +209,8 @@ struct TcpOutputServer::Impl {
 #endif
             clients.push_back({fd, protocol, {}, 0});
             connectedClients.store(clients.size(), std::memory_order_relaxed);
+            Log::info("TCP") << "client connected (" << protocolName(protocol) << "), " << clients.size()
+                             << " total";
         }
     }
 
@@ -201,6 +218,8 @@ struct TcpOutputServer::Impl {
         const size_t remaining = client.pending.size() - client.offset;
         if (remaining + encoded.size > config.clientBufferLimit) {
             slowDisconnects.fetch_add(1, std::memory_order_relaxed);
+            Log::warn("TCP") << "disconnecting slow client: " << remaining << " bytes pending, limit "
+                             << config.clientBufferLimit;
             closeFd(client.fd);
             return;
         }
@@ -221,10 +240,14 @@ struct TcpOutputServer::Impl {
             });
             EncodedModeSFrame avr;
             EncodedModeSFrame beast;
-            if (haveAvr)
+            if (haveAvr) {
                 avr = encodeAvr(frame);
-            if (haveBeast)
+                avrEncoded.fetch_add(1, std::memory_order_relaxed);
+            }
+            if (haveBeast) {
                 beast = encodeBeast(frame);
+                beastEncoded.fetch_add(1, std::memory_order_relaxed);
+            }
             for (auto& client : clients) {
                 if (client.fd < 0)
                     continue;
@@ -248,6 +271,7 @@ struct TcpOutputServer::Impl {
                 continue;
             if (sent < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
                 return;
+            Log::info("TCP") << "client send failed, disconnecting (" << protocolName(client.protocol) << ")";
             closeFd(client.fd);
         }
         if (client.offset == client.pending.size()) {
@@ -300,13 +324,16 @@ struct TcpOutputServer::Impl {
                 const short occurred = events[index + i].revents;
                 if (occurred & (POLLERR | POLLHUP | POLLNVAL)) {
                     closeFd(client.fd);
+                    Log::info("TCP") << "client disconnected (" << protocolName(client.protocol) << ")";
                     continue;
                 }
                 if (occurred & POLLIN) {
                     char discard[64];
                     const ssize_t received = ::recv(client.fd, discard, sizeof(discard), 0);
-                    if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+                    if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
                         closeFd(client.fd);
+                        Log::info("TCP") << "client disconnected (" << protocolName(client.protocol) << ")";
+                    }
                 }
             }
 
@@ -370,4 +397,13 @@ size_t TcpOutputServer::clientCount() const noexcept { return m_impl->connectedC
 uint64_t TcpOutputServer::droppedFrames() const noexcept { return m_impl->dropped.load(std::memory_order_relaxed); }
 uint64_t TcpOutputServer::slowClientDisconnects() const noexcept {
     return m_impl->slowDisconnects.load(std::memory_order_relaxed);
+}
+uint64_t TcpOutputServer::rejectedClients() const noexcept {
+    return m_impl->rejectedClients.load(std::memory_order_relaxed);
+}
+uint64_t TcpOutputServer::avrFramesEncoded() const noexcept {
+    return m_impl->avrEncoded.load(std::memory_order_relaxed);
+}
+uint64_t TcpOutputServer::beastFramesEncoded() const noexcept {
+    return m_impl->beastEncoded.load(std::memory_order_relaxed);
 }

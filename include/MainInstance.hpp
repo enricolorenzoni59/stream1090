@@ -344,8 +344,15 @@ template <typename preset> class MainInstance {
                     }
                 }
 
-                if (tcp)
-                    Metrics::registry().tcpClients.set(double(tcp->clientCount()));
+                if (tcp) {
+                    auto& reg = Metrics::registry();
+                    reg.tcpClients.set(double(tcp->clientCount()));
+                    reg.tcpFramesDropped.set(tcp->droppedFrames());
+                    reg.tcpSlowDisconnects.set(tcp->slowClientDisconnects());
+                    reg.tcpRejectedClients.set(tcp->rejectedClients());
+                    reg.tcpFramesSentAvr.set(tcp->avrFramesEncoded());
+                    reg.tcpFramesSentBeast.set(tcp->beastFramesEncoded());
+                }
 
                 std::this_thread::sleep_for(200ms);
             }
@@ -391,8 +398,11 @@ template <typename preset> class MainInstance {
         if (tcp) {
             auto& reg = Metrics::registry();
             reg.tcpClients.set(0.0);
-            reg.tcpFramesDropped.inc(tcpServer.droppedFrames());
-            reg.tcpSlowDisconnects.inc(tcpServer.slowClientDisconnects());
+            reg.tcpFramesDropped.set(tcpServer.droppedFrames());
+            reg.tcpSlowDisconnects.set(tcpServer.slowClientDisconnects());
+            reg.tcpRejectedClients.set(tcpServer.rejectedClients());
+            reg.tcpFramesSentAvr.set(tcpServer.avrFramesEncoded());
+            reg.tcpFramesSentBeast.set(tcpServer.beastFramesEncoded());
             Log::info("TCP") << "Stopped: " << tcpServer.droppedFrames() << " frame(s) dropped, "
                              << tcpServer.slowClientDisconnects() << " slow client(s) disconnected.";
         }
@@ -427,8 +437,11 @@ template <typename preset> class MainInstance {
         if (tcp) {
             auto& reg = Metrics::registry();
             reg.tcpClients.set(0.0);
-            reg.tcpFramesDropped.inc(tcpServer.droppedFrames());
-            reg.tcpSlowDisconnects.inc(tcpServer.slowClientDisconnects());
+            reg.tcpFramesDropped.set(tcpServer.droppedFrames());
+            reg.tcpSlowDisconnects.set(tcpServer.slowClientDisconnects());
+            reg.tcpRejectedClients.set(tcpServer.rejectedClients());
+            reg.tcpFramesSentAvr.set(tcpServer.avrFramesEncoded());
+            reg.tcpFramesSentBeast.set(tcpServer.beastFramesEncoded());
         }
 
         auto end_wct = std::chrono::steady_clock::now();
@@ -445,7 +458,8 @@ template <typename preset> class MainInstance {
 
         auto& reg = Metrics::registry();
         reg.setBuildInfo(STREAM1090_VERSION, pipelineName.empty() ? std::string("none") : pipelineName,
-                         uint32_t(inputRate), uint32_t(outputRate), uint32_t(SamplerType::NumStreams));
+                         uint32_t(inputRate), uint32_t(outputRate), uint32_t(SamplerType::NumStreams),
+                         STREAM1090_GIT_COMMIT);
         reg.setDeviceName(deviceName(m_runtimeVars.deviceType));
 
         MetricsServer metricsServer;

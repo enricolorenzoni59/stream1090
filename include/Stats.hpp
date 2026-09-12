@@ -59,11 +59,59 @@ enum EventType {
     SQUAWK_RESCUED,
     NOISE_FLOOR_REJECTED,
 
+    // The phase deduplication layer, kept apart from the message-cache
+    // duplicate window so a drop in output can be attributed to the right one.
+    DUP_PHASE_SHORT,
+    DUP_PHASE_LONG,
+
+    // Which repair path recovered the frame. All three also count as
+    // DF17_REPAIR_SUCCESS so the stderr table keeps its meaning.
+    DF17_REPAIR_TABLE_SUCCESS,
+    DF17_REPAIR_ERASURE_SUCCESS,
+    DF17_REPAIR_ORBGRAND_SUCCESS,
+
+    // Why a repair was thrown away: the checks that actually decide.
+    DF17_REPAIR_REJ_NO_TABLE_ENTRY,
+    DF17_REPAIR_REJ_UNTRUSTED,
+    DF17_REPAIR_REJ_UNSOLVED,
+    DF17_REPAIR_REJ_WEIGHT,
+    DF17_REPAIR_REJ_POSITION,
+
     NUM_EVENTS
 };
 
 // Downlink formats 0 to 24 are counted individually.
 inline constexpr size_t NumDF = 25;
+
+// Extended squitter type code groups, see typeCodeGroup()
+enum TypeCodeGroup {
+    TC_IDENT = 0,
+    TC_SURFACE_POSITION,
+    TC_AIRBORNE_POSITION,
+    TC_VELOCITY,
+    TC_STATUS,
+    TC_OTHER,
+    NUM_TC_GROUPS
+};
+
+constexpr TypeCodeGroup typeCodeGroup(uint8_t typeCode) {
+    if (typeCode >= 1 && typeCode <= 4)
+        return TC_IDENT;
+    if (typeCode >= 5 && typeCode <= 8)
+        return TC_SURFACE_POSITION;
+    if (typeCode >= 9 && typeCode <= 18)
+        return TC_AIRBORNE_POSITION;
+    if (typeCode == 19)
+        return TC_VELOCITY;
+    if (typeCode >= 20 && typeCode <= 22)
+        return TC_AIRBORNE_POSITION;
+    if (typeCode >= 23)
+        return TC_STATUS;
+    return TC_OTHER;
+}
+
+// DF 18 control field, three bits
+inline constexpr size_t NumControlFields = 8;
 
 // Every counter the demodulator keeps, as plain data. The window copy is what
 // the stderr table prints and reset()s every few seconds; the cumulative copy
@@ -73,6 +121,8 @@ struct Counters {
     std::array<uint64_t, Stats::NUM_EVENTS> events{};
     std::array<uint64_t, NumDF> sent{};
     std::array<uint64_t, NumDF> dups{};
+    std::array<uint64_t, NUM_TC_GROUPS> typeCodeGroups{};
+    std::array<uint64_t, NumControlFields> controlFields{};
 
     constexpr void clear() { *this = Counters{}; }
 
@@ -83,6 +133,10 @@ struct Counters {
             target.sent[i] += sent[i];
             target.dups[i] += dups[i];
         }
+        for (size_t i = 0; i < typeCodeGroups.size(); i++)
+            target.typeCodeGroups[i] += typeCodeGroups[i];
+        for (size_t i = 0; i < controlFields.size(); i++)
+            target.controlFields[i] += controlFields[i];
     }
 };
 
@@ -131,6 +185,14 @@ class StatsLog {
 
     constexpr void logDup(int df) {
         m_window.dups[df]++;
+    }
+
+    constexpr void logTypeCode(uint8_t typeCode) {
+        m_window.typeCodeGroups[typeCodeGroup(typeCode)]++;
+    }
+
+    constexpr void logControlField(uint8_t controlField) {
+        m_window.controlFields[controlField & (NumControlFields - 1)]++;
     }
 
     constexpr uint64_t getCount(EventType evt) const {

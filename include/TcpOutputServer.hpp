@@ -16,6 +16,7 @@ struct TcpOutputConfig {
     bool enableBeast = false;
     size_t clientBufferLimit = 256 * 1024;
     size_t acceptedSocketSendBuffer = 0;
+    size_t maxClients = 32;
 };
 
 class TcpOutputServer {
@@ -36,6 +37,9 @@ class TcpOutputServer {
     size_t clientCount() const noexcept;
     uint64_t droppedFrames() const noexcept;
     uint64_t slowClientDisconnects() const noexcept;
+    uint64_t rejectedClients() const noexcept;
+    uint64_t avrFramesEncoded() const noexcept;
+    uint64_t beastFramesEncoded() const noexcept;
 
   private:
     struct Impl;

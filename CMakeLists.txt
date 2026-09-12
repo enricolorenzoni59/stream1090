@@ -51,6 +51,21 @@ set(TOO_MUCH_CPU_DEF STREAM1090_TOO_MUCH_CPU=$<BOOL:${ENABLE_TOO_MUCH_CPU}>)
 set(INTERPOLATION_DEF STREAM1090_INTERP=${INTERPOLATION_KERNEL})
 set(METRICS_DEF      STREAM1090_METRICS=$<BOOL:${ENABLE_METRICS}>)
 
+# Git commit for the metrics build_info. A git archive (used for the Pi build)
+# has no .git, so the value can also be passed with -DSTREAM1090_GIT_COMMIT.
+set(STREAM1090_GIT_COMMIT "" CACHE STRING "Git commit to embed in the metrics build_info")
+if(NOT STREAM1090_GIT_COMMIT)
+    execute_process(
+        COMMAND git rev-parse --short HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE STREAM1090_GIT_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif()
+if(NOT STREAM1090_GIT_COMMIT)
+    set(STREAM1090_GIT_COMMIT "unknown")
+endif()
+
 # ------------------------------------------------------------
 # Compiler settings
 # ------------------------------------------------------------
@@ -343,6 +358,7 @@ target_compile_definitions(stream1090 PRIVATE
     ${ORBGRAND_GUESSES_DEF}
     ${INTERPOLATION_DEF}
     ${METRICS_DEF}
+    STREAM1090_GIT_COMMIT="${STREAM1090_GIT_COMMIT}"
     ${DEVICE_DEFINITIONS}
 )
 

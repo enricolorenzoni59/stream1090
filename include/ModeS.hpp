@@ -26,6 +26,12 @@ constexpr inline uint32_t extractICAOWithCA_Long(const Bits128& frameLong) {
     return getField<DF17::ICAOWithCA>(frameLong);
 }
 
+/// Type code of an extended squitter, message bits 33-37, i.e. the first five
+/// bits of the ME field.
+constexpr inline uint8_t extractTypeCode_Long(const Bits128& frameLong) {
+    return uint8_t((frameLong.high() >> 11) & 0x1f);
+}
+
 constexpr inline uint16_t extractSquawkAlt_Long(const Bits128& frameLong) {
     return getField<CommB::SquawkAlt>(frameLong);
 }

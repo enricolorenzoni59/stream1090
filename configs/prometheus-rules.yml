@@ -26,6 +26,13 @@ groups:
       - record: stream1090:rejects_per_second
         expr: rate(stream1090_frames_rejected_total[5m])
 
+      # Which repair path recovered frames, and why the rest were thrown away.
+      - record: stream1090:repairs_per_second
+        expr: sum without (method) (rate(stream1090_repairs_total[5m]))
+
+      - record: stream1090:repair_rejects_per_second
+        expr: rate(stream1090_repairs_rejected_total[5m])
+
       # Payloads per format, useful for spotting a receiver that suddenly only
       # hears one transponder family.
       - record: stream1090:frames_per_df

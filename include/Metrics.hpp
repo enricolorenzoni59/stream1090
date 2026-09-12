@@ -55,6 +55,14 @@ struct Counter {
             value.fetch_add(n, std::memory_order_relaxed);
     }
 
+    /// For counters whose source already keeps the total (the TCP server's
+    /// own atomics). Keeps the exported series monotonic without adding up
+    /// deltas in the caller.
+    void set(uint64_t v) noexcept {
+        if constexpr (Enabled)
+            value.store(v, std::memory_order_relaxed);
+    }
+
     uint64_t get() const noexcept { return value.load(std::memory_order_relaxed); }
 };
 
@@ -113,12 +121,13 @@ class Registry {
   public:
     // ---- identity ---------------------------------------------------------
     void setBuildInfo(const std::string& version, const std::string& pipeline, uint32_t inputRate,
-                      uint32_t outputRate, uint32_t streams) {
+                      uint32_t outputRate, uint32_t streams, const std::string& commit = std::string()) {
         m_version = version;
         m_pipeline = pipeline;
         m_inputRate = inputRate;
         m_outputRate = outputRate;
         m_streams = streams;
+        m_commit = commit.empty() ? std::string("unknown") : commit;
     }
 
     void setDeviceName(const std::string& name) { m_deviceName = name; }
@@ -216,6 +225,8 @@ class Registry {
     std::array<std::atomic<uint64_t>, Stats::NUM_EVENTS> demodEvents {};
     std::array<std::atomic<uint64_t>, Stats::NumDF> demodSent {};
     std::array<std::atomic<uint64_t>, Stats::NumDF> demodDups {};
+    std::array<std::atomic<uint64_t>, Stats::NUM_TC_GROUPS> demodTypeCodeGroups {};
+    std::array<std::atomic<uint64_t>, Stats::NumControlFields> demodControlFields {};
 
     /// Copies one cumulative counter snapshot in. Called by the demodulation
     /// thread on its own tick, roughly once a second.
@@ -229,6 +240,10 @@ class Registry {
             demodSent[i].store(counters.sent[i], std::memory_order_relaxed);
             demodDups[i].store(counters.dups[i], std::memory_order_relaxed);
         }
+        for (size_t i = 0; i < Stats::NUM_TC_GROUPS; i++)
+            demodTypeCodeGroups[i].store(counters.typeCodeGroups[i], std::memory_order_relaxed);
+        for (size_t i = 0; i < Stats::NumControlFields; i++)
+            demodControlFields[i].store(counters.controlFields[i], std::memory_order_relaxed);
         m_publishSteady.store(steadySeconds(), std::memory_order_relaxed);
     }
 
@@ -242,6 +257,9 @@ class Registry {
     Gauge tcpClients;
     Counter tcpFramesDropped;
     Counter tcpSlowDisconnects;
+    Counter tcpRejectedClients;
+    Counter tcpFramesSentAvr;
+    Counter tcpFramesSentBeast;
 
     // ---- logging ----------------------------------------------------------
     std::array<Counter, 5> logMessages;
@@ -280,6 +298,7 @@ class Registry {
 
     const std::string& version() const { return m_version; }
     const std::string& pipeline() const { return m_pipeline; }
+    const std::string& commit() const { return m_commit; }
     const std::string& deviceName() const { return m_deviceName; }
     uint32_t inputRate() const { return m_inputRate; }
     uint32_t outputRate() const { return m_outputRate; }
@@ -294,6 +313,7 @@ class Registry {
     std::atomic<double> m_publishSteady { 0.0 };
     std::string m_version { "unknown" };
     std::string m_pipeline { "unknown" };
+    std::string m_commit { "unknown" };
     std::string m_deviceName { "none" };
     uint32_t m_inputRate { 0 };
     uint32_t m_outputRate { 0 };
@@ -401,7 +421,18 @@ inline constexpr std::array<const char*, Stats::NUM_EVENTS> EventNames { {
     "altitude_rescued",
     "squawk_rescued",
     "noise_floor_rejected",
+    "dup_phase_short",
+    "dup_phase_long",
+    "df17_repair_table_success",
+    "df17_repair_erasure_success",
+    "df17_repair_orbgrand_success",
+    "df17_repair_rej_no_table_entry",
+    "df17_repair_rej_untrusted",
+    "df17_repair_rej_unsolved",
+    "df17_repair_rej_weight",
+    "df17_repair_rej_position",
 } };
+static_assert(EventNames.size() == Stats::NUM_EVENTS, "event name table out of sync with the Stats enum");
 
 struct EventMetric {
     const char* metric;
@@ -412,7 +443,7 @@ struct EventMetric {
 
 /// A small set of friendly aliases on top of the generic family, so the rules
 /// file and dashboards do not have to spell the enum names.
-inline constexpr std::array<EventMetric, 12> EventMetrics { {
+inline constexpr std::array<EventMetric, 22> EventMetrics { {
     { "es_frames_total", "result", "crc_ok", Stats::DF17_GOOD_MESSAGE },
     { "es_frames_total", "result", "crc_bad", Stats::DF17_BAD_MESSAGE },
     { "es_frames_total", "result", "repair_ok", Stats::DF17_REPAIR_SUCCESS },
@@ -425,6 +456,16 @@ inline constexpr std::array<EventMetric, 12> EventMetrics { {
     { "frames_rejected_total", "reason", "squawk", Stats::REJECT_SQUAWK },
     { "frames_rejected_total", "reason", "noise_floor", Stats::NOISE_FLOOR_REJECTED },
     { "frames_rescued_total", "reason", "altitude", Stats::ALTITUDE_RESCUED },
+    { "repairs_total", "method", "error_table", Stats::DF17_REPAIR_TABLE_SUCCESS },
+    { "repairs_total", "method", "erasure", Stats::DF17_REPAIR_ERASURE_SUCCESS },
+    { "repairs_total", "method", "orbgrand", Stats::DF17_REPAIR_ORBGRAND_SUCCESS },
+    { "repairs_rejected_total", "reason", "no_table_entry", Stats::DF17_REPAIR_REJ_NO_TABLE_ENTRY },
+    { "repairs_rejected_total", "reason", "untrusted_icao", Stats::DF17_REPAIR_REJ_UNTRUSTED },
+    { "repairs_rejected_total", "reason", "erasure_unsolved", Stats::DF17_REPAIR_REJ_UNSOLVED },
+    { "repairs_rejected_total", "reason", "weight_cap", Stats::DF17_REPAIR_REJ_WEIGHT },
+    { "repairs_rejected_total", "reason", "position", Stats::DF17_REPAIR_REJ_POSITION },
+    { "dedup_suppressed_total", "layer", "phase_short", Stats::DUP_PHASE_SHORT },
+    { "dedup_suppressed_total", "layer", "phase_long", Stats::DUP_PHASE_LONG },
 } };
 
 struct MetricHelp {
@@ -432,11 +473,14 @@ struct MetricHelp {
     const char* help;
 };
 
-inline constexpr std::array<MetricHelp, 5> EventHelp { {
+inline constexpr std::array<MetricHelp, 8> EventHelp { {
     { "es_frames_total", "Extended squitter frame positions by checksum outcome. Their sum is the trigger count." },
     { "df11_total", "All call replies by outcome." },
     { "frames_rejected_total", "Frames dropped by a field plausibility or signal gate." },
     { "frames_rescued_total", "Frames a held first sighting recovered after a plausibility gate rejected them." },
+    { "repairs_total", "Damaged extended squitters recovered, by repair method." },
+    { "repairs_rejected_total", "Repair attempts thrown away, by the check that rejected them." },
+    { "dedup_suppressed_total", "Frames suppressed by a deduplication layer." },
     { "demod_events_total", "Raw demodulator counters, one series per Stats event." },
 } };
 
@@ -561,6 +605,7 @@ inline std::string render(Registry& reg) {
     sample(out, "build_info",
            labels({
                { "version", reg.version() },
+               { "commit", reg.commit() },
                { "pipeline", reg.pipeline() },
                { "device", reg.deviceName() },
                { "input_rate_hz", std::to_string(reg.inputRate()) },
@@ -676,6 +721,23 @@ inline std::string render(Registry& reg) {
         sample(out, "messages_duplicate_total", labels({ { "df", std::to_string(df) } }), double(v));
     }
 
+    static constexpr std::array<const char*, Stats::NUM_TC_GROUPS> TypeCodeNames {
+        "ident", "surface_position", "airborne_position", "velocity", "status", "other"
+    };
+    head(out, "es_messages_total", "Accepted extended squitters by type code group.", "counter");
+    for (size_t g = 0; g < Stats::NUM_TC_GROUPS; g++)
+        sample(out, "es_messages_total", labels({ { "tc_group", TypeCodeNames[g] } }),
+               double(load(reg.demodTypeCodeGroups[g])));
+
+    head(out, "df18_messages_total", "Accepted DF 18 frames by control field, separating real ADS-B from rebroadcast.",
+         "counter");
+    for (size_t cf = 0; cf < Stats::NumControlFields; cf++) {
+        const auto v = load(reg.demodControlFields[cf]);
+        if (v == 0)
+            continue;
+        sample(out, "df18_messages_total", labels({ { "cf", std::to_string(cf) } }), double(v));
+    }
+
     // ---- AVR output -------------------------------------------------------
     head(out, "output_frames_total", "Frames written to the AVR output.", "counter");
     sample(out, "output_frames_total", labels({ { "kind", "short" } }), double(reg.outputShortFrames.get()));
@@ -694,6 +756,14 @@ inline std::string render(Registry& reg) {
     head(out, "tcp_slow_client_disconnects_total",
          "Clients disconnected because their pending output exceeded the buffer bound.", "counter");
     sample(out, "tcp_slow_client_disconnects_total", "", double(reg.tcpSlowDisconnects.get()));
+    head(out, "tcp_rejected_clients_total",
+         "Clients refused because the listener already had the maximum number connected.", "counter");
+    sample(out, "tcp_rejected_clients_total", "", double(reg.tcpRejectedClients.get()));
+    head(out, "tcp_frames_sent_total", "Frames encoded and handed to the TCP clients, by protocol.",
+         "counter");
+    sample(out, "tcp_frames_sent_total", labels({ { "protocol", "avr" } }), double(reg.tcpFramesSentAvr.get()));
+    sample(out, "tcp_frames_sent_total", labels({ { "protocol", "beast" } }),
+           double(reg.tcpFramesSentBeast.get()));
 
     // ---- logging ----------------------------------------------------------
     static constexpr std::array<const char*, 5> LevelNames { "error", "warn", "msg", "info", "debug" };

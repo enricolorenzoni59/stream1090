@@ -223,6 +223,11 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         }
 
         logStatsSent(downlinkFormat);
+        if (downlinkFormat >= 17 && downlinkFormat <= 19) {
+            logStatsTypeCode(ModeS::extractTypeCode_Long(frame));
+            if (downlinkFormat == 18)
+                logStatsControlField((ModeS::extractICAOWithCA_Long(frame) >> 24) & 0x7);
+        }
         e.last_time = m_currTime;
         observeFrameQuality(streamIndex, 112);
         m_messageHandler.handleLong(m_currTime, frame);
@@ -283,16 +288,20 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
     }
 
     bool phaseDupCheckShort(const uint64_t& frameShort) noexcept {
-        if (frameShort == m_prevShortFrame)
+        if (frameShort == m_prevShortFrame) {
+            logStats(Stats::DUP_PHASE_SHORT);
             return true;
+        }
 
         m_prevShortFrame = frameShort;
         return false;
     }
 
     bool phaseDupCheckLong(const Bits128& frameLong) noexcept {
-        if (frameLong == m_prevLongFrame)
+        if (frameLong == m_prevLongFrame) {
+            logStats(Stats::DUP_PHASE_LONG);
             return true;
+        }
 
         m_prevLongFrame = frameLong;
         return false;
@@ -439,19 +448,26 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
                 const auto e = m_cache.findWithCA(icaoWithCA);
 
                 // if this plane is not known we are leaving this
-                if (!e.isValid())
+                if (!e.isValid()) {
+                    logStats(Stats::DF17_REPAIR_REJ_NO_TABLE_ENTRY);
                     return false;
+                }
 
                 if (m_cache.isTrusted(e)) {
-                    if (!repairPositionPlausible(e, toRepair))
+                    if (!repairPositionPlausible(e, toRepair)) {
+                        logStats(Stats::DF17_REPAIR_REJ_POSITION);
                         return false;
+                    }
                     // log that fixing the message was a success
+                    logStats(Stats::DF17_REPAIR_TABLE_SUCCESS);
                     logStats(Stats::DF17_REPAIR_SUCCESS);
                     // and keep the trusted entry alive
                     m_cache.markAsTrustedSeen(e);
                     // send the 112 bit message to the output
                     return sendFrameLongAligned(streamIndex, downlinkFormat, crc, toRepair, e);
-                };
+                } else {
+                    logStats(Stats::DF17_REPAIR_REJ_UNTRUSTED);
+                }
             }
             // The address must belong to a trusted aircraft for a repair to be
             // accepted at all, so test that first. maybeTrusted() is a single
@@ -477,8 +493,10 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
 
         // maybeTrusted() can report a stale slot, so confirm against the table
         const auto before = m_cache.findWithCA(icaoBefore);
-        if (!before.isValid() || !m_cache.isTrusted(before))
+        if (!before.isValid() || !m_cache.isTrusted(before)) {
+            logStats(Stats::DF17_REPAIR_REJ_UNTRUSTED);
             return false;
+        }
 
         // collect the least confident bits, excluding the DF field
         constexpr uint8_t SearchLimit = 112 - 5;
@@ -501,14 +519,18 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         }
 
         const auto solution = ErasureRepair::solve(crc, candidates, size_t(count));
-        if (!solution.solved)
+        if (!solution.solved) {
+            logStats(Stats::DF17_REPAIR_REJ_UNSOLVED);
             return false;
+        }
 
         // Real damage is a few bits; a spurious solve over this many
         // candidates flips about half of them. The weight cap is what pays
         // for the width of the candidate window.
-        if (__builtin_popcount(solution.mask) > ErasureRepair::MaxWeight)
+        if (__builtin_popcount(solution.mask) > ErasureRepair::MaxWeight) {
+            logStats(Stats::DF17_REPAIR_REJ_WEIGHT);
             return false;
+        }
 
         Bits128 repaired{frame};
         for (int i = 0; i < count; ++i) {
@@ -522,11 +544,16 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         // repairing may have moved the address; it must still be trusted
         const auto icaoWithCA = ModeS::extractICAOWithCA_Long(repaired);
         const auto e = m_cache.findWithCA(icaoWithCA);
-        if (!e.isValid() || !m_cache.isTrusted(e))
+        if (!e.isValid() || !m_cache.isTrusted(e)) {
+            logStats(Stats::DF17_REPAIR_REJ_UNTRUSTED);
             return false;
-        if (!repairPositionPlausible(e, repaired))
+        }
+        if (!repairPositionPlausible(e, repaired)) {
+            logStats(Stats::DF17_REPAIR_REJ_POSITION);
             return false;
+        }
 
+        logStats(Stats::DF17_REPAIR_ERASURE_SUCCESS);
         logStats(Stats::DF17_REPAIR_SUCCESS);
         m_cache.markAsTrustedSeen(e);
         return sendFrameLongAligned(streamIndex, downlinkFormat, crc, repaired, e);
@@ -540,8 +567,10 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
             return false;
 
         const auto before = m_cache.findWithCA(icaoBefore);
-        if (!before.isValid() || !m_cache.isTrusted(before))
+        if (!before.isValid() || !m_cache.isTrusted(before)) {
+            logStats(Stats::DF17_REPAIR_REJ_UNTRUSTED);
             return false;
+        }
 
         constexpr int SearchLimit = 112 - 5;
         float confidence[SearchLimit];
@@ -553,8 +582,10 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         std::sort(order, order + SearchLimit, [&](uint8_t a, uint8_t b) { return confidence[a] < confidence[b]; });
 
         const auto solution = OrbGrand::decode(crc, order, SearchLimit);
-        if (!solution.solved)
+        if (!solution.solved) {
+            logStats(Stats::DF17_REPAIR_REJ_UNSOLVED);
             return false;
+        }
 
         Bits128 repaired{frame};
         for (int i = 0; i < solution.count; ++i) {
@@ -565,11 +596,16 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
 
         const auto icaoWithCA = ModeS::extractICAOWithCA_Long(repaired);
         const auto e = m_cache.findWithCA(icaoWithCA);
-        if (!e.isValid() || !m_cache.isTrusted(e))
+        if (!e.isValid() || !m_cache.isTrusted(e)) {
+            logStats(Stats::DF17_REPAIR_REJ_UNTRUSTED);
             return false;
-        if (!repairPositionPlausible(e, repaired))
+        }
+        if (!repairPositionPlausible(e, repaired)) {
+            logStats(Stats::DF17_REPAIR_REJ_POSITION);
             return false;
+        }
 
+        logStats(Stats::DF17_REPAIR_ORBGRAND_SUCCESS);
         logStats(Stats::DF17_REPAIR_SUCCESS);
         m_cache.markAsTrustedSeen(e);
         return sendFrameLongAligned(streamIndex, downlinkFormat, crc, repaired, e);
@@ -875,10 +911,20 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
     void logStatsDup(int df) {
         m_statsLog.logDup(df);
     }
+
+    void logStatsTypeCode(uint8_t typeCode) {
+        m_statsLog.logTypeCode(typeCode);
+    }
+
+    void logStatsControlField(uint8_t controlField) {
+        m_statsLog.logControlField(controlField);
+    }
 #else
     void logStats(Stats::EventType) {}
     void logStatsSent(int) {}
     void logStatsDup(int) {}
+    void logStatsTypeCode(uint8_t) {}
+    void logStatsControlField(uint8_t) {}
 #endif
 
     // Roughly one second of bit periods, matching the stderr table cadence.

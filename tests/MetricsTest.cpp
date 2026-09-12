@@ -145,6 +145,17 @@ int main() {
     if (!contains(page, "stream1090_aircraft_tracked 11")) return 54;
     if (!contains(page, "stream1090_aircraft_trusted 4")) return 55;
 
+    // ---- repair / dedup / type-code / DF18 families -----------------------
+    if (!contains(page, "# TYPE stream1090_repairs_total counter")) return 56;
+    if (!contains(page, "stream1090_repairs_total{method=\"erasure\"} 0")) return 57;
+    if (!contains(page, "stream1090_repairs_rejected_total{reason=\"weight_cap\"} 0")) return 58;
+    if (!contains(page, "stream1090_dedup_suppressed_total{layer=\"phase_short\"} 0")) return 59;
+    if (!contains(page, "stream1090_es_messages_total{tc_group=\"airborne_position\"} 0")) return 60;
+    if (!contains(page, "# TYPE stream1090_df18_messages_total counter")) return 61;
+    if (!contains(page, "# TYPE stream1090_tcp_frames_sent_total counter")) return 62;
+    if (!contains(page, "stream1090_tcp_frames_sent_total{protocol=\"beast\"} 0")) return 63;
+    if (!contains(page, "stream1090_build_info{version=\"test\",commit=\"")) return 64;
+
     // ---- listen address parsing ------------------------------------------
     std::string host;
     uint16_t port = 0;
