@@ -22,9 +22,16 @@
 #include <vector>
 
 namespace {
-int connectLoopback(uint16_t port) {
+int connectLoopback(uint16_t port, int receiveBuffer = 0) {
     const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
     assert(fd >= 0);
+    if (receiveBuffer > 0) {
+        // Set before connect so it caps the advertised window. Without it the
+        // loopback buffers can absorb the whole test frame burst and the
+        // server never sees a slow client, which is what made this test flaky.
+        int value = receiveBuffer;
+        ::setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &value, sizeof(value));
+    }
     sockaddr_in address{};
     address.sin_family = AF_INET;
     address.sin_port = htons(port);
@@ -134,17 +141,29 @@ void slowClientDoesNotBlockHealthyClient() {
     config.bindAddress = "127.0.0.1";
     config.enableAvr = true;
     config.avrPort = 0;
-    config.clientBufferLimit = 64 * 1024;
+    // One network-thread drain appends the whole ring batch to every client
+    // before any flush, and the ring holds at most 4096 frames (about 118 KB),
+    // so the limit has to sit well above that or a busy drain disconnects the
+    // healthy client too. The slow client, once its socket stops accepting,
+    // keeps accumulating across drains and crosses the same limit.
+    config.clientBufferLimit = 1024 * 1024;
     config.acceptedSocketSendBuffer = 1024;
     TcpOutputServer server(config);
     std::string error;
     assert(server.start(error));
 
-    const int slow = connectLoopback(server.avrPort());
+    // The slow client gets a tiny receive window so the server's send() blocks
+    // after a few KB instead of the kernel quietly buffering the whole burst.
+    const int slow = connectLoopback(server.avrPort(), 4 * 1024);
     const int healthy = connectLoopback(server.avrPort());
     waitForClients(server, 2);
 
-    constexpr size_t Count = 10000;
+    // The burst has to be comfortably larger than the socket buffers the
+    // kernel gives the non-reading client. macOS hands out ~319 KB and then
+    // stops growing, while the slow client has to accumulate a full
+    // clientBufferLimit (1 MB) of pending bytes before it is dropped, so the
+    // total has to clear both. 80k frames is about 2.3 MB.
+    constexpr size_t Count = 80000;
     const auto frame = ModeSFrame::shortFrame(0x010203040506ULL, 0x11223344556677ULL, 0x55, true);
     const auto encoded = encodeAvr(frame);
     std::atomic<size_t> received{0};
@@ -161,7 +180,11 @@ void slowClientDoesNotBlockHealthyClient() {
     for (size_t i = 0; i < Count; ++i) {
         while (!server.tryPublish(frame))
             std::this_thread::yield();
-        if ((i & 1) == 0)
+        // Pace the producer so one network-thread drain stays well under the
+        // client buffer limit: the whole ring batch is appended to every
+        // client before any of them is flushed, so a large batch would
+        // disconnect the healthy client too.
+        if ((i & 63) == 0)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
