@@ -63,6 +63,16 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         m_snrFn = fn;
     }
 
+    /// Installed by SampleStream so an accepted frame can ask for its signal
+    /// quality (signal/noise dBFs) from the retained ring, but only while the
+    /// metrics endpoint is being scraped: it is a pass over the ring.
+    using SignalQualityFn = Metrics::SignalQuality (*)(const void*, size_t);
+    void setSignalQualitySource(const void* ctx, SignalQualityFn fn) noexcept {
+        m_signalQualityCtx = ctx;
+        m_signalQualityFn = fn;
+    }
+
+
 #ifndef STREAM1090_MIN_SNR
 #define STREAM1090_MIN_SNR 0
 #endif
@@ -130,13 +140,36 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         const uint64_t now = m_statsLog.getCount(Stats::NUM_ITERATIONS);
         if (now - m_lastMetricsPublish >= MetricsPublishInterval) {
             m_lastMetricsPublish = now;
-            Metrics::registry().publishDemod(m_statsLog.cumulative());
+            auto& reg = Metrics::registry();
+            reg.publishDemod(m_statsLog.cumulative());
+            reg.aircraftTracked.set(double(m_cache.aliveCount()));
+            reg.aircraftTrusted.set(double(m_cache.trustedCount()));
         }
 #endif
 #else
         (void)iterations;
 #endif
     }
+
+    /// Signal quality and preamble score for one accepted frame. Both cost a
+    /// pass over the retained ring, so they only run while someone is scraping
+    /// the endpoint. Called on the demodulation thread.
+    void observeFrameQuality(int streamIndex, size_t bits) {
+        if constexpr (Metrics::Enabled) {
+            auto& reg = Metrics::registry();
+            if (!reg.signalQualityCollection())
+                return;
+            if (m_signalQualityFn != nullptr)
+                reg.observeSignalQuality(m_signalQualityFn(m_signalQualityCtx, bits));
+            if (m_preambleFn != nullptr)
+                reg.preambleScore.observe(double(m_preambleFn(m_preambleCtx, size_t(streamIndex))),
+                                          Metrics::PreambleScoreBounds);
+        } else {
+            (void)streamIndex;
+            (void)bits;
+        }
+    }
+
 
     bool sendFrameLongAligned(int streamIndex, const uint8_t downlinkFormat, CRC::crc_t crc, const Bits128& frame,
                               const ICAOTable::Iterator& it) {
@@ -191,6 +224,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
 
         logStatsSent(downlinkFormat);
         e.last_time = m_currTime;
+        observeFrameQuality(streamIndex, 112);
         m_messageHandler.handleLong(m_currTime, frame);
         return true;
     }
@@ -243,6 +277,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
 
         logStatsSent(downlinkFormat);
         e.last_time = m_currTime;
+        observeFrameQuality(streamIndex, 56);
         m_messageHandler.handleShort(m_currTime, frameShort);
         return true;
     }
@@ -819,6 +854,9 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
     PreambleFn m_preambleFn = nullptr;
     const void* m_snrCtx = nullptr;
     SnrFn m_snrFn = nullptr;
+    const void* m_signalQualityCtx = nullptr;
+    SignalQualityFn m_signalQualityFn = nullptr;
+
 
 #if defined(STATS_ENABLED) && STATS_ENABLED
     Stats::StatsLog m_statsLog;

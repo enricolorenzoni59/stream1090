@@ -12,6 +12,9 @@
 #include "DemodCore.hpp"
 #include "MessageHandler.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 // the main stream class. This class manages reading from the input stream
 // and also manages the buffers
 template <typename Sampler> class SampleStream {
@@ -155,11 +158,61 @@ template <typename Sampler> class SampleStream {
         return atOrBelow <= Total / 4;
     }
 
+    /// Signal quality for one accepted frame, in the readsb / dump1090 spirit:
+    /// mean magnitude-squared over the frame and over a quiet window before the
+    /// preamble, both normalised to full scale, returned as dBFS plus their
+    /// difference. Recomputed from the retained ring, so it is only called
+    /// while the metrics endpoint is being scraped.
+    Metrics::SignalQuality getSignalQuality(size_t bits) const noexcept {
+        const auto dbfs = [](double level) {
+            return 20.0 * std::log10(std::clamp(level, 1e-6, 1.0));
+        };
+        const double signalDbfs = dbfs(frameMeanLevel(bits));
+        const double noiseDbfs = dbfs(noiseMeanLevel());
+        return { signalDbfs, noiseDbfs, signalDbfs - noiseDbfs };
+    }
+
   private:
     // Samples reach the ring as ((I*I) >> 2) + ((Q*Q) >> 2) with I and Q in
     // Q14, so the stored value is the squared magnitude times (SampleOne/2)^2
     // and a linear magnitude comes back as stored / MagScale.
     static constexpr float MagScale = float(SampleOne) * 256.0f;
+
+    /// RMS magnitude over the frame bits, normalised to full scale.
+    double frameMeanLevel(size_t bits) const noexcept {
+        const auto offsetInBlock = size_t(m_demodPos - m_sampleRingBuffer.readPos());
+        double acc = 0.0;
+        size_t n = 0;
+        for (size_t f = 0; f < bits; ++f) {
+            const size_t delay = (size_t(16) + f) * Sampler::NumStreams;
+            for (size_t k = 0; k < Sampler::NumStreams; ++k) {
+                const double v =
+                    double(m_sampleRingBuffer.lookBack(delay - k, offsetInBlock)) * (1.0 / MagScale);
+                acc += v * v;
+                ++n;
+            }
+        }
+        return (n > 0) ? std::sqrt(acc / double(n)) : 0.0;
+    }
+
+    /// RMS magnitude over a quiet window before the preamble.
+    double noiseMeanLevel() const noexcept {
+        const auto offsetInBlock = size_t(m_demodPos - m_sampleRingBuffer.readPos());
+        constexpr size_t NoiseBits = 64;
+        constexpr size_t StartBit = 200;
+        double acc = 0.0;
+        size_t n = 0;
+        for (size_t b = 0; b < NoiseBits; b++) {
+            const size_t delay = (size_t(StartBit) + b) * Sampler::NumStreams;
+            for (size_t s = 0; s < Sampler::NumStreams; s++) {
+                const double v =
+                    double(m_sampleRingBuffer.lookBack(delay - s, offsetInBlock)) * (1.0 / MagScale);
+                acc += v * v;
+                ++n;
+            }
+        }
+        return (n > 0) ? std::sqrt(acc / double(n)) : 0.0;
+    }
 
     uint32_t m_newBits[Sampler::NumStreams];
     // we have one ring buffer for the IQ pipeline
@@ -187,6 +240,11 @@ inline void SampleStream<Sampler>::read(InputReaderType& inputReader, Handler& m
         return static_cast<const SampleStream<Sampler>*>(ctx)->atNoiseFloor(frameBit, minSnr);
     };
     demodCore.setSnrSource(this, snrSource);
+
+    const auto signalQualitySource = [](const void* ctx, size_t bits) -> Metrics::SignalQuality {
+        return static_cast<const SampleStream<Sampler>*>(ctx)->getSignalQuality(bits);
+    };
+    demodCore.setSignalQualitySource(this, signalQualitySource);
 
     // the main loop for reading the stream
     while (!inputReader.eof()) {

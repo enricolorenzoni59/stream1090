@@ -95,6 +95,12 @@ int main() {
     reg.publishDemod(counters);
     // Airspy linearity preset 21 -> lna 14 / mixer 12 / vga 13
     reg.setGainState(true, false, 1 /*linearity*/, false, 21.0, 14.0, 12.0, 13.0);
+    // Per-frame observations.
+    reg.rssiRatio.observe(0.9, Metrics::RssiRatioBounds);
+    reg.observeSignalQuality(Metrics::SignalQuality{ -20.0, -48.0, 28.0 });
+    reg.preambleScore.observe(2.4, Metrics::PreambleScoreBounds);
+    reg.aircraftTracked.set(11);
+    reg.aircraftTrusted.set(4);
 
     const auto page = Metrics::render(reg);
 
@@ -126,6 +132,18 @@ int main() {
     if (!contains(pageRtl, "stream1090_device_gain_auto 1")) return 43;
     if (!contains(pageRtl, "stream1090_device_gain_mode{mode=\"auto\"} 1")) return 44;
     if (contains(pageRtl, "stream1090_device_gain{stage=\"lna\"")) return 45;
+
+    // ---- signal quality histograms and aircraft table ---------------------
+    if (!contains(page, "# TYPE stream1090_signal_dbfs histogram")) return 46;
+    if (!contains(page, "stream1090_message_rssi_ratio_bucket{le=\"1\"} 1")) return 47;
+    if (!contains(page, "stream1090_message_rssi_ratio_bucket{le=\"+Inf\"} 1")) return 48;
+    if (!contains(page, "stream1090_message_rssi_ratio_count 1")) return 49;
+    if (!contains(page, "stream1090_signal_dbfs_count 1")) return 50;
+    if (!contains(page, "stream1090_noise_dbfs_count 1")) return 51;
+    if (!contains(page, "stream1090_snr_db_bucket{le=\"+Inf\"} 1")) return 52;
+    if (!contains(page, "stream1090_preamble_score_count 1")) return 53;
+    if (!contains(page, "stream1090_aircraft_tracked 11")) return 54;
+    if (!contains(page, "stream1090_aircraft_trusted 4")) return 55;
 
     // ---- listen address parsing ------------------------------------------
     std::string host;

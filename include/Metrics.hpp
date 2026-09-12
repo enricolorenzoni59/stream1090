@@ -69,6 +69,46 @@ struct Gauge {
     double get() const noexcept { return value.load(std::memory_order_relaxed); }
 };
 
+struct SignalQuality {
+    double signalDbfs { 0.0 };
+    double noiseDbfs { 0.0 };
+    double snrDb { 0.0 };
+};
+
+/// A fixed-bucket histogram. There is one more slot than there are bounds: the
+/// last one is the +Inf overflow. Updates come from the DSP thread, reads from
+/// the metrics thread, so every slot is atomic.
+template <size_t NumBuckets> struct Histogram {
+    std::array<std::atomic<uint64_t>, NumBuckets + 1> buckets {};
+    std::atomic<uint64_t> count { 0 };
+    std::atomic<double> sum { 0.0 };
+
+    template <size_t N> void observe(double value, const std::array<double, N>& bounds) noexcept {
+        static_assert(N == NumBuckets, "one bucket per bound");
+        if constexpr (!Enabled) {
+            (void)value;
+            (void)bounds;
+            return;
+        }
+        size_t bucket = 0;
+        while (bucket < N && value > bounds[bucket])
+            ++bucket;
+        buckets[bucket].fetch_add(1, std::memory_order_relaxed);
+        count.fetch_add(1, std::memory_order_relaxed);
+        sum.fetch_add(value, std::memory_order_relaxed);
+    }
+};
+
+inline constexpr std::array<double, 8> RssiRatioBounds { 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0 };
+inline constexpr std::array<double, 25> DbfsBounds {
+    -72.0, -69.0, -66.0, -63.0, -60.0, -57.0, -54.0, -51.0, -48.0, -45.0, -42.0, -39.0, -36.0,
+    -33.0, -30.0, -27.0, -24.0, -21.0, -18.0, -15.0, -12.0, -9.0, -6.0, -3.0, 0.0
+};
+inline constexpr std::array<double, 16> SnrBounds {
+    0.0, 3.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0, 24.0, 27.0, 30.0, 33.0, 36.0, 39.0, 42.0, 45.0
+};
+inline constexpr std::array<double, 8> PreambleScoreBounds { 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0 };
+
 class Registry {
   public:
     // ---- identity ---------------------------------------------------------
@@ -135,6 +175,34 @@ class Registry {
         case 5: return "auto";
         default: return "none";
         }
+    }
+
+    // ---- signal quality and aircraft tracking -----------------------------
+    // Per-frame observations written straight through atomics: a few hundred
+    // events a second, not the sample loop. Signal/noise/SNR also cost a pass
+    // over the retained ring, so they are only collected while someone is
+    // actually scraping the endpoint.
+    Histogram<8> rssiRatio;
+    Histogram<25> signalDbfs;
+    Histogram<25> noiseDbfs;
+    Histogram<16> snrDb;
+    Histogram<8> preambleScore;
+    Gauge aircraftTracked;
+    Gauge aircraftTrusted;
+    std::atomic<bool> collectSignalQuality { false };
+
+    void setSignalQualityCollection(bool on) noexcept {
+        collectSignalQuality.store(on, std::memory_order_relaxed);
+    }
+
+    bool signalQualityCollection() const noexcept {
+        return collectSignalQuality.load(std::memory_order_relaxed);
+    }
+
+    void observeSignalQuality(const SignalQuality& quality) noexcept {
+        signalDbfs.observe(quality.signalDbfs, DbfsBounds);
+        noiseDbfs.observe(quality.noiseDbfs, DbfsBounds);
+        snrDb.observe(quality.snrDb, SnrBounds);
     }
 
     // ---- watchdog and sample drops ---------------------------------------
@@ -391,6 +459,31 @@ inline void sampleRaw(std::string& out, const char* name, double value) {
     out += '\n';
 }
 
+/// Renders one histogram family in the Prometheus exposition format: cumulative
+/// buckets (the last one +Inf), then the sum and the observation count.
+template <size_t NumBuckets, size_t N>
+inline void histogram(std::string& out, const char* name, const char* help, const Histogram<NumBuckets>& h,
+                      const std::array<double, N>& bounds) {
+    static_assert(N == NumBuckets, "one bucket per bound");
+    head(out, name, help, "histogram");
+
+    const std::string bucketName = std::string(name) + "_bucket";
+    uint64_t cumulative = 0;
+    for (size_t b = 0; b < N; ++b) {
+        cumulative += h.buckets[b].load(std::memory_order_relaxed);
+        char bound[32];
+        std::snprintf(bound, sizeof(bound), "%.6g", bounds[b]);
+        sample(out, bucketName.c_str(), labels({ { "le", bound } }), double(cumulative));
+    }
+    cumulative += h.buckets[N].load(std::memory_order_relaxed);
+    sample(out, bucketName.c_str(), labels({ { "le", "+Inf" } }), double(cumulative));
+
+    const std::string sumName = std::string(name) + "_sum";
+    const std::string countName = std::string(name) + "_count";
+    sample(out, sumName.c_str(), "", h.sum.load(std::memory_order_relaxed));
+    sample(out, countName.c_str(), "", double(h.count.load(std::memory_order_relaxed)));
+}
+
 /// The conventional process_* collector every Prometheus dashboard expects.
 /// Linux only: everything here comes out of /proc, and there is no point
 /// inventing a portable shim for numbers nobody scrapes on macOS.
@@ -525,6 +618,25 @@ inline std::string render(Registry& reg) {
     sample(out, "sample_drop_deficit_pairs", "", reg.sampleDropDeficit.get());
     head(out, "sample_drop_worst_deficit_pairs", "Worst single drop gap observed this run.", "gauge");
     sample(out, "sample_drop_worst_deficit_pairs", "", reg.sampleDropWorst.get());
+
+    // ---- signal quality ---------------------------------------------------
+    histogram(out, "message_rssi_ratio",
+              "Normalised peak of accepted frames, 0..1 (the byte the AVR output carries divided by 255).",
+              reg.rssiRatio, RssiRatioBounds);
+    histogram(out, "signal_dbfs", "Per-frame signal level in dBFS, from the retained sample ring.",
+              reg.signalDbfs, DbfsBounds);
+    histogram(out, "noise_dbfs", "Local noise floor in dBFS at frame time.", reg.noiseDbfs, DbfsBounds);
+    histogram(out, "snr_db", "Signal minus noise floor in dB for accepted frames.", reg.snrDb, SnrBounds);
+    histogram(out, "preamble_score",
+              "Weakest preamble pulse over strongest inter-pulse gap; a real preamble scores well "
+              "above 1, noise hovers near 0.5.",
+              reg.preambleScore, PreambleScoreBounds);
+
+    // ---- aircraft table ---------------------------------------------------
+    head(out, "aircraft_tracked", "Addresses currently alive in the table.", "gauge");
+    sample(out, "aircraft_tracked", "", reg.aircraftTracked.get());
+    head(out, "aircraft_trusted", "Addresses confirmed by an all call reply and still alive.", "gauge");
+    sample(out, "aircraft_trusted", "", reg.aircraftTrusted.get());
 
     // ---- demodulator counters --------------------------------------------
     head(out, "demod_events_total", "Raw demodulator counters, one series per Stats event.", "counter");

@@ -8,6 +8,7 @@
 #pragma once
 
 #include <array>
+#include <bit>
 #include <cstdlib>
 #include <limits>
 #include <memory>
@@ -249,6 +250,22 @@ class ICAOTable {
 
     bool isAlive(const Iterator& entry) const noexcept {
         return m_table[entry.key].ttl > 0;
+    }
+
+    /// Occupancy of the address table, from the mirror bitmaps rather than by
+    /// scanning the 64k entries. Polled once per second by the metrics publish.
+    uint32_t aliveCount() const noexcept {
+        uint32_t count = 0;
+        for (const auto word : m_occupiedBits)
+            count += uint32_t(std::popcount(word));
+        return count;
+    }
+
+    uint32_t trustedCount() const noexcept {
+        uint32_t count = 0;
+        for (const auto word : m_trustedBits)
+            count += uint32_t(std::popcount(word));
+        return count;
     }
 
     bool checkSquawk(const Iterator& entry, uint16_t newSquawk) noexcept {

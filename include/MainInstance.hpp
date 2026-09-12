@@ -451,7 +451,9 @@ template <typename preset> class MainInstance {
         MetricsServer metricsServer;
         if (!m_runtimeVars.metricsBind.empty()) {
             if constexpr (Metrics::Enabled) {
-                if (!metricsServer.start(m_runtimeVars.metricsBind))
+                if (metricsServer.start(m_runtimeVars.metricsBind))
+                    reg.setSignalQualityCollection(true);
+                else
                     Log::warn("Metrics", "Continuing without the metrics endpoint.");
             } else {
                 Log::warn("Metrics", "This build has metrics compiled out, ignoring --metrics.");
@@ -468,6 +470,7 @@ template <typename preset> class MainInstance {
             outcome = run_async_device(iqPipeline);
         }
 
+        reg.setSignalQualityCollection(false);
         metricsServer.stop();
         return outcome;
     }

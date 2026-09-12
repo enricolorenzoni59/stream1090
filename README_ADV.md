@@ -75,8 +75,13 @@ well under a millisecond, so it is safe to poll every few seconds.
 The exported families cover the device (up, last sample age, applied gain/ppm,
 SIGHUP reloads), the watchdog and sample-drop accounting, the demodulator
 counters (per event, per downlink format), the AVR output, the native TCP
-output and the log line counts. `configs/prometheus-rules.yml` carries a
-starting set of recording and alerting rules.
+output and the log line counts. It also carries the per-frame signal quality
+that graphs1090 shows for `airspy_adsb`: RSSI ratio, signal and noise in dBFS,
+SNR and preamble score histograms, plus the number of tracked and trusted
+aircraft. The signal/noise/SNR histograms cost a pass over the retained sample
+ring, so they are only collected while the endpoint is running.
+`configs/prometheus-rules.yml` carries a starting set of recording and alerting
+rules.
 
 If metrics are enabled but `ENABLE_STATS` is off, the demodulator counters are
 not compiled in and the endpoint reports device, output and network metrics

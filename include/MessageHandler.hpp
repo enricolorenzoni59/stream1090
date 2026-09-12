@@ -13,6 +13,7 @@
 #include "AVRWriter.hpp"
 #include "ModeSFrame.hpp"
 #include "TcpOutputServer.hpp"
+#include "Metrics.hpp"
 
 template <typename H>
 concept MessageHandler = requires(H h, uint64_t sampleIndex, uint64_t frameShort, const Bits128& frameLong) {
@@ -65,6 +66,7 @@ template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSIShort();
+        Metrics::registry().rssiRatio.observe(double(rssi) / 255.0, Metrics::RssiRatioBounds);
         if (m_stdoutEnabled)
             m_writer.write_short_MLAT_RSSI(MLAT_timeStamp, frame, rssi);
         if (m_tcpServer)
@@ -74,6 +76,7 @@ template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
     void handleLong(uint64_t sampleIndex, const Bits128& frame) {
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSILong();
+        Metrics::registry().rssiRatio.observe(double(rssi) / 255.0, Metrics::RssiRatioBounds);
         if (m_stdoutEnabled)
             m_writer.write_long_MLAT_RSSI(MLAT_timeStamp, frame, rssi);
         if (m_tcpServer)
