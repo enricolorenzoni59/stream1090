@@ -17,6 +17,7 @@
 #include "LowPassFilter.hpp"
 #include "devices/IniConfig.hpp"
 #include "devices/DeviceFactory.hpp"
+#include "TcpOutputServer.hpp"
 #include <chrono>
 #include <deque>
 #include <cstdlib>
@@ -50,6 +51,8 @@ struct RuntimeVars {
     IniConfig::Section deviceConfigSection;
     std::vector<float> filterTaps;
     bool verbose = true;
+    bool stdoutEnabled = true;
+    TcpOutputConfig tcpOutput;
 };
 
 // this class serves to hold all compile and runtime information
@@ -125,15 +128,32 @@ template <typename preset> class MainInstance {
         return true;
     }
 
-    static constexpr auto constructMessageHandler(SampleStream<SamplerType>& sampleStream) {
+    auto constructMessageHandler(SampleStream<SamplerType>& sampleStream, TcpOutputServer* tcpServer) {
         if constexpr (GlobalOptions::RSSIEnabled) {
-            return RssiStdOutMessageHandler<SamplerType, SampleStream<SamplerType>>(sampleStream);
+            return RssiStdOutMessageHandler<SamplerType, SampleStream<SamplerType>>(
+                sampleStream, m_runtimeVars.stdoutEnabled, tcpServer);
         } else {
-            return StdOutMessageHandler<SamplerType>();
+            return StdOutMessageHandler<SamplerType>(m_runtimeVars.stdoutEnabled, tcpServer);
         }
     }
 
     bool run_async_device(auto& iqPipeline) {
+        TcpOutputServer tcpServer(m_runtimeVars.tcpOutput);
+        TcpOutputServer* tcp = nullptr;
+        if (m_runtimeVars.tcpOutput.enableAvr || m_runtimeVars.tcpOutput.enableBeast) {
+            std::string error;
+            if (!tcpServer.start(error)) {
+                Log::error("TCP", error);
+                return false;
+            }
+            tcp = &tcpServer;
+            if (m_runtimeVars.tcpOutput.enableAvr)
+                Log::info("TCP") << "AVR server listening on " << m_runtimeVars.tcpOutput.bindAddress << ':'
+                                 << tcpServer.avrPort();
+            if (m_runtimeVars.tcpOutput.enableBeast)
+                Log::info("TCP") << "Beast server listening on " << m_runtimeVars.tcpOutput.bindAddress << ':'
+                                 << tcpServer.beastPort();
+        }
         RingBuffer ringBuffer;
         Writer writer(ringBuffer);
 
@@ -285,7 +305,7 @@ template <typename preset> class MainInstance {
                 iqPipeline, ringBuffer);
 
             SampleStream<SamplerType> sampleStream;
-            auto messageHandler = constructMessageHandler(sampleStream);
+            auto messageHandler = constructMessageHandler(sampleStream, tcp);
 
             sampleStream.read(inputReader, messageHandler);
         }
@@ -305,12 +325,26 @@ template <typename preset> class MainInstance {
             Log::info("Stream1090", "Watchdog joined.");
         }
         Log::info("Stream1090", "Shutdown completed.");
+        tcpServer.stop();
+        if (tcp)
+            Log::info("TCP") << "Stopped: " << tcpServer.droppedFrames() << " frame(s) dropped, "
+                             << tcpServer.slowClientDisconnects() << " slow client(s) disconnected.";
         Log::msg("Stream1090") << "Finished. (" << dur_wct_secs / 1000.0 << "s)";
         // return if this shutdown was intended or not (lost device)
         return intendedShutdown;
     }
 
     bool run_sync_stdin(auto& iqPipeline) {
+        TcpOutputServer tcpServer(m_runtimeVars.tcpOutput);
+        TcpOutputServer* tcp = nullptr;
+        if (m_runtimeVars.tcpOutput.enableAvr || m_runtimeVars.tcpOutput.enableBeast) {
+            std::string error;
+            if (!tcpServer.start(error)) {
+                Log::error("TCP", error);
+                return false;
+            }
+            tcp = &tcpServer;
+        }
         Log::info("Stream1090", "Reading from stdin");
         auto start_wct = std::chrono::steady_clock::now();
 
@@ -318,8 +352,9 @@ template <typename preset> class MainInstance {
             iqPipeline, STDIN_FILENO);
 
         SampleStream<SamplerType> sampleStream;
-        auto messageHandler = constructMessageHandler(sampleStream);
+        auto messageHandler = constructMessageHandler(sampleStream, tcp);
         sampleStream.read(inputReader, messageHandler);
+        tcpServer.stop();
 
         auto end_wct = std::chrono::steady_clock::now();
         auto dur_wct_secs = std::chrono::duration_cast<std::chrono::milliseconds>(end_wct - start_wct).count();

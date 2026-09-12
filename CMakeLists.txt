@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(stream1090 VERSION 1.0.0)
+find_package(Threads REQUIRED)
 
 # ------------------------------------------------------------
 # Build type
@@ -342,7 +343,7 @@ target_compile_definitions(stream1090 PRIVATE
     ${DEVICE_DEFINITIONS}
 )
 
-target_link_libraries(stream1090 PRIVATE ${DEVICE_LIBS})
+target_link_libraries(stream1090 PRIVATE ${DEVICE_LIBS} Threads::Threads)
 
 include(CTest)
 
@@ -369,6 +370,16 @@ stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
     target_compile_definitions(sampler_interp_sharpening_test PRIVATE STREAM1090_INTERP=6)
     stream1090_add_test(rtlsdr_serial_test tests/RtlSdrSerialTest.cpp)
     stream1090_add_test(noise_false_positive_test tests/NoiseFalsePositiveTest.cpp)
+    stream1090_add_test(tcp_frame_test tests/TcpFrameTest.cpp)
+    target_link_libraries(tcp_frame_test PRIVATE Threads::Threads)
+    stream1090_add_test(tcp_output_server_test tests/TcpOutputServerTest.cpp)
+    target_sources(tcp_output_server_test PRIVATE src/TcpOutputServer.cpp)
+    target_link_libraries(tcp_output_server_test PRIVATE Threads::Threads)
+    find_program(STREAM1090_READSB_TEST_EXECUTABLE readsb)
+    if(STREAM1090_READSB_TEST_EXECUTABLE)
+        target_compile_definitions(tcp_output_server_test PRIVATE
+            STREAM1090_READSB_TEST_EXECUTABLE="${STREAM1090_READSB_TEST_EXECUTABLE}")
+    endif()
     target_compile_definitions(noise_false_positive_test PRIVATE
         ${PREAMBLE_GATE_DEF}
         ${PREAMBLE_THRESHOLD_DEF}
@@ -407,12 +418,11 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
     "Mode-S demodulator for ADS-B reception via SDR")
 set(CPACK_PACKAGE_DESCRIPTION
     "stream1090 reads IQ samples from an Airspy or RTL-SDR dongle and outputs\n"
-    "raw Mode-S message frames to stdout using CRC-based message framing.\n"
-    "It is designed to feed a decoder such as readsb or dump1090-fa via socat.")
+    "raw Mode-S message frames to stdout or native AVR/Beast TCP servers.\n"
+    "It is designed to feed a decoder such as readsb or dump1090-fa.")
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_SECTION "hamradio")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "socat")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/jprochazka/stream1090")
 
 include(CPack)

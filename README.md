@@ -311,34 +311,33 @@ Currently you probably have something like this
         v
  bells and whistles
 ```
-The idea is to
-- Detach the device from readsb
-- Pipe the messages from stream1090's stdout into socat which then forwards those to readsb via TCP. 
+Detach the SDR device from readsb and let readsb connect directly to
+stream1090's native TCP output. Network output runs independently of the DSP,
+so a slow or disconnected client cannot block sample processing.
 
-Readsb is able to receive messages in hex format and decode these.
-If you haven't already installed readsb, head over to https://github.com/wiedehopf/readsb and follow the instructions there. For socat, you can simply do
+Readsb can ingest either AVR/raw text or Beast binary data. For testing, start
+stream1090's loopback-only Beast server:
 
-```sudo apt install socat```
+```
+./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini \
+    --net-bind-address 127.0.0.1 --net-beast-port 30007 --no-stdout
+```
 
-For testing you may now proceed in two steps:
-1. In a separate terminal, start readsb with a minimal configuration in interactive mode with 
+For Airspy, replace the sample rate and INI path as usual. Omit `--no-stdout`
+to retain the legacy AVR stdout feed alongside TCP. Then start readsb as the
+TCP client:
 
-    ```readsb --net-only --net-ri-port 30001 --interactive```
+```
+readsb --net --net-connector=127.0.0.1,30007,beast_in --interactive
+```
 
-    This puts readsb into network only mode so it does not claim the SDR dongle.
-    Furthermore, it starts listening on port 30001 for message frames that it will then decode.
+To use AVR/raw instead:
 
-2. Once readsb is up and running, we can start stream1090 and send the output to readsb via socat. For RTL-SDR, we may do something like this
-
-    ```
-    ./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini | 
-    socat -u - TCP4:localhost:30001
-    ```
-    and in the same way for Airspy
-    ```
-    ./build/stream1090 -s 6 -d ./configs/airspy.ini | 
-    socat -u - TCP4:localhost:30001
-    ```
+```
+./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini \
+    --net-bind-address 127.0.0.1 --net-avr-port 30006 --no-stdout
+readsb --net --net-connector=127.0.0.1,30006,raw_in --interactive
+```
 
 You should now see the readsb table filling up with planes.
 
@@ -352,7 +351,10 @@ by setting it to nothing
 ```
 RECEIVER_OPTIONS=""
 ```
-Make sure that ```NET_OPTIONS="..."``` contains ```--net-ri-port 30001```
+Make sure that `NET_OPTIONS="..."` contains the matching connector, for example
+`--net --net-connector=127.0.0.1,30007,beast_in`. Do not configure readsb's
+input listener on the same port: in this arrangement stream1090 is the server
+and readsb is the reconnecting client.
 
 
 ### Dump1090-fa
@@ -363,7 +365,8 @@ If you want to use dump1090-fa instead, you have to basically follow the same st
 ```NET_RAW_INPUT_PORTS=30001```
 
 Do not forget to reload the service to make the changes come into effect.
-With stream1090 you proceed as above in the readsb section.
+dump1090-fa normally exposes a raw input listener rather than connecting to an
+upstream server. The legacy stdout output remains available for that deployment.
 
 
 #### Disable stream1090 statistics

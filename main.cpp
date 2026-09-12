@@ -112,13 +112,19 @@ void print_help() {
                  "  -f <taps file>       Taps to load that are used for the IQ FIR filter\n"
                  "  -v, --verbose        Verbose output\n"
                  "  --debug              Debug output (implies verbose)\n"
+                 "  --net-bind-address <address>  TCP bind address (default: 127.0.0.1)\n"
+                 "  --net-avr-port <port>          Enable AVR/raw TCP output\n"
+                 "  --net-beast-port <port>        Enable Beast binary TCP output\n"
+                 "  --no-stdout                    Disable legacy AVR stdout output\n"
                  "  -h, --help           Show this help message\n\n";
 
     print_rate_pairs();
 
     std::cout << "Examples:\n"
                  "  ./build/stream1090 -s 2.4 -u 8 -q -d ./configs/rtlsdr.ini\n"
-                 "  ./build/stream1090 -s 6 -u 12 -q -d ./configs/airspy.ini\n\n";
+                 "  ./build/stream1090 -s 6 -u 12 -q -d ./configs/airspy.ini\n"
+                 "  ./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini --net-beast-port 30007 --no-stdout\n"
+                 "  readsb --net --net-connector=127.0.0.1,30007,beast_in\n\n";
 }
 
 struct CliArgs {
@@ -129,7 +135,24 @@ struct CliArgs {
     bool iq_filter = false;
     bool verbose = false;
     bool debug = false;
+    std::string netBindAddress = "127.0.0.1";
+    uint16_t netAvrPort = 0;
+    uint16_t netBeastPort = 0;
+    bool stdoutEnabled = true;
 };
+
+bool parse_tcp_port(const std::string& value, uint16_t& port) {
+    try {
+        size_t consumed = 0;
+        const unsigned long parsed = std::stoul(value, &consumed, 10);
+        if (consumed != value.size() || parsed == 0 || parsed > 65535)
+            return false;
+        port = static_cast<uint16_t>(parsed);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
 
 bool parse_cli(int argc, char** argv, CliArgs& out) {
     for (int i = 1; i < argc; i++) {
@@ -172,6 +195,32 @@ bool parse_cli(int argc, char** argv, CliArgs& out) {
 
         if (arg == "--debug") {
             out.debug = true;
+            continue;
+        }
+
+        if (arg == "--net-bind-address" && i + 1 < argc) {
+            out.netBindAddress = argv[++i];
+            continue;
+        }
+
+        if (arg == "--net-avr-port" && i + 1 < argc) {
+            if (!parse_tcp_port(argv[++i], out.netAvrPort)) {
+                std::cerr << "Invalid AVR TCP port: " << argv[i] << "\n";
+                return false;
+            }
+            continue;
+        }
+
+        if (arg == "--net-beast-port" && i + 1 < argc) {
+            if (!parse_tcp_port(argv[++i], out.netBeastPort)) {
+                std::cerr << "Invalid Beast TCP port: " << argv[i] << "\n";
+                return false;
+            }
+            continue;
+        }
+
+        if (arg == "--no-stdout") {
+            out.stdoutEnabled = false;
             continue;
         }
 
@@ -312,6 +361,21 @@ int main(int argc, char** argv) {
         print_help();
         return 1;
     }
+
+    if (args.netAvrPort != 0 && args.netAvrPort == args.netBeastPort) {
+        std::cerr << "AVR and Beast TCP ports must be different.\n";
+        return 1;
+    }
+    if (!args.stdoutEnabled && args.netAvrPort == 0 && args.netBeastPort == 0) {
+        std::cerr << "--no-stdout requires --net-avr-port and/or --net-beast-port.\n";
+        return 1;
+    }
+    r_vars.stdoutEnabled = args.stdoutEnabled;
+    r_vars.tcpOutput.bindAddress = args.netBindAddress;
+    r_vars.tcpOutput.avrPort = args.netAvrPort;
+    r_vars.tcpOutput.beastPort = args.netBeastPort;
+    r_vars.tcpOutput.enableAvr = args.netAvrPort != 0;
+    r_vars.tcpOutput.enableBeast = args.netBeastPort != 0;
 
     if (args.verbose)
         Log::setLevel(Log::Level::INFO);
