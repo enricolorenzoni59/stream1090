@@ -116,6 +116,10 @@ void print_help() {
                  "  --net-avr-port <port>          Enable AVR/raw TCP output\n"
                  "  --net-beast-port <port>        Enable Beast binary TCP output\n"
                  "  --no-stdout                    Disable legacy AVR stdout output\n"
+                 "  --metrics [addr:port]          Serve Prometheus metrics on /metrics,\n"
+                 "                                 plus /healthz and /readyz. Defaults to\n"
+                 "                                 127.0.0.1:9109. There is no authentication,\n"
+                 "                                 so a public interface is a deliberate choice\n"
                  "  -h, --help           Show this help message\n\n";
 
     print_rate_pairs();
@@ -139,6 +143,7 @@ struct CliArgs {
     uint16_t netAvrPort = 0;
     uint16_t netBeastPort = 0;
     bool stdoutEnabled = true;
+    std::string metricsBind = "";
 };
 
 bool parse_tcp_port(const std::string& value, uint16_t& port) {
@@ -221,6 +226,15 @@ bool parse_cli(int argc, char** argv, CliArgs& out) {
 
         if (arg == "--no-stdout") {
             out.stdoutEnabled = false;
+            continue;
+        }
+
+        if (arg == "--metrics") {
+            // The address is optional: "--metrics" alone takes the default.
+            if (i + 1 < argc && argv[i + 1][0] != '-')
+                out.metricsBind = argv[++i];
+            else
+                out.metricsBind = "127.0.0.1:9109";
             continue;
         }
 
@@ -376,6 +390,7 @@ int main(int argc, char** argv) {
     r_vars.tcpOutput.beastPort = args.netBeastPort;
     r_vars.tcpOutput.enableAvr = args.netAvrPort != 0;
     r_vars.tcpOutput.enableBeast = args.netBeastPort != 0;
+    r_vars.metricsBind = args.metricsBind;
 
     if (args.verbose)
         Log::setLevel(Log::Level::INFO);

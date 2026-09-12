@@ -18,6 +18,7 @@ option(END_STATS             "Compile with STATS_END_ONLY" OFF)
 option(ENABLE_CUSTOM_INPUT   "Compile with STREAM1090_CUSTOM_INPUT" OFF)
 option(ENABLE_RSSI           "Compile with STREAM1090_ENABLE_RSSI" ON)
 option(ENABLE_PREAMBLE_GATE  "Reject address-parity frames that are weak and preamble-less" ON)
+option(ENABLE_METRICS        "Compile the Prometheus scrape endpoint" ON)
 set(PREAMBLE_GATE_THRESHOLD 1.2 CACHE STRING "Preamble score a real transmission must reach")
 set(MIN_SNR               2.5 CACHE STRING "Reject address-parity frames below this signal-to-noise ratio (0 disables; a ratio, so it transfers between receivers)")
 option(ENABLE_ORBGRAND "Enable reliability-ordered last-resort DF17 repair" OFF)
@@ -48,6 +49,7 @@ set(ORBGRAND_DEF STREAM1090_ORBGRAND=$<BOOL:${ENABLE_ORBGRAND}>)
 set(ORBGRAND_GUESSES_DEF STREAM1090_ORBGRAND_GUESSES=${ORBGRAND_GUESSES})
 set(TOO_MUCH_CPU_DEF STREAM1090_TOO_MUCH_CPU=$<BOOL:${ENABLE_TOO_MUCH_CPU}>)
 set(INTERPOLATION_DEF STREAM1090_INTERP=${INTERPOLATION_KERNEL})
+set(METRICS_DEF      STREAM1090_METRICS=$<BOOL:${ENABLE_METRICS}>)
 
 # ------------------------------------------------------------
 # Compiler settings
@@ -340,10 +342,16 @@ target_compile_definitions(stream1090 PRIVATE
     ${ORBGRAND_DEF}
     ${ORBGRAND_GUESSES_DEF}
     ${INTERPOLATION_DEF}
+    ${METRICS_DEF}
     ${DEVICE_DEFINITIONS}
 )
 
 target_link_libraries(stream1090 PRIVATE ${DEVICE_LIBS} Threads::Threads)
+
+if(ENABLE_METRICS AND NOT ENABLE_STATS)
+    message(WARNING "[stream1090] ENABLE_METRICS is on but ENABLE_STATS is off: "
+                    "the endpoint will serve device, output and network counters only.")
+endif()
 
 include(CTest)
 
@@ -370,6 +378,9 @@ stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
     target_compile_definitions(sampler_interp_sharpening_test PRIVATE STREAM1090_INTERP=6)
     stream1090_add_test(rtlsdr_serial_test tests/RtlSdrSerialTest.cpp)
     stream1090_add_test(noise_false_positive_test tests/NoiseFalsePositiveTest.cpp)
+    stream1090_add_test(metrics_test tests/MetricsTest.cpp)
+    target_compile_definitions(metrics_test PRIVATE STREAM1090_METRICS=1 STATS_ENABLED=1)
+    target_link_libraries(metrics_test PRIVATE Threads::Threads)
     stream1090_add_test(tcp_frame_test tests/TcpFrameTest.cpp)
     target_link_libraries(tcp_frame_test PRIVATE Threads::Threads)
     stream1090_add_test(tcp_output_server_test tests/TcpOutputServerTest.cpp)

@@ -14,6 +14,7 @@
 #include "ModeS.hpp"
 #include "ICAOCache.hpp"
 #include "Stats.hpp"
+#include "Metrics.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -121,6 +122,16 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         m_statsLog.log(Stats::NUM_ITERATIONS, int(iterations));
 #if !(defined(STATS_END_ONLY) && STATS_END_ONLY)
         Stats::printTick(m_statsLog, std::cerr);
+#endif
+#if defined(STREAM1090_METRICS) && STREAM1090_METRICS
+        // One publish per second of samples. The demodulation loop owns these
+        // counters outright; this is the only place they are copied out to a
+        // thread that may be scraping.
+        const uint64_t now = m_statsLog.getCount(Stats::NUM_ITERATIONS);
+        if (now - m_lastMetricsPublish >= MetricsPublishInterval) {
+            m_lastMetricsPublish = now;
+            Metrics::registry().publishDemod(m_statsLog.cumulative());
+        }
 #endif
 #else
         (void)iterations;
@@ -831,6 +842,11 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
     void logStatsSent(int) {}
     void logStatsDup(int) {}
 #endif
+
+    // Roughly one second of bit periods, matching the stderr table cadence.
+    static constexpr uint64_t MetricsPublishInterval = 1000000;
+    [[maybe_unused]] uint64_t m_lastMetricsPublish = 0;
+
     static constexpr uint64_t samplesPerSecond() {
         return NumStreams * 1000000;
     }

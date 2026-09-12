@@ -62,21 +62,48 @@ enum EventType {
     NUM_EVENTS
 };
 
+// Downlink formats 0 to 24 are counted individually.
+inline constexpr size_t NumDF = 25;
+
+// Every counter the demodulator keeps, as plain data. The window copy is what
+// the stderr table prints and reset()s every few seconds; the cumulative copy
+// is what a scrape has to see, because a counter that goes backwards is not a
+// counter.
+struct Counters {
+    std::array<uint64_t, Stats::NUM_EVENTS> events{};
+    std::array<uint64_t, NumDF> sent{};
+    std::array<uint64_t, NumDF> dups{};
+
+    constexpr void clear() { *this = Counters{}; }
+
+    constexpr void accumulateInto(Counters& target) const {
+        for (size_t i = 0; i < events.size(); i++)
+            target.events[i] += events[i];
+        for (size_t i = 0; i < sent.size(); i++) {
+            target.sent[i] += sent[i];
+            target.dups[i] += dups[i];
+        }
+    }
+};
+
 class StatsLog {
   public:
-    constexpr StatsLog() : m_events(), m_sent(), m_dups() {
-        reset();
+    constexpr StatsLog() { reset(); }
+
+    /// Folds the window into the cumulative totals and starts a new window.
+    /// The hot path only ever touches the window, so keeping a monotonic copy
+    /// costs one fold every few seconds instead of a second increment per event.
+    constexpr void reset() {
+        m_window.accumulateInto(m_total);
+        m_window.clear();
     }
 
-    constexpr void reset() {
-        for (auto i = 0; i < Stats::NUM_EVENTS; i++) {
-            m_events[i] = 0;
-        }
-
-        for (auto i = 0; i < 25; i++) {
-            m_sent[i] = 0;
-            m_dups[i] = 0;
-        }
+    /// Window plus everything folded so far: monotonic for the lifetime of the
+    /// process, which is what a scrape needs.
+    constexpr Counters cumulative() const {
+        Counters out = m_total;
+        m_window.accumulateInto(out);
+        return out;
     }
 
     constexpr double elapsedTime() const {
@@ -84,9 +111,9 @@ class StatsLog {
     }
 
     constexpr void updateGlobalStats() {
-        auto totalSent = 0;
-        for (auto i = 0; i < 25; i++) {
-            totalSent += m_sent[i];
+        uint64_t totalSent = 0;
+        for (size_t i = 0; i < NumDF; i++) {
+            totalSent += m_window.sent[i];
         }
         const double msgsPerSec = (double)totalSent / elapsedTime();
         if (msgsPerSec > m_maxMsgsPerSecond)
@@ -95,50 +122,49 @@ class StatsLog {
     }
 
     constexpr void log(EventType evt, int count = 1) {
-        m_events[evt] += count;
+        m_window.events[evt] += count;
     }
 
     constexpr void logSent(int df) {
-        m_sent[df]++;
+        m_window.sent[df]++;
     }
 
     constexpr void logDup(int df) {
-        m_dups[df]++;
+        m_window.dups[df]++;
     }
 
     constexpr uint64_t getCount(EventType evt) const {
-        return m_events[evt];
+        return m_window.events[evt];
     }
 
-    constexpr int getSent(int df) const {
-        return m_sent[df];
+    constexpr uint64_t getSent(int df) const {
+        return m_window.sent[df];
     }
 
-    constexpr int getDups(int df) const {
-        return m_dups[df];
+    constexpr uint64_t getDups(int df) const {
+        return m_window.dups[df];
     }
 
     constexpr double maxMsgsPerSec() const {
         return m_maxMsgsPerSecond;
     }
 
-    constexpr int totalMessagesSent() const {
+    constexpr uint64_t totalMessagesSent() const {
         return m_totalMsgsSent;
     }
 
   private:
-    std::array<uint64_t, Stats::NUM_EVENTS> m_events;
-    std::array<int, 25> m_sent;
-    std::array<int, 25> m_dups;
+    Counters m_window;
+    Counters m_total;
     double m_maxMsgsPerSecond = 0.0;
-    int m_totalMsgsSent = 0;
+    uint64_t m_totalMsgsSent = 0;
 };
 
 inline void printLabel(std::ostream& out, const std::string& label, int width) {
     out << std::setfill(' ') << std::setw(width) << label;
 }
 
-inline void printNumber(std::ostream& out, int n, int width) {
+inline void printNumber(std::ostream& out, uint64_t n, int width) {
     out << std::setw(width) << n;
 }
 
@@ -167,8 +193,8 @@ inline void printLine(std::ostream& out) {
     out << "-------------------------------------------------------------" << std::endl;
 }
 
-inline void printStatsLine(std::ostream& out, const std::string& label, int sent, int dups, int repaired,
-                           int total_sent, double time_elapsed) {
+inline void printStatsLine(std::ostream& out, const std::string& label, uint64_t sent, uint64_t dups,
+                           int64_t repaired, uint64_t total_sent, double time_elapsed) {
     const double msgs = (double)sent / time_elapsed;
     const double perc_of_total = (double)sent / (double)total_sent;
     const double perc_dups = (double)dups / (double)(sent + dups);

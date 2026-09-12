@@ -1,0 +1,111 @@
+# Recording and alerting rules for stream1090.
+#
+# The thresholds below are a starting point from a single receiver: message
+# rates in particular depend entirely on your antenna, location and traffic, so
+# calibrate them against a week of your own data before trusting the pages.
+#
+# This file matches the families exposed by the enrico-dev metrics port. It is
+# deliberately narrower than the main-enrico rule set: no matched filter width
+# attribution, no RSSI histograms and no address table health are exported yet.
+
+groups:
+  - name: stream1090-recording
+    interval: 30s
+    rules:
+      - record: stream1090:messages_per_second
+        expr: sum without (df) (rate(stream1090_messages_total[5m]))
+
+      # How much of the extended squitter traffic only survived because a
+      # repair worked. A sudden climb usually means the noise floor moved.
+      - record: stream1090:repair_share
+        expr: |
+          rate(stream1090_es_frames_total{result="repair_ok"}[5m])
+            / clamp_min(sum without (df) (rate(stream1090_messages_total{df=~"17|18|19"}[5m])), 1)
+
+      # Frames rejected by a plausibility or signal gate, by reason.
+      - record: stream1090:rejects_per_second
+        expr: rate(stream1090_frames_rejected_total[5m])
+
+      # Payloads per format, useful for spotting a receiver that suddenly only
+      # hears one transponder family.
+      - record: stream1090:frames_per_df
+        expr: sum without (df) (rate(stream1090_messages_total[5m])) by (df)
+
+  - name: stream1090-alerts
+    rules:
+      - alert: Stream1090DeviceDown
+        expr: stream1090_device_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Input device is not running"
+
+      - alert: Stream1090DeviceStalled
+        expr: stream1090_device_last_sample_age_seconds > 0.2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No samples from the device for more than 200ms"
+
+      # Every counter freezing looks the same whether the sky is empty or the
+      # demodulation thread is stuck. This is what tells the two apart.
+      - alert: Stream1090PipelineWedged
+        expr: stream1090_metrics_snapshot_age_seconds > 10 and stream1090_device_up == 1
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Demodulator has not published counters in {{ $value }}s while the device is up"
+
+      - alert: Stream1090SampleDrops
+        expr: increase(stream1090_sample_drop_events_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The device layer is dropping samples"
+
+      # An antenna that comes loose leaves everything else looking healthy.
+      - alert: Stream1090TrafficCollapsed
+        expr: |
+          stream1090:messages_per_second
+            < 0.4 * (stream1090:messages_per_second offset 1h)
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Message rate is less than half of an hour ago"
+
+      - alert: Stream1090OutputErrors
+        expr: rate(stream1090_output_errors_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Writes to the AVR output are failing"
+
+      - alert: Stream1090TcpDroppingFrames
+        expr: rate(stream1090_tcp_frames_dropped_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "TCP clients are slower than the frame rate; frames are being dropped"
+
+      - alert: Stream1090TcpSlowClients
+        expr: rate(stream1090_tcp_slow_client_disconnects_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A TCP client is regularly disconnected for falling behind"
+
+      - alert: Stream1090ErrorLogs
+        expr: rate(stream1090_log_messages_total{level="error"}[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "stream1090 is logging errors"

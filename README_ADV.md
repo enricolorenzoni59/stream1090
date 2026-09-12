@@ -6,6 +6,7 @@ This readme is intended for users who want to take advantage of some other featu
 
 ## Table of Contents
 - [The Stdin Way](#stream1090-via-Stdin)
+- [Prometheus Metrics](#prometheus-metrics)
 - [Recording Sample Datasets](#recording-sample-datasets)
 
 ## Stream1090 via Stdin
@@ -44,6 +45,42 @@ This functionality is still present in stream1090 and will not be deprecated for
     **Important:** We use here ```-t 4``` which tells ```airspy_rx``` to output a single U16_REAL sample at 12Msps. Stream1090 works usually on an IQ pair basis. So an input sample rate of ```-s 6``` means, it is expecting pairs not single values. That is why we use ```-a 12000000```, because 2 x 6 Msps = 12 Msps. You also want to replace the gain setting with your own.  
 
 TODO: insert socat example
+
+## Prometheus Metrics
+stream1090 can expose a scrape endpoint for Prometheus. It is compiled in by
+default (`-DENABLE_METRICS=OFF` removes it) and stays off until you ask for it:
+
+```
+./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini --metrics
+```
+
+`--metrics` alone listens on `127.0.0.1:9109`. An explicit address is also
+accepted, either `addr:port`, `:port` or a bare `port`:
+
+```
+./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini --metrics 0.0.0.0:9109
+```
+
+There are three routes:
+
+- `/metrics` - the Prometheus text exposition, version 0.0.4
+- `/healthz` - `200` whenever the process is alive
+- `/readyz` - `200` only while the input device is up and the demodulator has
+  published a counter snapshot recently, `503` otherwise
+
+The endpoint has **no authentication**. It defaults to loopback for that
+reason; putting it on a public interface is a deliberate choice. A scrape costs
+well under a millisecond, so it is safe to poll every few seconds.
+
+The exported families cover the device (up, last sample age, applied gain/ppm,
+SIGHUP reloads), the watchdog and sample-drop accounting, the demodulator
+counters (per event, per downlink format), the AVR output, the native TCP
+output and the log line counts. `configs/prometheus-rules.yml` carries a
+starting set of recording and alerting rules.
+
+If metrics are enabled but `ENABLE_STATS` is off, the demodulator counters are
+not compiled in and the endpoint reports device, output and network metrics
+only; CMake warns about this configuration.
 
 ## Recording Sample Datasets
 Using stdin to feed stream1090 with device data has one big advantage when it comes to benchmarking: You can easily capture data once and feed it multiple times with different parameters into stream1090 just by using standard unix tools. We only provide here an example for RTL-SDR. Both ```rtl_sdr``` and ```airspy_rx``` have an option where you can specify the number of samples to capture and where to put them. We are not going to use this. We will just use pipes and the timeout tool.

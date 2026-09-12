@@ -7,6 +7,7 @@
 #pragma once
 
 #include <iostream>
+#include "Metrics.hpp"
 
 namespace hex_detail {
 // LUT construction for byte => 2 hex digits
@@ -53,7 +54,7 @@ class AVRWriter {
         *p++ = ';';
         *p++ = '\n';
 
-        m_out.write(m_buf, p - m_buf);
+        emit(size_t(p - m_buf), false);
     }
 
     // Writes an AVR long frame with MLAT timestamp (no RSSI)
@@ -67,7 +68,7 @@ class AVRWriter {
         *p++ = ';';
         *p++ = '\n';
 
-        m_out.write(m_buf, p - m_buf);
+        emit(size_t(p - m_buf), true);
     }
 
     // Writes an AVR short frame with MLAT timestamp and RSSI
@@ -81,7 +82,7 @@ class AVRWriter {
         *p++ = ';';
         *p++ = '\n';
 
-        m_out.write(m_buf, p - m_buf);
+        emit(size_t(p - m_buf), false);
     }
 
     // Writes an AVR long frame with MLAT timestamp and RSSI
@@ -96,10 +97,28 @@ class AVRWriter {
         *p++ = ';';
         *p++ = '\n';
 
-        m_out.write(m_buf, p - m_buf);
+        emit(size_t(p - m_buf), true);
     }
 
   private:
+    /// One place where bytes actually leave the process, so one place to count
+    /// them.
+    void emit(size_t bytes, bool longFrame) {
+        m_out.write(m_buf, std::streamsize(bytes));
+        if constexpr (Metrics::Enabled) {
+            auto& reg = Metrics::registry();
+            reg.outputBytes.inc(bytes);
+            if (longFrame)
+                reg.outputLongFrames.inc();
+            else
+                reg.outputShortFrames.inc();
+            if (!m_out)
+                reg.outputErrors.inc();
+        } else {
+            (void)longFrame;
+        }
+    }
+
     template <int DIGITS> static inline char* write_hex_fixed(char* out, uint64_t value) {
         static_assert(DIGITS > 0);
         static_assert(DIGITS % 2 == 0);

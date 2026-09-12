@@ -1,4 +1,5 @@
 #pragma once
+#include "Metrics.hpp"
 #include <iostream>
 #include <sstream>
 #include <mutex>
@@ -38,8 +39,9 @@ class Logger {
         return max_level_;
     }
 
-    void write(Level lvl, const std::string& src, const std::string& msg) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        void write(Level lvl, const std::string& src, const std::string& msg) {
+            Metrics::registry().logMessages[size_t(lvl)].inc();
+            std::lock_guard<std::mutex> lock(mutex_);
 
         // New rule: print if lvl <= max_level_
         if (lvl > max_level_)

@@ -18,6 +18,8 @@
 #include "devices/IniConfig.hpp"
 #include "devices/DeviceFactory.hpp"
 #include "TcpOutputServer.hpp"
+#include "Metrics.hpp"
+#include "MetricsServer.hpp"
 #include <chrono>
 #include <deque>
 #include <cstdlib>
@@ -53,6 +55,8 @@ struct RuntimeVars {
     bool verbose = true;
     bool stdoutEnabled = true;
     TcpOutputConfig tcpOutput;
+    // Empty leaves the Prometheus scrape endpoint off. See --metrics.
+    std::string metricsBind;
 };
 
 // this class serves to hold all compile and runtime information
@@ -103,6 +107,41 @@ template <typename preset> class MainInstance {
         }
 
         return true;
+    }
+
+    static const char* deviceName(InputDeviceType type) {
+        switch (type) {
+        case InputDeviceType::AIRSPY:
+            return "airspy";
+        case InputDeviceType::RTLSDR:
+            return "rtlsdr";
+        default:
+            return "stream";
+        }
+    }
+
+    /// Mirrors the configuration that was actually applied to the device, so a
+    /// change of gain or ppm can be seen next to what it did to the counters.
+    void publishDeviceSettings() {
+        if constexpr (!Metrics::Enabled)
+            return;
+        const auto& cfg = m_runtimeVars.deviceConfigSection;
+        auto& reg = Metrics::registry();
+        const auto number = [&cfg](const char* key, double fallback) {
+            const auto it = cfg.find(key);
+            if (it == cfg.end())
+                return fallback;
+            try {
+                return std::stod(it->second);
+            } catch (const std::exception&) {
+                return fallback;
+            }
+        };
+        reg.settingGainDb.set(number("gain", 0.0));
+        reg.settingPpm.set(number("ppm", 0.0));
+        reg.settingFrequencyHz.set(number("frequency", 1090000000.0));
+        const auto agc = cfg.find("agc");
+        reg.settingAgc.set(agc != cfg.end() && (agc->second == "1" || agc->second == "true") ? 1.0 : 0.0);
     }
 
     bool setup_device() {
@@ -185,6 +224,8 @@ template <typename preset> class MainInstance {
         // In other words, the driver is still initializing, but takes so long that
         // the watchdog thinks it is dead and tries to kill it.
         m_device->markAsAlive();
+        Metrics::registry().deviceUp.set(1.0);
+        publishDeviceSettings();
         Log::info("Stream1090", "Devices has been marked as alive.");
 
         // flag that indicates if the shutdown was intended
@@ -194,7 +235,7 @@ template <typename preset> class MainInstance {
         // -------------------------------
         // WATCHDOG THREAD
         // -------------------------------
-        std::thread watchdog([this, &intendedShutdown] {
+        std::thread watchdog([this, &intendedShutdown, tcp] {
             using namespace std::chrono_literals;
             Log::info("Watchdog", "Started.");
 
@@ -226,8 +267,11 @@ template <typename preset> class MainInstance {
             while (!ProcessSignals::shutdownRequested()) {
                 if (m_device) {
                     const auto lastSign = m_device->lastSignOfLife();
+                    Metrics::registry().deviceLastSampleAge.set(double(lastSign.count()) / 1000.0);
                     if (lastSign > 1000ms) {
                         // 1) Device health check. Is the device still alive?
+                        Metrics::registry().watchdogLost.inc();
+                        Metrics::registry().deviceUp.set(0.0);
                         Log::error("Watchdog") << "No samples for more than 1000ms. Device lost? Initiating shutdown.";
                         // Only wake the pipeline here, and leave the device to the
                         // shutdown path below, which closes it in every case.
@@ -241,6 +285,7 @@ template <typename preset> class MainInstance {
                         break;
                     } else if (lastSign > 100ms) {
                         // 2) Device health check. Issue a warning if the device falls behind.
+                        Metrics::registry().watchdogLate.inc();
                         Log::warn("Watchdog") << "No samples for " << lastSign << ". The device is falling behind.";
                     }
                 }
@@ -253,7 +298,12 @@ template <typename preset> class MainInstance {
                     if (reloadDeviceConfig()) {
                         Log::info("Stream1090", "Applying new configuration.");
                         m_device->applyConfigPostOpen(m_runtimeVars.deviceConfigSection);
+                        auto& reg = Metrics::registry();
+                        reg.configReloadsOk.inc();
+                        reg.configGeneration.set(reg.configGeneration.get() + 1.0);
+                        publishDeviceSettings();
                     } else {
+                        Metrics::registry().configReloadsFailed.inc();
                         Log::warn("Stream1090", "Reload failed. Keeping old settings.");
                     }
                 }
@@ -269,6 +319,9 @@ template <typename preset> class MainInstance {
                         recentDrops.push_back(now);
                         while (!recentDrops.empty() && now - recentDrops.front() > 60s)
                             recentDrops.pop_front();
+                        Metrics::registry().sampleDropEvents.inc();
+                        Metrics::registry().sampleDropDeficit.set(double(m_device->currentDropDeficit()));
+                        Metrics::registry().sampleDropWorst.set(double(m_device->maxDropDeficit()));
                         Log::warn("Watchdog") << "Sample drop: ~" << m_device->lastEventGrowth() << " IQ pairs (~"
                                               << (double)m_device->lastEventGrowth() / (double)iqPairsPerSec * 1000.0
                                               << " ms of stream) lost; cumulative deficit ~"
@@ -285,6 +338,9 @@ template <typename preset> class MainInstance {
                         }
                     }
                 }
+
+                if (tcp)
+                    Metrics::registry().tcpClients.set(double(tcp->clientCount()));
 
                 std::this_thread::sleep_for(200ms);
             }
@@ -314,6 +370,7 @@ template <typename preset> class MainInstance {
         // SHUTDOWN
         // -------------------------------
         Log::info("Stream1090", "Shutting down device.");
+        Metrics::registry().deviceUp.set(0.0);
         m_device->close();
         Log::info("Stream1090", "Device closed down.");
 
@@ -326,9 +383,14 @@ template <typename preset> class MainInstance {
         }
         Log::info("Stream1090", "Shutdown completed.");
         tcpServer.stop();
-        if (tcp)
+        if (tcp) {
+            auto& reg = Metrics::registry();
+            reg.tcpClients.set(0.0);
+            reg.tcpFramesDropped.inc(tcpServer.droppedFrames());
+            reg.tcpSlowDisconnects.inc(tcpServer.slowClientDisconnects());
             Log::info("TCP") << "Stopped: " << tcpServer.droppedFrames() << " frame(s) dropped, "
                              << tcpServer.slowClientDisconnects() << " slow client(s) disconnected.";
+        }
         Log::msg("Stream1090") << "Finished. (" << dur_wct_secs / 1000.0 << "s)";
         // return if this shutdown was intended or not (lost device)
         return intendedShutdown;
@@ -346,6 +408,7 @@ template <typename preset> class MainInstance {
             tcp = &tcpServer;
         }
         Log::info("Stream1090", "Reading from stdin");
+        Metrics::registry().deviceUp.set(1.0);
         auto start_wct = std::chrono::steady_clock::now();
 
         InputStdStreamReader<RawFormatType, SamplerType::InputBufferSize, decltype(iqPipeline)> inputReader(
@@ -355,6 +418,13 @@ template <typename preset> class MainInstance {
         auto messageHandler = constructMessageHandler(sampleStream, tcp);
         sampleStream.read(inputReader, messageHandler);
         tcpServer.stop();
+        Metrics::registry().deviceUp.set(0.0);
+        if (tcp) {
+            auto& reg = Metrics::registry();
+            reg.tcpClients.set(0.0);
+            reg.tcpFramesDropped.inc(tcpServer.droppedFrames());
+            reg.tcpSlowDisconnects.inc(tcpServer.slowClientDisconnects());
+        }
 
         auto end_wct = std::chrono::steady_clock::now();
         auto dur_wct_secs = std::chrono::duration_cast<std::chrono::milliseconds>(end_wct - start_wct).count();
@@ -365,15 +435,36 @@ template <typename preset> class MainInstance {
     bool run() {
         // setup pipeline
         auto iqPipeline = IQPipelineSelector<inputRate, outputRate, pipelineOption>().make(m_runtimeVars.filterTaps);
-        Log::info("", iqPipeline.toString());
+        const std::string pipelineName = iqPipeline.toString();
+        Log::info("", pipelineName);
+
+        auto& reg = Metrics::registry();
+        reg.setBuildInfo(STREAM1090_VERSION, pipelineName.empty() ? std::string("none") : pipelineName,
+                         uint32_t(inputRate), uint32_t(outputRate), uint32_t(SamplerType::NumStreams));
+        reg.setDeviceName(deviceName(m_runtimeVars.deviceType));
+
+        MetricsServer metricsServer;
+        if (!m_runtimeVars.metricsBind.empty()) {
+            if constexpr (Metrics::Enabled) {
+                if (!metricsServer.start(m_runtimeVars.metricsBind))
+                    Log::warn("Metrics", "Continuing without the metrics endpoint.");
+            } else {
+                Log::warn("Metrics", "This build has metrics compiled out, ignoring --metrics.");
+            }
+        }
+
         // for sync read from std in we take a short cut
+        bool outcome;
         if (m_runtimeVars.deviceType == InputDeviceType::STREAM) {
             Log::info("Stream1090", "Sync Stdin Mode");
-            return run_sync_stdin(iqPipeline);
+            outcome = run_sync_stdin(iqPipeline);
         } else {
             Log::info("Stream1090", "Async Device Mode");
-            return run_async_device(iqPipeline);
+            outcome = run_async_device(iqPipeline);
         }
+
+        metricsServer.stop();
+        return outcome;
     }
 
   private:
