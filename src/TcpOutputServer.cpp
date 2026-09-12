@@ -341,7 +341,15 @@ void TcpOutputServer::stop() noexcept {
         return;
     }
     const char wake = 1;
-    (void)::write(m_impl->controlWrite, &wake, 1);
+    // The control pipe only ever carries this one byte, so a short write or an
+    // EAGAIN would mean the read end is gone. Retry on EINTR and keep the
+    // result in a variable: glibc marks write() warn_unused_result, and a
+    // (void) cast does not silence -Werror=unused-result there.
+    ssize_t written;
+    do {
+        written = ::write(m_impl->controlWrite, &wake, 1);
+    } while (written < 0 && errno == EINTR);
+    (void)written;
     if (m_impl->worker.joinable())
         m_impl->worker.join();
 }
