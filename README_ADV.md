@@ -79,7 +79,12 @@ output and the log line counts. It also carries the per-frame signal quality
 that graphs1090 shows for `airspy_adsb`: RSSI ratio, signal and noise in dBFS,
 SNR and preamble score histograms, plus the number of tracked and trusted
 aircraft. The signal/noise/SNR histograms cost a pass over the retained sample
-ring, so they are only collected while the endpoint is running.
+ring, so they are only collected while the endpoint is running. The cause of
+lost frames is broken out too: repairs by method (`repairs_total`), repair
+rejections by reason (`repairs_rejected_total`), the phase deduplication layer
+(`dedup_suppressed_total`) and extended squitter type code groups
+(`es_messages_total`, `df18_messages_total`). `build_info` carries the git
+commit, and the TCP output reports live client and per-protocol frame counts.
 `configs/prometheus-rules.yml` carries a starting set of recording and alerting
 rules.
 
