@@ -93,6 +93,8 @@ int main() {
     counters.sent[17] = 5;
     counters.dups[17] = 1;
     reg.publishDemod(counters);
+    // Airspy linearity preset 21 -> lna 14 / mixer 12 / vga 13
+    reg.setGainState(true, false, 1 /*linearity*/, false, 21.0, 14.0, 12.0, 13.0);
 
     const auto page = Metrics::render(reg);
 
@@ -110,6 +112,20 @@ int main() {
     if (!contains(page, "stream1090_log_messages_total{level=\"error\"}")) return 16;
     if (!contains(page, "process_start_time_seconds")) return 17;
     if (!contains(page, "# HELP stream1090_metrics_snapshot_age_seconds")) return 18;
+
+    // ---- applied gain -----------------------------------------------------
+    if (!contains(page, "stream1090_device_gain{stage=\"overall\",unit=\"index\"} 21")) return 38;
+    if (!contains(page, "stream1090_device_gain{stage=\"lna\",unit=\"index\"} 14")) return 39;
+    if (!contains(page, "stream1090_device_gain{stage=\"vga\",unit=\"index\"} 13")) return 40;
+    if (!contains(page, "stream1090_device_gain_mode{mode=\"linearity\"} 1")) return 41;
+
+    // RTL style: dB overall, no stage series, auto mode
+    reg.setGainState(false, true, 5 /*auto*/, true, 42.5, 0.0, 0.0, 0.0);
+    const auto pageRtl = Metrics::render(reg);
+    if (!contains(pageRtl, "stream1090_device_gain{stage=\"overall\",unit=\"db\"} 42.5")) return 42;
+    if (!contains(pageRtl, "stream1090_device_gain_auto 1")) return 43;
+    if (!contains(pageRtl, "stream1090_device_gain_mode{mode=\"auto\"} 1")) return 44;
+    if (contains(pageRtl, "stream1090_device_gain{stage=\"lna\"")) return 45;
 
     // ---- listen address parsing ------------------------------------------
     std::string host;

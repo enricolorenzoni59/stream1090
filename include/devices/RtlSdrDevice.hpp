@@ -39,6 +39,9 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     // Reload hook
     void applyConfigPostOpen(const IniConfig::Section& cfg) override;
 
+    // Applied gain as the device shadow state sees it.
+    GainState gainState() const override;
+
   private:
     bool open_with_serial(uint64_t serial = 0);
     bool open_with_serial(const std::string& serial);

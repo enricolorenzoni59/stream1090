@@ -39,6 +39,9 @@ class AirspyDevice : public InputDeviceBase<uint16_t> {
     // Reload hook
     void applyConfigPostOpen(const IniConfig::Section& cfg) override;
 
+    // Applied gain as the device shadow state sees it.
+    GainState gainState() const override;
+
   private:
     bool open_with_serial(uint64_t serial);
     bool tryEnablingPacking();
@@ -68,5 +71,6 @@ class AirspyDevice : public InputDeviceBase<uint16_t> {
     ShadowState m_state;
     uint64_t m_serial = 0;
     bool m_packingEnabled = true;
+    int m_gainMode = GainState::ModeNone;
     airspy_device* m_dev = nullptr;
 };

@@ -137,11 +137,16 @@ template <typename preset> class MainInstance {
                 return fallback;
             }
         };
-        reg.settingGainDb.set(number("gain", 0.0));
         reg.settingPpm.set(number("ppm", 0.0));
         reg.settingFrequencyHz.set(number("frequency", 1090000000.0));
         const auto agc = cfg.find("agc");
         reg.settingAgc.set(agc != cfg.end() && (agc->second == "1" || agc->second == "true") ? 1.0 : 0.0);
+
+        if (m_device) {
+            const auto gain = m_device->gainState();
+            reg.setGainState(gain.hasStages, gain.db, gain.mode, gain.autoGain, double(gain.overall),
+                             double(gain.lna), double(gain.mixer), double(gain.vga));
+        }
     }
 
     bool setup_device() {

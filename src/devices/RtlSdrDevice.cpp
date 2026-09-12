@@ -382,6 +382,24 @@ bool RtlSdrDevice::setVgaGain(int) {
 }
 #endif
 
+RtlSdrDevice::GainState RtlSdrDevice::gainState() const {
+    GainState state;
+    state.db = true;
+    state.autoGain = m_state.agc;
+    state.mode = m_state.agc ? GainState::ModeAuto : GainState::ModeTuner;
+    state.overall = m_state.gain_db;
+#ifdef STREAM1090_HAVE_RTLSDR_BLOG
+    // The per-stage controls only exist in the vendored rtl-sdr-blog fork.
+    state.hasStages = true;
+    state.lna = float(m_state.lna_gain);
+    state.mixer = float(m_state.mixer_gain);
+    state.vga = float(m_state.vga_gain);
+#else
+    state.hasStages = false;
+#endif
+    return state;
+}
+
 // ----------------------
 // applySetting()
 // ----------------------

@@ -171,6 +171,26 @@ template <typename T> class InputDeviceBase {
         return m_running.load(std::memory_order_relaxed);
     }
 
+    // Applied gain, read back from the device shadow state rather than from the
+    // config file, so it reflects what was actually requested and what the
+    // backend accepted. "overall" is the combined control (Airspy
+    // linearity/sensitivity preset, RTL tuner gain), the three stages are the
+    // per-stage controls. db says whether "overall" is in dB (RTL) or an index
+    // (Airspy and the RTL stage registers).
+    struct GainState {
+        enum Mode : int { ModeNone = 0, ModeLinearity, ModeSensitivity, ModeManual, ModeTuner, ModeAuto };
+        int mode = ModeNone;
+        bool autoGain = false;
+        bool hasStages = false;
+        bool db = false;
+        float overall = 0.0f;
+        float lna = 0.0f;
+        float mixer = 0.0f;
+        float vga = 0.0f;
+    };
+
+    virtual GainState gainState() const { return {}; }
+
   protected:
     SampleRate m_sampleRate;
     IAsyncWriter<T>& m_bufferWriter;

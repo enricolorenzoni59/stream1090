@@ -209,6 +209,7 @@ bool AirspyDevice::setLinearityGain(int value) {
     if (airspy_set_linearity_gain(m_dev, value) == AIRSPY_SUCCESS) {
         Log::info("AirspyDevice") << "linearity_gain: " << m_state.linearity_gain << " -> " << value;
         m_state.linearity_gain = value;
+        m_gainMode = GainState::ModeLinearity;
         // The preset moved all three stages, so the shadow copy has to follow
         // or every later per-stage call compares against a stale value.
         adoptStageGains(linearityPreset(value));
@@ -224,6 +225,7 @@ bool AirspyDevice::setSensitivityGain(int value) {
     if (airspy_set_sensitivity_gain(m_dev, value) == AIRSPY_SUCCESS) {
         Log::info("AirspyDevice") << "sensitivity_gain: " << m_state.sensitivity_gain << " -> " << value;
         m_state.sensitivity_gain = value;
+        m_gainMode = GainState::ModeSensitivity;
         // The preset moved all three stages, so the shadow copy has to follow
         // or every later per-stage call compares against a stale value.
         adoptStageGains(sensitivityPreset(value));
@@ -279,6 +281,31 @@ bool AirspyDevice::setBiasTee(bool enabled) {
         return true;
     }
     return false;
+}
+
+AirspyDevice::GainState AirspyDevice::gainState() const {
+    GainState state;
+    state.hasStages = true;
+    state.db = false;
+    state.autoGain = false;
+    state.lna = float(m_state.lna_gain);
+    state.mixer = float(m_state.mixer_gain);
+    state.vga = float(m_state.vga_gain);
+
+    if (m_gainMode == GainState::ModeSensitivity) {
+        state.mode = GainState::ModeSensitivity;
+        state.overall = float(m_state.sensitivity_gain);
+    } else if (m_gainMode == GainState::ModeLinearity) {
+        state.mode = GainState::ModeLinearity;
+        state.overall = float(m_state.linearity_gain);
+    } else {
+        // Only the per-stage controls were touched; there is no meaningful
+        // combined number to report, so leave it at zero and let the three
+        // stages carry the information.
+        state.mode = GainState::ModeManual;
+        state.overall = 0.0f;
+    }
+    return state;
 }
 
 bool AirspyDevice::tryEnablingPacking() {

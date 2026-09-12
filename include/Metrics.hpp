@@ -86,13 +86,56 @@ class Registry {
     // ---- device -----------------------------------------------------------
     Gauge deviceUp;
     Gauge deviceLastSampleAge;
-    Gauge settingGainDb;
     Gauge settingPpm;
     Gauge settingFrequencyHz;
     Gauge settingAgc;
     Gauge configGeneration;
     Counter configReloadsOk;
     Counter configReloadsFailed;
+
+    // ---- applied gain -----------------------------------------------------
+    // overall is the combined control, lna/mixer/vga the stages. The unit and
+    // the mode travel as small atomics of fixed values so the metrics thread
+    // can label the series without sharing a std::string.
+    Gauge deviceGainOverall;
+    Gauge deviceGainLna;
+    Gauge deviceGainMixer;
+    Gauge deviceGainVga;
+    Gauge deviceGainAuto;
+    std::atomic<int> deviceGainUnit { 0 };       // 0 index, 1 db
+    std::atomic<int> deviceGainMode { 0 };       // 0 none, 1 linearity, 2 sensitivity, 3 manual, 4 tuner, 5 auto
+    std::atomic<bool> deviceGainHasStages { false };
+
+    void setGainState(bool hasStages, bool db, int mode, bool autoGain, double overall, double lna,
+                      double mixer, double vga) {
+        if constexpr (!Enabled)
+            return;
+        deviceGainHasStages.store(hasStages, std::memory_order_relaxed);
+        deviceGainUnit.store(db ? 1 : 0, std::memory_order_relaxed);
+        deviceGainMode.store(mode, std::memory_order_relaxed);
+        deviceGainAuto.set(autoGain ? 1.0 : 0.0);
+        deviceGainOverall.set(overall);
+        deviceGainLna.set(lna);
+        deviceGainMixer.set(mixer);
+        deviceGainVga.set(vga);
+    }
+
+    bool gainHasStages() const { return deviceGainHasStages.load(std::memory_order_relaxed); }
+
+    const char* gainUnitName() const {
+        return deviceGainUnit.load(std::memory_order_relaxed) == 1 ? "db" : "index";
+    }
+
+    const char* gainModeName() const {
+        switch (deviceGainMode.load(std::memory_order_relaxed)) {
+        case 1: return "linearity";
+        case 2: return "sensitivity";
+        case 3: return "manual";
+        case 4: return "tuner";
+        case 5: return "auto";
+        default: return "none";
+        }
+    }
 
     // ---- watchdog and sample drops ---------------------------------------
     Counter watchdogLate;
@@ -444,10 +487,28 @@ inline std::string render(Registry& reg) {
     head(out, "device_last_sample_age_seconds", "Age of the last batch of samples the device delivered.", "gauge");
     sample(out, "device_last_sample_age_seconds", "", reg.deviceLastSampleAge.get());
     head(out, "device_setting", "Device configuration currently applied.", "gauge");
-    sample(out, "device_setting", labels({ { "setting", "gain_db" } }), reg.settingGainDb.get());
     sample(out, "device_setting", labels({ { "setting", "ppm" } }), reg.settingPpm.get());
     sample(out, "device_setting", labels({ { "setting", "frequency_hz" } }), reg.settingFrequencyHz.get());
     sample(out, "device_setting", labels({ { "setting", "agc" } }), reg.settingAgc.get());
+    head(out, "device_gain",
+         "Applied receiver gain, read back from the device shadow state rather than the config "
+         "file. stage=overall is the combined control, lna/mixer/vga are the stages. unit is "
+         "'index' for Airspy presets and the RTL stage registers, 'db' for the RTL tuner gain.",
+         "gauge");
+    sample(out, "device_gain", labels({ { "stage", "overall" }, { "unit", reg.gainUnitName() } }),
+           reg.deviceGainOverall.get());
+    if (reg.gainHasStages()) {
+        sample(out, "device_gain", labels({ { "stage", "lna" }, { "unit", "index" } }),
+               reg.deviceGainLna.get());
+        sample(out, "device_gain", labels({ { "stage", "mixer" }, { "unit", "index" } }),
+               reg.deviceGainMixer.get());
+        sample(out, "device_gain", labels({ { "stage", "vga" }, { "unit", "index" } }),
+               reg.deviceGainVga.get());
+    }
+    head(out, "device_gain_auto", "1 when the receiver is in automatic gain mode.", "gauge");
+    sample(out, "device_gain_auto", "", reg.deviceGainAuto.get());
+    head(out, "device_gain_mode", "Which gain control is in effect, always 1.", "gauge");
+    sample(out, "device_gain_mode", labels({ { "mode", reg.gainModeName() } }), 1.0);
     head(out, "config_generation", "Increments on every accepted configuration reload.", "gauge");
     sample(out, "config_generation", "", reg.configGeneration.get());
     head(out, "config_reloads_total", "SIGHUP configuration reloads by outcome.", "counter");
