@@ -1,41 +1,124 @@
 > [!IMPORTANT]
-> This fork's `enrico-dev` branch is an experimental integration branch. Its
-> purpose is to let users build and test a cumulative preview of changes that
-> are being proposed to [upstream Stream1090](https://github.com/mgrone/stream1090),
-> and to collect real-world feedback before those changes are merged. It is not
-> an upstream release, and individual changes may still be revised or rejected.
-> Please open an issue in this repo if you spot any problem with it or if you want
-> to request any change.
+> `enrico-dev` is an experimental integration branch containing changes not yet
+> available in upstream Stream1090. It is intended for testing and real-world
+> feedback; individual features may still be revised before being proposed or
+> merged upstream.
 
-Compared with upstream `main`, `enrico-dev` currently previews these open pull
-requests:
+## Changes compared with upstream `main`
 
-- Decoder correctness and recovery: airborne CPR utilities
-  ([#48](https://github.com/mgrone/stream1090/pull/48)), ICAO cache state
-  preservation ([#49](https://github.com/mgrone/stream1090/pull/49)), DF11
-  SNR/preamble gating ([#50](https://github.com/mgrone/stream1090/pull/50)),
-  repaired-position validation ([#51](https://github.com/mgrone/stream1090/pull/51)),
-  and confirmation of newly seen aircraft without delayed output
-  ([#52](https://github.com/mgrone/stream1090/pull/52)).
-- Runtime and tooling improvements: parallel and bounded filter optimisation
-  ([#36](https://github.com/mgrone/stream1090/pull/36)), batched AVR output
-  ([#42](https://github.com/mgrone/stream1090/pull/42)), a CRC miss bitmap
-  ([#45](https://github.com/mgrone/stream1090/pull/45)), and simpler CMake test
-  declarations ([#47](https://github.com/mgrone/stream1090/pull/47)).
-- SDR, DSP, and portability work: sharpening cubic RTL-SDR interpolation
-  ([#41](https://github.com/mgrone/stream1090/pull/41)), warning-free preamble
-  gate builds ([#53](https://github.com/mgrone/stream1090/pull/53)), and correct
-  vendored RTL-SDR Blog linking on macOS
-  ([#54](https://github.com/mgrone/stream1090/pull/54)).
+### RTL-SDR reception
 
-The branch also carries fork-only work that is not yet represented by upstream
-pull requests: an experimental linear-time SNR noise-floor test that avoids
-sorting the sample window, end-of-run loss-waterfall counters documented in
-[`docs/AZC-21_P1_loss_waterfall.md`](docs/AZC-21_P1_loss_waterfall.md), pinned
-clang-format tooling, and the RTL-SDR Blog source as a Git subtree, including a
-macOS `CLOCK_MONOTONIC_RAW` comparison in `rtl_test`. Keeping these items
-separate from the list above makes their review status explicit; successful
-experiments can later be submitted upstream as focused pull requests.
+- Added continuous automatic PPM calibration using the RTL-SDR sample clock
+  measured against the host monotonic clock.
+- Calibration uses a median of clean measurement windows, rejects windows with
+  sample loss, and applies bounded corrections with configurable warm-up,
+  deadband, maximum step and absolute safety limit.
+- The configured RTL-SDR centre frequency is now applied during device startup,
+  before sample-rate configuration can trigger an invalid zero-frequency retune.
+- RTL-SDR handles are closed correctly when post-open tuner configuration fails.
+- Added explicit tuner, backend and bandwidth diagnostics at startup.
+- Added detection and accounting of USB/FIFO sample loss, including a recovery
+  window that distinguishes transient callback backlog from persistent loss and
+  a configurable watchdog limit.
+- Added 3.2 Msps RTL-SDR input paths with 8, 12, 16 and 24 MHz output rates.
+- Added an experimentally selected 3.2 → 24 MHz preset with a narrow tuner state
+  and refitted FIR taps, plus guardrails for unsupported backend configurations.
+- Sharpening cubic interpolation replaces linear interpolation on the supported
+  RTL-SDR resampling paths; the original kernel remains selectable at build time.
+- The RTL-SDR Blog fork is maintained as a Git subtree, with the local adaptations
+  and upstream revision documented separately.
+- Fixed static libusb linkage for the vendored RTL-SDR Blog backend on macOS.
+- The vendored `rtl_test -p` can compare its traditional wall-clock estimate with
+  `CLOCK_MONOTONIC_RAW` on macOS.
+
+### Airspy reception
+
+- Corrected the half-complex-sample timing mismatch between the Airspy I and Q
+  branches inside the IQ FIR, improving message yield without an additional pass.
+- Added startup diagnostics for the Airspy board, firmware, sample format, sample
+  rate and transfer settings.
+
+### Decoder correctness and recovery
+
+- Added airborne CPR decoding utilities.
+- ICAO cache capability updates no longer discard existing aircraft state.
+- New aircraft must be observed a second time before their address becomes
+  trusted, without delaying valid output frames.
+- DF11 address-parity fallback now requires adequate SNR and preamble evidence.
+- Repaired airborne positions are accepted only when consistent with a clean CPR
+  position pair.
+- Confirmed output timestamps are kept monotonic.
+- CRC error-table misses use a compact occupancy bitmap before the more expensive
+  lookup.
+- Added optional, guess-budgeted ORBGRAND recovery as a last-resort DF17 repair
+  path. It is disabled by default for controlled A/B testing.
+- Added stage-attributed loss-waterfall instrumentation to show where candidate
+  frames are rejected or recovered.
+
+### Native network output
+
+- Added native multi-client AVR/raw and Beast TCP servers.
+- AVR and Beast listeners can run simultaneously on separate ports.
+- Network delivery is isolated from the DSP thread through a bounded,
+  allocation-free queue.
+- Slow clients have bounded buffering and are disconnected without blocking other
+  clients or sample processing.
+- Legacy AVR output on stdout remains available and can run alongside TCP output.
+- AVR stdout writes are batched on a cadence instead of being flushed once per
+  frame.
+- Shutdown performs a bounded drain and correctly handles partial or failed writes.
+- Native TCP output removes the need for `socat` in the usual readsb integration.
+
+### Prometheus observability
+
+- Added an optional Prometheus endpoint with `/metrics`, `/healthz` and `/readyz`.
+  It listens on loopback by default and remains inactive until requested.
+- Exposes process identity and resources, device health, watchdog activity,
+  configuration reloads and the applied receiver settings.
+- Exposes effective receiver gain, including RTL-SDR LNA, mixer and VGA stages.
+- Exposes demodulator events, messages by downlink format, repairs and rejected
+  repairs, deduplication, extended-squitter groups and DF18 control fields.
+- Exposes per-frame RSSI, signal, noise, SNR and preamble-score histograms, plus
+  tracked and trusted aircraft counts.
+- Exposes AVR/TCP output totals, connected clients, slow-client disconnections,
+  queue drops and log counts.
+- Exposes sample-loss events, cumulative missing IQ pairs and the worst observed
+  deficit.
+- Exposes the complete automatic PPM controller state: phase, effective
+  configuration, applied correction, observed sample rate, residual and estimated
+  crystal error, measurement progress and age, discarded windows and controller
+  decisions.
+- Includes the source commit in `build_info` and provides initial Prometheus
+  recording and alerting rules.
+- Prometheus support can be compiled out with `-DENABLE_METRICS=OFF`.
+
+### Performance and build options
+
+- Added host CPU tuning, optional explicit CPU selection, link-time optimization
+  and DSP loop unrolling.
+- Added a complete GCC/Clang profile-guided optimization workflow.
+- Removed the per-bit statistics clock check from the 1 MHz demodulation loop.
+- Replaced sorting of the SNR noise window with a linear-time calculation.
+- The filter optimiser can evaluate candidates in parallel, stop when further
+  runs are no longer productive, and keeps seeded values within their bounds.
+- FIR coefficients are saturated safely to Q15.
+- Built-in and file-provided tap sets are rejected when they exceed the accumulator
+  contract instead of being silently reshaped.
+- Fixed GCC warning-as-error failures not detected by the macOS build.
+
+### Development and test coverage
+
+- Added pinned clang-format 22.1.7 configuration and check/write scripts for
+  first-party sources.
+- CI now treats compiler warnings as errors and tests the vendored RTL-SDR Blog
+  backend on macOS.
+- CI checkout support was updated for Node.js 24.
+- CMake unit-test declarations were consolidated into a reusable helper.
+- Added regression tests for CPR position handling, first-frame trust, repaired
+  positions, sharpening interpolation, RTL-SDR serial selection, noise false
+  positives, Prometheus exposition, AVR/Beast encoding and TCP server behaviour.
+- TCP tests cover multiple clients, ordering, reconnection, queue overflow,
+  slow-client isolation and shutdown using an in-tree decoder.
 
 -----------------------------------------------------------------------------------------
 
