@@ -67,6 +67,10 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
     auto check = [&](const char* name, int rc) {
         if (rc != 0) {
             Log::error("RtlSdrDevice") << "ERROR: " << name << " failed with code " << rc;
+            const int closeRc = rtlsdr_close(m_dev);
+            if (closeRc != 0)
+                Log::error("RtlSdrDevice") << "rtlsdr_close after setup failure returned " << closeRc;
+            m_dev = nullptr;
             return false;
         }
         return true;
@@ -126,6 +130,10 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
     auto check = [&](const char* name, int rc) {
         if (rc != 0) {
             Log::error("RtlSdrDevice") << "ERROR: " << name << " failed with code " << rc;
+            const int closeRc = rtlsdr_close(m_dev);
+            if (closeRc != 0)
+                Log::error("RtlSdrDevice") << "rtlsdr_close after setup failure returned " << closeRc;
+            m_dev = nullptr;
             return false;
         }
         return true;
