@@ -7,7 +7,10 @@
 #pragma once
 
 #include <rtl-sdr.h>
+#include <chrono>
+#include <mutex>
 #include <thread>
+#include <vector>
 #include "devices/InputDeviceBase.hpp"
 #include "IniConfig.hpp"
 
@@ -20,6 +23,7 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     bool start() override;
     void stop() override;
     void close() override;
+    void periodicMaintenance() override;
 
     // Runtime setters (shadow-aware)
     bool setFrequency(uint32_t hz);
@@ -38,11 +42,14 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
 
     // Reload hook
     void applyConfigPostOpen(const IniConfig::Section& cfg) override;
-
     // Applied gain as the device shadow state sees it.
     GainState gainState() const override;
 
   private:
+    static void callback(unsigned char* buf, uint32_t len, void* ctx);
+    void observeSamples(uint32_t len);
+    void configureAutoPpm(const IniConfig::Section& cfg);
+    void resetAutoPpmMeasurement();
     bool open_with_serial(uint64_t serial = 0);
     bool open_with_serial(const std::string& serial);
     bool applySetting(const std::string& key, const std::string& value);
@@ -71,4 +78,29 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     uint64_t m_actualSerial = 0;
     std::string m_serialString = "";
     uint32_t m_openFrequency = 1090000000;
+    // The tuner and ADC share the RTL-SDR crystal. Measuring the ADC sample
+    // rate against steady_clock therefore measures the residual oscillator
+    // error without relying on the (rather loose) carrier accuracy of remote
+    // Mode-S transponders.
+    struct AutoPpmState {
+        bool enabled = false;
+        unsigned intervalSeconds = 30;
+        unsigned warmupSeconds = 60;
+        unsigned samples = 7;
+        int maxStep = 20;
+        int deadband = 2;
+        int limit = 200;
+
+        uint64_t totalPairs = 0;
+        uint64_t baselinePairs = 0;
+        uint64_t baselineDropEvents = 0;
+        std::chrono::steady_clock::time_point firstSample{};
+        std::chrono::steady_clock::time_point latestSample{};
+        std::chrono::steady_clock::time_point baselineTime{};
+        bool haveSample = false;
+        bool haveBaseline = false;
+        std::vector<double> measurements;
+    };
+    AutoPpmState m_autoPpm;
+    std::mutex m_autoPpmMutex;
 };

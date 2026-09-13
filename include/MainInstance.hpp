@@ -271,6 +271,7 @@ template <typename preset> class MainInstance {
 
             while (!ProcessSignals::shutdownRequested()) {
                 if (m_device) {
+                    m_device->periodicMaintenance();
                     const auto lastSign = m_device->lastSignOfLife();
                     Metrics::registry().deviceLastSampleAge.set(double(lastSign.count()) / 1000.0);
                     if (lastSign > 1000ms) {

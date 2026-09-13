@@ -43,6 +43,10 @@ template <typename T> class InputDeviceBase {
         // we do not do anything as default
     };
 
+    // Called regularly by the watchdog thread. Device backends can use this
+    // for slow control loops; it must return quickly.
+    virtual void periodicMaintenance() {}
+
     // Called by device callback threads
     void markAsAlive() {
         m_lastSignOfLife.store(std::chrono::steady_clock::now(), std::memory_order_relaxed);

@@ -7,17 +7,20 @@
 #include "devices/RtlSdrDevice.hpp"
 #include "devices/RtlSdrSerial.hpp"
 #include "Logger.hpp"
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <vector>
 
-static void rtlsdr_callback(unsigned char* buf, uint32_t len, void* ctx) {
+void RtlSdrDevice::callback(unsigned char* buf, uint32_t len, void* ctx) {
     auto* self = static_cast<RtlSdrDevice*>(ctx);
 
     if (!self->isRunning())
         return;
 
     self->markAsAlive();
+    self->observeSamples(len);
     self->writeDataToBuffer(buf, len);
 }
 
@@ -182,7 +185,7 @@ bool RtlSdrDevice::start() {
     m_running.store(true, std::memory_order_relaxed);
 
     m_thread = std::thread([this]() {
-        int rc = rtlsdr_read_async(m_dev, rtlsdr_callback, this, 0, 0);
+        int rc = rtlsdr_read_async(m_dev, callback, this, 0, 0);
 
         if (rc != 0)
             Log::error("RtlSdrDevice") << "rtlsdr_read_async failed: " << rc;
@@ -302,9 +305,175 @@ bool RtlSdrDevice::setPpm(int ppm) {
     if (rtlsdr_set_freq_correction(m_dev, ppm) == 0) {
         Log::info("RtlSdrDevice") << "ppm: " << m_state.ppm << " -> " << ppm;
         m_state.ppm = ppm;
+        resetAutoPpmMeasurement();
         return true;
     }
     return false;
+}
+
+void RtlSdrDevice::observeSamples(uint32_t len) {
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lock(m_autoPpmMutex);
+    m_autoPpm.totalPairs += len / 2U;
+    m_autoPpm.latestSample = now;
+    if (!m_autoPpm.haveSample) {
+        m_autoPpm.firstSample = now;
+        m_autoPpm.haveSample = true;
+    }
+}
+
+void RtlSdrDevice::resetAutoPpmMeasurement() {
+    std::lock_guard<std::mutex> lock(m_autoPpmMutex);
+    m_autoPpm.haveBaseline = false;
+    m_autoPpm.measurements.clear();
+    if (m_autoPpm.haveSample)
+        m_autoPpm.firstSample = m_autoPpm.latestSample;
+}
+
+void RtlSdrDevice::configureAutoPpm(const IniConfig::Section& cfg) {
+    bool enabled;
+    unsigned interval;
+    unsigned warmup;
+    unsigned samples;
+    int maxStep;
+    int deadband;
+    int limit;
+    {
+        std::lock_guard<std::mutex> lock(m_autoPpmMutex);
+        enabled = m_autoPpm.enabled;
+        interval = m_autoPpm.intervalSeconds;
+        warmup = m_autoPpm.warmupSeconds;
+        samples = m_autoPpm.samples;
+        maxStep = m_autoPpm.maxStep;
+        deadband = m_autoPpm.deadband;
+        limit = m_autoPpm.limit;
+    }
+
+    auto isTrue = [](const std::string& value) {
+        return value == "1" || value == "true" || value == "on" || value == "yes";
+    };
+    if (auto it = cfg.find("auto_ppm"); it != cfg.end())
+        enabled = isTrue(it->second);
+    if (auto it = cfg.find("auto_ppm_interval"); it != cfg.end())
+        interval = std::max(10, std::stoi(it->second));
+    if (auto it = cfg.find("auto_ppm_warmup"); it != cfg.end())
+        warmup = std::max(0, std::stoi(it->second));
+    if (auto it = cfg.find("auto_ppm_samples"); it != cfg.end())
+        samples = std::clamp(std::stoi(it->second), 3, 31);
+    if (auto it = cfg.find("auto_ppm_max_step"); it != cfg.end())
+        maxStep = std::clamp(std::stoi(it->second), 1, 100);
+    if (auto it = cfg.find("auto_ppm_deadband"); it != cfg.end())
+        deadband = std::clamp(std::stoi(it->second), 0, 20);
+    if (auto it = cfg.find("auto_ppm_limit"); it != cfg.end())
+        limit = std::clamp(std::stoi(it->second), 1, 1000);
+
+    bool changed;
+    {
+        std::lock_guard<std::mutex> lock(m_autoPpmMutex);
+        changed = enabled != m_autoPpm.enabled ||
+                  interval != m_autoPpm.intervalSeconds ||
+                  warmup != m_autoPpm.warmupSeconds ||
+                  samples != m_autoPpm.samples ||
+                  maxStep != m_autoPpm.maxStep ||
+                  deadband != m_autoPpm.deadband || limit != m_autoPpm.limit;
+        if (!changed)
+            return;
+        m_autoPpm.enabled = enabled;
+        m_autoPpm.intervalSeconds = interval;
+        m_autoPpm.warmupSeconds = warmup;
+        m_autoPpm.samples = samples;
+        m_autoPpm.maxStep = maxStep;
+        m_autoPpm.deadband = deadband;
+        m_autoPpm.limit = limit;
+        m_autoPpm.haveBaseline = false;
+        m_autoPpm.measurements.clear();
+        if (m_autoPpm.haveSample)
+            m_autoPpm.firstSample = m_autoPpm.latestSample;
+    }
+
+    Log::info("RtlSdrDevice") << "automatic PPM correction: "
+        << (enabled ? "on" : "off") << " (warm-up " << warmup
+        << " s, median of " << samples << " x " << interval
+        << " s, max step " << maxStep
+        << " ppm, deadband +/-" << deadband << " ppm, limit +/-" << limit
+        << " ppm)";
+}
+
+void RtlSdrDevice::periodicMaintenance() {
+    int currentPpm = 0;
+    int targetPpm = 0;
+    double residualPpm = 0.0;
+    double elapsed = 0.0;
+    unsigned measurementCount = 0;
+    bool apply = false;
+
+    {
+        std::lock_guard<std::mutex> lock(m_autoPpmMutex);
+        if (!m_autoPpm.enabled || !m_autoPpm.haveSample)
+            return;
+
+        if (!m_autoPpm.haveBaseline) {
+            if (m_autoPpm.latestSample - m_autoPpm.firstSample <
+                    std::chrono::seconds(m_autoPpm.warmupSeconds))
+                return;
+            m_autoPpm.baselineTime = m_autoPpm.latestSample;
+            m_autoPpm.baselinePairs = m_autoPpm.totalPairs;
+            m_autoPpm.baselineDropEvents = dropEventCount();
+            m_autoPpm.haveBaseline = true;
+            Log::info("RtlSdrDevice") << "automatic PPM warm-up complete; measurement started.";
+            return;
+        }
+
+        elapsed = std::chrono::duration<double>(
+            m_autoPpm.latestSample - m_autoPpm.baselineTime).count();
+        if (elapsed < m_autoPpm.intervalSeconds)
+            return;
+
+        const uint64_t pairs = m_autoPpm.totalPairs - m_autoPpm.baselinePairs;
+        const bool dropped = dropEventCount() != m_autoPpm.baselineDropEvents;
+        m_autoPpm.baselineTime = m_autoPpm.latestSample;
+        m_autoPpm.baselinePairs = m_autoPpm.totalPairs;
+        m_autoPpm.baselineDropEvents = dropEventCount();
+
+        if (dropped) {
+            Log::warn("RtlSdrDevice")
+                << "automatic PPM measurement discarded because samples were dropped.";
+            return;
+        }
+
+        const double observation = 1.0e6 *
+            ((static_cast<double>(pairs) / elapsed) /
+             static_cast<double>(getSampleRate()) - 1.0);
+        m_autoPpm.measurements.push_back(observation);
+        if (m_autoPpm.measurements.size() < m_autoPpm.samples)
+            return;
+
+        // Callback completion timestamps occasionally contain large USB or
+        // scheduler outliers. Independent windows plus a median reject them.
+        auto values = m_autoPpm.measurements;
+        const auto middle = values.begin() + values.size() / 2;
+        std::nth_element(values.begin(), middle, values.end());
+        residualPpm = *middle;
+        measurementCount = static_cast<unsigned>(values.size());
+        m_autoPpm.measurements.clear();
+        currentPpm = m_state.ppm;
+        int requestedStep = static_cast<int>(std::lround(residualPpm));
+        if (std::abs(requestedStep) <= m_autoPpm.deadband)
+            requestedStep = 0;
+        const int boundedStep = std::clamp(requestedStep,
+                                           -m_autoPpm.maxStep,
+                                           m_autoPpm.maxStep);
+        targetPpm = std::clamp(currentPpm + boundedStep,
+                               -m_autoPpm.limit, m_autoPpm.limit);
+        apply = targetPpm != currentPpm;
+    }
+
+    Log::info("RtlSdrDevice") << "automatic PPM: median residual " << residualPpm
+        << " ppm from " << measurementCount << " clean windows; correction "
+        << currentPpm
+        << (apply ? " -> " : " retained at ") << targetPpm;
+    if (apply && !setPpm(targetPpm))
+        Log::warn("RtlSdrDevice") << "automatic PPM correction failed.";
 }
 
 bool RtlSdrDevice::setOffsetTuning(bool enabled) {
@@ -462,6 +631,7 @@ void RtlSdrDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
 // Reload logic
 // ----------------------
 void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
+    configureAutoPpm(cfg);
     if (!m_initialConfigApplied) {
         m_initialConfigApplied = true;
 
@@ -475,8 +645,12 @@ void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
 
     for (auto& [key, value] : cfg) {
 
-        if (key == "serial")
-            continue; // immutable
+        if (key == "serial" || key == "auto_ppm" ||
+            key == "auto_ppm_interval" || key == "auto_ppm_warmup" ||
+            key == "auto_ppm_samples" || key == "auto_ppm_max_step" ||
+            key == "auto_ppm_deadband" ||
+            key == "auto_ppm_limit")
+            continue;
 
         applySetting(key, value);
     }

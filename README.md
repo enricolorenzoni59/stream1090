@@ -155,6 +155,14 @@ keeps the tuner state consistent across librtlsdr implementations. Stream1090
 warns at startup when the setting is missing on these tuners. Other tuner types
 or sample rates may need a different value.
 
+RTL-SDR users can opt into continuous crystal calibration with
+`auto_ppm = true`. Stream1090 measures the shared tuner/ADC clock against the
+host monotonic clock, takes the median of several clean windows, and applies
+the bounded correction through librtlsdr. See `configs/rtlsdr.ini` for the
+warm-up, window count, deadband, step, and safety-limit controls. Long-running
+measurements are deliberate; carrier offsets from individual aircraft are not
+used as a reference.
+
 ### Minimal running example
 For the sake of a first try, we will focus only on parameters that are necessary to get things up and running. You may have noticed that the sample rate is not part of the ini file. There are reasons for that. 
 
