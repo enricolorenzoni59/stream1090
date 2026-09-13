@@ -30,6 +30,10 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
     }
 
     const int deviceCount = static_cast<int>(rtlsdr_get_device_count());
+    if (deviceCount <= 0) {
+        Log::error("RtlSdrDevice") << "No supported RTL-SDR devices found.";
+        return false;
+    }
     std::vector<std::string> available;
     available.reserve(deviceCount > 0 ? static_cast<std::size_t>(deviceCount) : 0);
     for (int i = 0; i < deviceCount; ++i) {
@@ -46,8 +50,11 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
         return false;
     }
 
-    if (rtlsdr_open(&m_dev, index) != 0)
+    const int openRc = rtlsdr_open(&m_dev, index);
+    if (openRc != 0) {
+        Log::error("RtlSdrDevice") << "rtlsdr_open failed with code " << openRc;
         return false;
+    }
 
     char buf[256];
     rtlsdr_get_device_usb_strings(index, nullptr, nullptr, buf);
@@ -63,8 +70,9 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
 
     // Set the frequency before the sample rate: R820T bandwidth setup retunes
     // the current frequency, and immediately after open() that value is zero.
-    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
+    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, m_openFrequency)))
         return false;
+    m_state.frequency = m_openFrequency;
 
     if (!check("rtlsdr_set_sample_rate", rtlsdr_set_sample_rate(m_dev, getSampleRate())))
         return false;
@@ -76,8 +84,10 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
 
 bool RtlSdrDevice::open_with_serial(uint64_t serial) {
     int deviceCount = rtlsdr_get_device_count();
-    if (deviceCount <= 0)
+    if (deviceCount <= 0) {
+        Log::error("RtlSdrDevice") << "No supported RTL-SDR devices found.";
         return false;
+    }
 
     int index = 0;
 
@@ -99,8 +109,11 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
             return false;
     }
 
-    if (rtlsdr_open(&m_dev, index) != 0)
+    const int openRc = rtlsdr_open(&m_dev, index);
+    if (openRc != 0) {
+        Log::error("RtlSdrDevice") << "rtlsdr_open failed with code " << openRc;
         return false;
+    }
 
     char buf[256];
     rtlsdr_get_device_usb_strings(index, nullptr, nullptr, buf);
@@ -116,8 +129,9 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
 
     // Set the frequency before the sample rate: R820T bandwidth setup retunes
     // the current frequency, and immediately after open() that value is zero.
-    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, 1090000000)))
+    if (!check("rtlsdr_set_center_freq", rtlsdr_set_center_freq(m_dev, m_openFrequency)))
         return false;
+    m_state.frequency = m_openFrequency;
 
     if (!check("rtlsdr_set_sample_rate", rtlsdr_set_sample_rate(m_dev, getSampleRate())))
         return false;
@@ -439,6 +453,8 @@ void RtlSdrDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
 
         if (key == "serial")
             m_serialString = value;
+        else if (key == "frequency")
+            m_openFrequency = static_cast<uint32_t>(std::stoul(value));
     }
 }
 

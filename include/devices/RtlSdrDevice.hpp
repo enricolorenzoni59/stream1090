@@ -70,4 +70,5 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     std::thread m_thread;
     uint64_t m_actualSerial = 0;
     std::string m_serialString = "";
+    uint32_t m_openFrequency = 1090000000;
 };
