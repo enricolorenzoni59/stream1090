@@ -142,6 +142,41 @@ class Registry {
     Counter configReloadsOk;
     Counter configReloadsFailed;
 
+    // ---- RTL-SDR automatic PPM calibration -------------------------------
+    Gauge rtlAutoPpmEnabled;
+    Gauge rtlAutoPpmCorrection;
+    Gauge rtlAutoPpmLastObservation;
+    Gauge rtlAutoPpmMedianResidual;
+    Gauge rtlAutoPpmEstimatedError;
+    Gauge rtlAutoPpmSampleRateHz;
+    Gauge rtlAutoPpmWindowsCollected;
+    Gauge rtlAutoPpmWindowSeconds;
+    Gauge rtlAutoPpmTargetWindows;
+    Gauge rtlAutoPpmWarmupSeconds;
+    Gauge rtlAutoPpmDeadband;
+    Gauge rtlAutoPpmMaxStep;
+    Gauge rtlAutoPpmLimit;
+    Gauge rtlAutoPpmLastEstimateSteady;
+    Counter rtlAutoPpmWindowsClean;
+    Counter rtlAutoPpmWindowsDiscarded;
+    Counter rtlAutoPpmDecisionsApplied;
+    Counter rtlAutoPpmDecisionsHeld;
+    Counter rtlAutoPpmDecisionsFailed;
+    std::atomic<int> rtlAutoPpmPhase { 0 }; // 0 disabled, 1 warmup, 2 measuring
+
+    const char* rtlAutoPpmPhaseName() const {
+        switch (rtlAutoPpmPhase.load(std::memory_order_relaxed)) {
+        case 1: return "warmup";
+        case 2: return "measuring";
+        default: return "disabled";
+        }
+    }
+
+    double rtlAutoPpmEstimateAge() const {
+        const double last = rtlAutoPpmLastEstimateSteady.get();
+        return last > 0.0 ? steadySeconds() - last : -1.0;
+    }
+
     // ---- applied gain -----------------------------------------------------
     // overall is the combined control, lna/mixer/vga the stages. The unit and
     // the mode travel as small atomics of fixed values so the metrics thread
@@ -652,6 +687,46 @@ inline std::string render(Registry& reg) {
     head(out, "config_reloads_total", "SIGHUP configuration reloads by outcome.", "counter");
     sample(out, "config_reloads_total", labels({ { "result", "ok" } }), double(reg.configReloadsOk.get()));
     sample(out, "config_reloads_total", labels({ { "result", "failed" } }), double(reg.configReloadsFailed.get()));
+
+    if (reg.deviceName() == "rtlsdr") {
+        head(out, "rtl_auto_ppm_enabled", "1 when RTL-SDR automatic crystal calibration is enabled.", "gauge");
+        sample(out, "rtl_auto_ppm_enabled", "", reg.rtlAutoPpmEnabled.get());
+        head(out, "rtl_auto_ppm_state", "Current automatic PPM controller phase, always 1.", "gauge");
+        sample(out, "rtl_auto_ppm_state", labels({ { "state", reg.rtlAutoPpmPhaseName() } }), 1.0);
+        head(out, "rtl_frequency_correction_ppm", "Frequency correction currently applied to librtlsdr.", "gauge");
+        sample(out, "rtl_frequency_correction_ppm", "", reg.rtlAutoPpmCorrection.get());
+        head(out, "rtl_auto_ppm_last_observation_ppm", "Residual clock error from the latest clean window.", "gauge");
+        sample(out, "rtl_auto_ppm_last_observation_ppm", "", reg.rtlAutoPpmLastObservation.get());
+        head(out, "rtl_auto_ppm_median_residual_ppm", "Median residual used by the latest controller decision.", "gauge");
+        sample(out, "rtl_auto_ppm_median_residual_ppm", "", reg.rtlAutoPpmMedianResidual.get());
+        head(out, "rtl_auto_ppm_estimated_error_ppm", "Estimated crystal error: applied correction plus median residual.", "gauge");
+        sample(out, "rtl_auto_ppm_estimated_error_ppm", "", reg.rtlAutoPpmEstimatedError.get());
+        head(out, "rtl_auto_ppm_sample_rate_hz", "Sample rate observed during the latest clean window.", "gauge");
+        sample(out, "rtl_auto_ppm_sample_rate_hz", "", reg.rtlAutoPpmSampleRateHz.get());
+        head(out, "rtl_auto_ppm_windows_collected", "Clean windows accumulated toward the next median.", "gauge");
+        sample(out, "rtl_auto_ppm_windows_collected", "", reg.rtlAutoPpmWindowsCollected.get());
+        head(out, "rtl_auto_ppm_window_seconds", "Duration of one clock measurement window.", "gauge");
+        sample(out, "rtl_auto_ppm_window_seconds", "", reg.rtlAutoPpmWindowSeconds.get());
+        head(out, "rtl_auto_ppm_target_windows", "Clean windows required for one median estimate.", "gauge");
+        sample(out, "rtl_auto_ppm_target_windows", "", reg.rtlAutoPpmTargetWindows.get());
+        head(out, "rtl_auto_ppm_warmup_seconds", "Warm-up delay before clock measurements begin.", "gauge");
+        sample(out, "rtl_auto_ppm_warmup_seconds", "", reg.rtlAutoPpmWarmupSeconds.get());
+        head(out, "rtl_auto_ppm_deadband_ppm", "Residual magnitude that does not trigger a correction.", "gauge");
+        sample(out, "rtl_auto_ppm_deadband_ppm", "", reg.rtlAutoPpmDeadband.get());
+        head(out, "rtl_auto_ppm_max_step_ppm", "Largest correction change allowed per decision.", "gauge");
+        sample(out, "rtl_auto_ppm_max_step_ppm", "", reg.rtlAutoPpmMaxStep.get());
+        head(out, "rtl_auto_ppm_limit_ppm", "Absolute correction safety limit.", "gauge");
+        sample(out, "rtl_auto_ppm_limit_ppm", "", reg.rtlAutoPpmLimit.get());
+        head(out, "rtl_auto_ppm_last_estimate_age_seconds", "Age of the latest median estimate; -1 before the first one.", "gauge");
+        sample(out, "rtl_auto_ppm_last_estimate_age_seconds", "", reg.rtlAutoPpmEstimateAge());
+        head(out, "rtl_auto_ppm_windows_total", "Measurement windows by outcome.", "counter");
+        sample(out, "rtl_auto_ppm_windows_total", labels({ { "result", "clean" } }), double(reg.rtlAutoPpmWindowsClean.get()));
+        sample(out, "rtl_auto_ppm_windows_total", labels({ { "result", "sample_drop" } }), double(reg.rtlAutoPpmWindowsDiscarded.get()));
+        head(out, "rtl_auto_ppm_decisions_total", "Controller decisions by result.", "counter");
+        sample(out, "rtl_auto_ppm_decisions_total", labels({ { "result", "applied" } }), double(reg.rtlAutoPpmDecisionsApplied.get()));
+        sample(out, "rtl_auto_ppm_decisions_total", labels({ { "result", "held" } }), double(reg.rtlAutoPpmDecisionsHeld.get()));
+        sample(out, "rtl_auto_ppm_decisions_total", labels({ { "result", "failed" } }), double(reg.rtlAutoPpmDecisionsFailed.get()));
+    }
 
     head(out, "watchdog_events_total", "Watchdog observations about device liveness.", "counter");
     sample(out, "watchdog_events_total", labels({ { "event", "late" } }), double(reg.watchdogLate.get()));

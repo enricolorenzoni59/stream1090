@@ -101,6 +101,19 @@ int main() {
     reg.preambleScore.observe(2.4, Metrics::PreambleScoreBounds);
     reg.aircraftTracked.set(11);
     reg.aircraftTrusted.set(4);
+    reg.rtlAutoPpmEnabled.set(1);
+    reg.rtlAutoPpmCorrection.set(12);
+    reg.rtlAutoPpmLastObservation.set(2.5);
+    reg.rtlAutoPpmMedianResidual.set(1.5);
+    reg.rtlAutoPpmEstimatedError.set(13.5);
+    reg.rtlAutoPpmSampleRateHz.set(2400006);
+    reg.rtlAutoPpmWindowsCollected.set(3);
+    reg.rtlAutoPpmTargetWindows.set(7);
+    reg.rtlAutoPpmWindowSeconds.set(30);
+    reg.rtlAutoPpmWindowsClean.inc(9);
+    reg.rtlAutoPpmWindowsDiscarded.inc(2);
+    reg.rtlAutoPpmDecisionsApplied.inc();
+    reg.rtlAutoPpmPhase.store(2, std::memory_order_relaxed);
 
     const auto page = Metrics::render(reg);
 
@@ -155,6 +168,20 @@ int main() {
     if (!contains(page, "# TYPE stream1090_tcp_frames_sent_total counter")) return 62;
     if (!contains(page, "stream1090_tcp_frames_sent_total{protocol=\"beast\"} 0")) return 63;
     if (!contains(page, "stream1090_build_info{version=\"test\",commit=\"")) return 64;
+
+    // ---- RTL-SDR automatic PPM calibration -------------------------------
+    if (!contains(page, "stream1090_rtl_auto_ppm_enabled 1")) return 65;
+    if (!contains(page, "stream1090_rtl_auto_ppm_state{state=\"measuring\"} 1")) return 66;
+    if (!contains(page, "stream1090_rtl_frequency_correction_ppm 12")) return 67;
+    if (!contains(page, "stream1090_rtl_auto_ppm_last_observation_ppm 2.5")) return 68;
+    if (!contains(page, "stream1090_rtl_auto_ppm_median_residual_ppm 1.5")) return 69;
+    if (!contains(page, "stream1090_rtl_auto_ppm_estimated_error_ppm 13.5")) return 70;
+    if (!contains(page, "stream1090_rtl_auto_ppm_sample_rate_hz 2400006")) return 71;
+    if (!contains(page, "stream1090_rtl_auto_ppm_windows_collected 3")) return 72;
+    if (!contains(page, "stream1090_rtl_auto_ppm_target_windows 7")) return 73;
+    if (!contains(page, "stream1090_rtl_auto_ppm_windows_total{result=\"clean\"} 9")) return 74;
+    if (!contains(page, "stream1090_rtl_auto_ppm_windows_total{result=\"sample_drop\"} 2")) return 75;
+    if (!contains(page, "stream1090_rtl_auto_ppm_decisions_total{result=\"applied\"} 1")) return 76;
 
     // ---- listen address parsing ------------------------------------------
     std::string host;

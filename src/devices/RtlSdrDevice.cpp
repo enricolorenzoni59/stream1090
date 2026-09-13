@@ -7,6 +7,7 @@
 #include "devices/RtlSdrDevice.hpp"
 #include "devices/RtlSdrSerial.hpp"
 #include "Logger.hpp"
+#include "Metrics.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -305,6 +306,8 @@ bool RtlSdrDevice::setPpm(int ppm) {
     if (rtlsdr_set_freq_correction(m_dev, ppm) == 0) {
         Log::info("RtlSdrDevice") << "ppm: " << m_state.ppm << " -> " << ppm;
         m_state.ppm = ppm;
+        Metrics::registry().settingPpm.set(double(ppm));
+        Metrics::registry().rtlAutoPpmCorrection.set(double(ppm));
         resetAutoPpmMeasurement();
         return true;
     }
@@ -323,11 +326,19 @@ void RtlSdrDevice::observeSamples(uint32_t len) {
 }
 
 void RtlSdrDevice::resetAutoPpmMeasurement() {
-    std::lock_guard<std::mutex> lock(m_autoPpmMutex);
-    m_autoPpm.haveBaseline = false;
-    m_autoPpm.measurements.clear();
-    if (m_autoPpm.haveSample)
-        m_autoPpm.firstSample = m_autoPpm.latestSample;
+    bool enabled;
+    {
+        std::lock_guard<std::mutex> lock(m_autoPpmMutex);
+        m_autoPpm.haveBaseline = false;
+        m_autoPpm.measurements.clear();
+        if (m_autoPpm.haveSample)
+            m_autoPpm.firstSample = m_autoPpm.latestSample;
+        enabled = m_autoPpm.enabled;
+    }
+    auto& metrics = Metrics::registry();
+    metrics.rtlAutoPpmWindowsCollected.set(0.0);
+    if constexpr (Metrics::Enabled)
+        metrics.rtlAutoPpmPhase.store(enabled ? 1 : 0, std::memory_order_relaxed);
 }
 
 void RtlSdrDevice::configureAutoPpm(const IniConfig::Section& cfg) {
@@ -367,6 +378,18 @@ void RtlSdrDevice::configureAutoPpm(const IniConfig::Section& cfg) {
     if (auto it = cfg.find("auto_ppm_limit"); it != cfg.end())
         limit = std::clamp(std::stoi(it->second), 1, 1000);
 
+    // Publish the effective (clamped) configuration even when it matches the
+    // defaults and therefore does not reset an in-progress measurement.
+    auto& metrics = Metrics::registry();
+    metrics.rtlAutoPpmEnabled.set(enabled ? 1.0 : 0.0);
+    metrics.rtlAutoPpmCorrection.set(double(m_state.ppm));
+    metrics.rtlAutoPpmWindowSeconds.set(double(interval));
+    metrics.rtlAutoPpmTargetWindows.set(double(samples));
+    metrics.rtlAutoPpmWarmupSeconds.set(double(warmup));
+    metrics.rtlAutoPpmDeadband.set(double(deadband));
+    metrics.rtlAutoPpmMaxStep.set(double(maxStep));
+    metrics.rtlAutoPpmLimit.set(double(limit));
+
     bool changed;
     {
         std::lock_guard<std::mutex> lock(m_autoPpmMutex);
@@ -397,6 +420,10 @@ void RtlSdrDevice::configureAutoPpm(const IniConfig::Section& cfg) {
         << " s, max step " << maxStep
         << " ppm, deadband +/-" << deadband << " ppm, limit +/-" << limit
         << " ppm)";
+
+    metrics.rtlAutoPpmWindowsCollected.set(0.0);
+    if constexpr (Metrics::Enabled)
+        metrics.rtlAutoPpmPhase.store(enabled ? 1 : 0, std::memory_order_relaxed);
 }
 
 void RtlSdrDevice::periodicMaintenance() {
@@ -420,6 +447,8 @@ void RtlSdrDevice::periodicMaintenance() {
             m_autoPpm.baselinePairs = m_autoPpm.totalPairs;
             m_autoPpm.baselineDropEvents = dropEventCount();
             m_autoPpm.haveBaseline = true;
+            if constexpr (Metrics::Enabled)
+                Metrics::registry().rtlAutoPpmPhase.store(2, std::memory_order_relaxed);
             Log::info("RtlSdrDevice") << "automatic PPM warm-up complete; measurement started.";
             return;
         }
@@ -436,6 +465,7 @@ void RtlSdrDevice::periodicMaintenance() {
         m_autoPpm.baselineDropEvents = dropEventCount();
 
         if (dropped) {
+            Metrics::registry().rtlAutoPpmWindowsDiscarded.inc();
             Log::warn("RtlSdrDevice")
                 << "automatic PPM measurement discarded because samples were dropped.";
             return;
@@ -445,6 +475,11 @@ void RtlSdrDevice::periodicMaintenance() {
             ((static_cast<double>(pairs) / elapsed) /
              static_cast<double>(getSampleRate()) - 1.0);
         m_autoPpm.measurements.push_back(observation);
+        auto& metrics = Metrics::registry();
+        metrics.rtlAutoPpmWindowsClean.inc();
+        metrics.rtlAutoPpmLastObservation.set(observation);
+        metrics.rtlAutoPpmSampleRateHz.set(static_cast<double>(pairs) / elapsed);
+        metrics.rtlAutoPpmWindowsCollected.set(double(m_autoPpm.measurements.size()));
         if (m_autoPpm.measurements.size() < m_autoPpm.samples)
             return;
 
@@ -457,6 +492,10 @@ void RtlSdrDevice::periodicMaintenance() {
         measurementCount = static_cast<unsigned>(values.size());
         m_autoPpm.measurements.clear();
         currentPpm = m_state.ppm;
+        metrics.rtlAutoPpmMedianResidual.set(residualPpm);
+        metrics.rtlAutoPpmEstimatedError.set(double(currentPpm) + residualPpm);
+        metrics.rtlAutoPpmLastEstimateSteady.set(Metrics::Registry::steadySeconds());
+        metrics.rtlAutoPpmWindowsCollected.set(0.0);
         int requestedStep = static_cast<int>(std::lround(residualPpm));
         if (std::abs(requestedStep) <= m_autoPpm.deadband)
             requestedStep = 0;
@@ -472,8 +511,16 @@ void RtlSdrDevice::periodicMaintenance() {
         << " ppm from " << measurementCount << " clean windows; correction "
         << currentPpm
         << (apply ? " -> " : " retained at ") << targetPpm;
-    if (apply && !setPpm(targetPpm))
-        Log::warn("RtlSdrDevice") << "automatic PPM correction failed.";
+    if (apply) {
+        if (setPpm(targetPpm)) {
+            Metrics::registry().rtlAutoPpmDecisionsApplied.inc();
+        } else {
+            Metrics::registry().rtlAutoPpmDecisionsFailed.inc();
+            Log::warn("RtlSdrDevice") << "automatic PPM correction failed.";
+        }
+    } else {
+        Metrics::registry().rtlAutoPpmDecisionsHeld.inc();
+    }
 }
 
 bool RtlSdrDevice::setOffsetTuning(bool enabled) {

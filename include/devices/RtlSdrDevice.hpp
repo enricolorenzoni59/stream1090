@@ -44,6 +44,7 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     void applyConfigPostOpen(const IniConfig::Section& cfg) override;
     // Applied gain as the device shadow state sees it.
     GainState gainState() const override;
+    int frequencyCorrectionPpm() const override { return m_state.ppm; }
 
   private:
     static void callback(unsigned char* buf, uint32_t len, void* ctx);

@@ -137,7 +137,7 @@ template <typename preset> class MainInstance {
                 return fallback;
             }
         };
-        reg.settingPpm.set(number("ppm", 0.0));
+        reg.settingPpm.set(m_device ? double(m_device->frequencyCorrectionPpm()) : number("ppm", 0.0));
         reg.settingFrequencyHz.set(number("frequency", 1090000000.0));
         const auto agc = cfg.find("agc");
         reg.settingAgc.set(agc != cfg.end() && (agc->second == "1" || agc->second == "true") ? 1.0 : 0.0);

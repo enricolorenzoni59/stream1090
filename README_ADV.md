@@ -88,6 +88,13 @@ commit, and the TCP output reports live client and per-protocol frame counts.
 `configs/prometheus-rules.yml` carries a starting set of recording and alerting
 rules.
 
+For RTL-SDR, the endpoint also exposes the complete automatic PPM controller
+state under `stream1090_rtl_auto_ppm_*`: enabled/phase, effective controller
+parameters, the latest window observation and sample rate, median residual,
+estimated crystal error, median progress and age, clean/discarded window
+counters, and applied/held/failed decision counters. The correction actually
+applied to librtlsdr is `stream1090_rtl_frequency_correction_ppm`.
+
 If metrics are enabled but `ENABLE_STATS` is off, the demodulator counters are
 not compiled in and the endpoint reports device, output and network metrics
 only; CMake warns about this configuration.
@@ -245,5 +252,4 @@ One thing that is important to know is that you can also use a complete log file
 So it remains the question when the script terminates. Currently it does not. If there is no new solution after some time, you can stop it with Ctrl+c. If you are not happy with the results, you can restart it and resume from the log file and hope for some luck. You may want to increase the margin then a bit.
 
 **ATTENTION** The above description is a very sloppy one. Everything is subject to change. This includes the scoring function and additional parameters. If you want to use the optimizer, always check this section for any remarks first.
-
 

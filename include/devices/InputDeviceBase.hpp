@@ -195,6 +195,9 @@ template <typename T> class InputDeviceBase {
 
     virtual GainState gainState() const { return {}; }
 
+    // Applied tuner correction. Backends without such a control report zero.
+    virtual int frequencyCorrectionPpm() const { return 0; }
+
   protected:
     SampleRate m_sampleRate;
     IAsyncWriter<T>& m_bufferWriter;
