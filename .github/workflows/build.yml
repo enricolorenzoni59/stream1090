@@ -9,9 +9,11 @@ env:
   CXXFLAGS: -Werror
 
 jobs:
-  # Build the way a user would, with both device backends present, and run
-  # the test suite. Tests are opt-in in CMakeLists.txt, so -DBUILD_TESTING=ON
-  # is required or ctest silently finds nothing to run.
+  # Build the way a user with the distro packages would: system librtlsdr plus
+  # libairspy, and run the test suite. Tests are opt-in in CMakeLists.txt, so
+  # -DBUILD_TESTING=ON is required or ctest silently finds nothing to run.
+  # ENABLE_RTLSDR_BLOG is turned off on purpose so this job keeps exercising the
+  # system library; the vendored fork has its own jobs below.
   build-and-test:
     runs-on: ubuntu-latest
     strategy:
@@ -31,7 +33,11 @@ jobs:
         env:
           CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
           CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DENABLE_RTLSDR_BLOG=OFF
 
       - name: Build
         run: cmake --build build --parallel
@@ -70,8 +76,9 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   # The device backends are optional: CMakeLists.txt drops each one when its
-  # library is missing. Nothing else builds that configuration, so it is easy
-  # to break without noticing.
+  # library is missing. The vendored RTL-SDR fork is on by default and would
+  # need libusb-1.0-0-dev, so this job turns it off explicitly to stay a
+  # no-backend build, which nothing else exercises.
   build-without-device-backends:
     runs-on: ubuntu-latest
     steps:
@@ -84,7 +91,11 @@ jobs:
             build-essential cmake pkg-config
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=ON
+          -DENABLE_RTLSDR_BLOG=OFF
 
       - name: Build
         run: cmake --build build --parallel
