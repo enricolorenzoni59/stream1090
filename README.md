@@ -6,6 +6,41 @@
 
 ## Changes compared with upstream `main`
 
+### Device configuration and selection
+
+This is the largest behavioural difference from upstream. Upstream configures
+native devices through a per-device `.ini` file passed with `-d`; this branch
+removes that path entirely and is **not a drop-in replacement**: scripts using
+`-d <file.ini>` must switch to the new flags.
+
+- `-d` and `configs/rtlsdr.ini` / `configs/airspy.ini` are gone, and `IniConfig`
+  is deleted. A typed `DeviceConfig` is filled from the command line and from
+  backend defaults.
+- With no `--device`, stream1090 decides from its input: a piped stdin is
+  decoded as IQ, while an empty stdin (terminal or `/dev/null`, as under
+  systemd) enumerates attached devices and picks the first free one - Airspy
+  before RTL-SDR, ordered by serial. `--device stdin|auto|airspy|rtlsdr` and
+  `--serial <id>` override the choice, and a busy unit is skipped.
+- Every former ini setting has a flag: `--gain`, `--agc`, `--bias-tee`,
+  `--ppm`, `--tuner-bandwidth`, `--linearity-gain`, `--sensitivity-gain`,
+  `--lna/--mixer/--vga-gain`, `--airspy-packing`, `--auto-ppm*`.
+- Defaults are chosen automatically: RTL-SDR starts at 2.56 Msps with a fixed
+  49.6 dB gain and a rate-appropriate tuner bandwidth, Airspy at its highest
+  supported rate with linearity gain 21 and packing on. `-u` defaults to the
+  highest upsample for the input.
+- The IQ FIR filter with built-in taps is enabled by default; `--no-iq-filter`
+  disables it and `-f <taps file>` uses custom taps.
+- SIGHUP stops the current run and re-runs device selection from scratch, so a
+  newly attached dongle is picked up without restarting the process, instead of
+  reloading an ini file.
+- Signal handling was fixed: the shutdown flags were header-`static` and hence
+  per translation unit, so a SIGINT installed from `main` was ignored by the
+  pipeline until SIGKILL. SIGINT and SIGHUP work again.
+- The vendored rtl-sdr-blog fork is now built by default and reports its tuner
+  and PLL messages through stream1090's logger via a new
+  `rtlsdr_set_log_callback` shim instead of raw stderr.
+- Startup diagnostics carry a timestamp and level from the first line.
+
 ### RTL-SDR reception
 
 - Added continuous automatic PPM calibration using the RTL-SDR sample clock
