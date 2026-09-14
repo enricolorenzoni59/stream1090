@@ -17,7 +17,11 @@ per-stage gain controls, and a logging shim
 (`rtlsdr_set_log_callback` in `include/rtl-sdr.h`, used by
 `src/rtlsdr_log.h`) as normal commits on top of that import. The shim rewrites
 the library's `fprintf(stderr, ...)` sites so a host can route them through its
-own logger; with no callback installed they still go to stderr. Do not replace
+own logger; with no callback installed they still go to stderr. The import also
+marks the device as lost when `libusb_handle_events` reports
+`LIBUSB_ERROR_NO_DEVICE`/`LIBUSB_ERROR_NOT_FOUND`, so `rtlsdr_close` skips the
+tuner deinit (and its failing register writes) on a device that has already been
+unplugged. Do not replace
 the directory with a manually copied checkout.
 
 To update from the upstream `master` branch, start with a clean working tree

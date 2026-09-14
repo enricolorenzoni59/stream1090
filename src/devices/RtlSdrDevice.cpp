@@ -226,10 +226,18 @@ bool RtlSdrDevice::start() {
     m_running.store(true, std::memory_order_relaxed);
 
     m_thread = std::thread([this]() {
-        int rc = rtlsdr_read_async(m_dev, callback, this, 0, 0);
+        const int rc = rtlsdr_read_async(m_dev, callback, this, 0, 0);
 
-        if (rc != 0)
-            Log::error("RtlSdrDevice") << "rtlsdr_read_async failed: " << rc;
+        if (rc != 0) {
+            // A non-zero return on our own shutdown (cancel on SIGINT) is
+            // expected: keep it out of the default log. A non-zero return
+            // while we are not stopping means the reader stopped on its own,
+            // usually because the device went away; the watchdog reports that.
+            if (m_stopping.load(std::memory_order_relaxed))
+                Log::debug("RtlSdrDevice") << "rtlsdr_read_async ended with " << rc << " during shutdown";
+            else
+                Log::warn("RtlSdrDevice") << "rtlsdr_read_async returned " << rc;
+        }
 
         m_running.store(false, std::memory_order_relaxed);
     });
@@ -242,6 +250,7 @@ void RtlSdrDevice::stop() {
     if (!m_dev)
         return;
 
+    m_stopping.store(true, std::memory_order_relaxed);
     m_running.store(false, std::memory_order_relaxed);
     rtlsdr_cancel_async(m_dev);
     if (m_thread.joinable())

@@ -72,6 +72,9 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     ShadowState m_state;
     bool m_initialConfigApplied = false;
     bool m_stateReported = false;
+    // Set once stop() has begun, so the reader thread can tell a clean
+    // shutdown from an unexpected read_async failure.
+    std::atomic<bool> m_stopping{false};
 
     rtlsdr_dev_t* m_dev = nullptr;
     std::thread m_thread;

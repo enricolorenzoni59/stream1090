@@ -2015,6 +2015,11 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 			/*rtlsdr_log(RTLSDR_LOG_INFO, "handle_events returned: %d\n", r);*/
 			if (r == LIBUSB_ERROR_INTERRUPTED) /* stray signal */
 				continue;
+			/* stream1090 patch: the device is gone, so mark it lost. Without
+			 * this rtlsdr_close() still runs rtlsdr_deinit_baseband() and
+			 * every register access fails with LIBUSB_ERROR_NO_DEVICE. */
+			if (r == LIBUSB_ERROR_NO_DEVICE || r == LIBUSB_ERROR_NOT_FOUND)
+				dev->dev_lost = 1;
 			break;
 		}
 
