@@ -212,7 +212,7 @@ bool RtlSdrDevice::open() {
     default:
         break;
     }
-    std::cerr << "[RtlSdrDevice] Tuner: " << tunerName << std::endl;
+    Log::msg("RtlSdrDevice") << "Tuner: " << tunerName;
     return true;
 }
 
@@ -709,9 +709,9 @@ void RtlSdrDevice::applyConfigPostOpen(const DeviceConfig& cfg) {
     // the effective bandwidth it derives when tuner_bandwidth is omitted.
     if (!m_stateReported) {
         m_stateReported = true;
-        std::cerr << "[RtlSdrDevice] Tuner bandwidth setting: "
-                  << (m_state.tuner_bandwidth ? std::to_string(m_state.tuner_bandwidth) + " Hz (explicit)"
-                                              : std::string("auto (derived by librtlsdr from sample rate)"))
-                  << std::endl;
+        Log::msg("RtlSdrDevice") << "Tuner bandwidth setting: "
+                                 << (m_state.tuner_bandwidth
+                                         ? std::to_string(m_state.tuner_bandwidth) + " Hz (explicit)"
+                                         : std::string("auto (derived by librtlsdr from sample rate)"));
     }
 }

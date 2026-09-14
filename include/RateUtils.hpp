@@ -6,6 +6,7 @@
  */
 #pragma once
 
+#include "Logger.hpp"
 #include "Presets.hpp"
 #include "Sampler.hpp"
 
@@ -139,7 +140,7 @@ inline SampleRate parse_sample_rate(const std::string& raw) {
     try {
         mhz = std::stof(s);
     } catch (...) {
-        std::cerr << "Invalid sample rate: " << raw << "\n";
+        Log::error("Stream1090") << "Invalid sample rate: " << raw;
         std::exit(1);
     }
 
@@ -147,7 +148,7 @@ inline SampleRate parse_sample_rate(const std::string& raw) {
 
     SampleRate rate{};
     if (!match_sample_rate(hz, rate)) {
-        std::cerr << "Unsupported sample rate: " << raw << "\n";
+        Log::error("Stream1090") << "Unsupported sample rate: " << raw;
         std::exit(1);
     }
     return rate;

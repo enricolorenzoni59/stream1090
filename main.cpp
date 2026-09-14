@@ -178,7 +178,7 @@ RunOutcome run_once(const CliArgs& args) {
     if (!args.tapsFile.empty()) {
         r_vars.filterTaps = load_taps_from_file(args.tapsFile);
         if (r_vars.filterTaps.empty()) {
-            std::cerr << "Error loading taps from " << args.tapsFile << std::endl;
+            Log::error("Stream1090") << "Error loading taps from " << args.tapsFile;
             return RunOutcome::Failed;
         }
         // Check the file's own numbers here, so a coefficient that cannot be
@@ -186,7 +186,7 @@ RunOutcome run_once(const CliArgs& args) {
         try {
             FirDetail::requireTapsFitAccumulator(r_vars.filterTaps, args.tapsFile.c_str());
         } catch (const std::invalid_argument& error) {
-            std::cerr << "[Stream1090] " << error.what() << std::endl;
+            Log::error("Stream1090") << error.what();
             return RunOutcome::Failed;
         }
     }
@@ -218,7 +218,7 @@ RunOutcome run_once(const CliArgs& args) {
         }
         c_vars.inputRate = parse_sample_rate(args.sampleRate);
         if (!has_input_rate(c_vars.inputRate)) {
-            std::cerr << "[Stream1090] Unsupported input rate: " << rate_mhz(c_vars.inputRate) << " MHz\n";
+            Log::error("Stream1090") << "Unsupported input rate: " << rate_mhz(c_vars.inputRate) << " MHz";
             print_rate_pairs();
             return RunOutcome::Failed;
         }
@@ -229,15 +229,15 @@ RunOutcome run_once(const CliArgs& args) {
         c_vars.outputRate = parse_sample_rate(args.upsampleRate);
 
         if (!is_valid_rate_pair(c_vars.inputRate, c_vars.outputRate)) {
-            std::cerr << "[Stream1090] Unsupported rate combination: " << rate_mhz(c_vars.inputRate) << " -> "
-                      << rate_mhz(c_vars.outputRate) << "\n";
+            Log::error("Stream1090") << "Unsupported rate combination: " << rate_mhz(c_vars.inputRate) << " -> "
+                                     << rate_mhz(c_vars.outputRate);
             print_rate_pairs();
             return RunOutcome::Failed;
         }
     } else {
         auto def = find_default_output_rate(c_vars.inputRate);
         if (!def) {
-            std::cerr << "[Stream1090] No valid output rate for input rate: " << rate_mhz(c_vars.inputRate) << "\n";
+            Log::error("Stream1090") << "No valid output rate for input rate: " << rate_mhz(c_vars.inputRate);
             print_rate_pairs();
             return RunOutcome::Failed;
         }
@@ -299,12 +299,12 @@ RunOutcome run_once(const CliArgs& args) {
     try {
         outcome = runInstanceFromPresets(c_vars, r_vars);
     } catch (const std::invalid_argument& error) {
-        std::cerr << "[Stream1090] " << error.what() << std::endl;
+        Log::error("Stream1090") << error.what();
         return RunOutcome::Failed;
     }
     if (!outcome) {
-        std::cerr << "[Stream1090] Configuration is not supported: " << c_vars.inputRate << " -> " << c_vars.outputRate
-                  << std::endl;
+        Log::error("Stream1090") << "Configuration is not supported: " << c_vars.inputRate << " -> "
+                                 << c_vars.outputRate;
         return RunOutcome::Failed;
     }
 

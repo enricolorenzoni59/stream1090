@@ -87,7 +87,7 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args) {
             return choice;
         }
     } else if (kind != "airspy" && kind != "rtlsdr") {
-        std::cerr << "Unknown --device value: " << kind << " (expected stdin, auto, airspy or rtlsdr)\n";
+        Log::error("Stream1090") << "Unknown --device value: " << kind << " (expected stdin, auto, airspy or rtlsdr)";
         return std::nullopt;
     }
 
@@ -101,15 +101,17 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args) {
     }
 
     if (type == InputDeviceType::NONE) {
-        std::cerr << "No SDR device found. Use --device stdin to read IQ from standard input.\n";
+        Log::error("Stream1090") << "No SDR device found. Use --device stdin to read IQ from standard input.";
         return std::nullopt;
     }
     if (type == InputDeviceType::AIRSPY && !GlobalOptions::NativeAirspySupport) {
-        std::cerr << "This build has no Airspy support; rerun with --device stdin or a backend-enabled build.\n";
+        Log::error("Stream1090")
+            << "This build has no Airspy support; rerun with --device stdin or a backend-enabled build.";
         return std::nullopt;
     }
     if (type == InputDeviceType::RTLSDR && !GlobalOptions::NativeRtlSdrSupport) {
-        std::cerr << "This build has no RTL-SDR support; rerun with --device stdin or a backend-enabled build.\n";
+        Log::error("Stream1090")
+            << "This build has no RTL-SDR support; rerun with --device stdin or a backend-enabled build.";
         return std::nullopt;
     }
 
@@ -121,8 +123,8 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args) {
                 choice.serials.push_back(device.serial);
         }
         if (choice.serials.empty()) {
-            std::cerr << "No " << (type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
-                      << " device found. Use --device stdin to read IQ from standard input.\n";
+            Log::error("Stream1090") << "No " << (type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
+                                     << " device found. Use --device stdin to read IQ from standard input.";
             return std::nullopt;
         }
     }
@@ -140,7 +142,7 @@ inline std::optional<SampleRate> resolve_input_rate(const CliArgs& args, InputDe
     if (args.sampleRate.empty()) {
         auto def = default_input_rate(type, serials);
         if (!def) {
-            std::cerr << "[Stream1090] Could not determine a default sample rate for this device; pass -s.\n";
+            Log::error("Stream1090") << "Could not determine a default sample rate for this device; pass -s.";
             return std::nullopt;
         }
         rate = *def;
@@ -151,17 +153,16 @@ inline std::optional<SampleRate> resolve_input_rate(const CliArgs& args, InputDe
 
     const bool airspyRate = is_airspy_rate(rate);
     if (type == InputDeviceType::RTLSDR && airspyRate) {
-        std::cerr << "[Stream1090] -s " << rate_mhz(rate)
-                  << " is not supported by RTL-SDR; use 2.4, 2.56 or 3.2 MHz.\n";
+        Log::error("Stream1090") << "-s " << rate_mhz(rate)
+                                 << " is not supported by RTL-SDR; use 2.4, 2.56 or 3.2 MHz.";
         return std::nullopt;
     }
     if (type == InputDeviceType::AIRSPY && !airspyRate) {
-        std::cerr << "[Stream1090] -s " << rate_mhz(rate)
-                  << " is not supported by Airspy; use 6 or 10 MHz.\n";
+        Log::error("Stream1090") << "-s " << rate_mhz(rate) << " is not supported by Airspy; use 6 or 10 MHz.";
         return std::nullopt;
     }
     if (!has_input_rate(rate)) {
-        std::cerr << "[Stream1090] Unsupported input rate: " << rate_mhz(rate) << " MHz\n";
+        Log::error("Stream1090") << "Unsupported input rate: " << rate_mhz(rate) << " MHz";
         print_rate_pairs();
         return std::nullopt;
     }
@@ -179,7 +180,7 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
         if (raw.empty())
             return true;
         if (!parse_number(raw, out)) {
-            std::cerr << "Invalid " << what << ": " << raw << "\n";
+            Log::error("Stream1090") << "Invalid " << what << ": " << raw;
             return false;
         }
         return true;
@@ -190,7 +191,7 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
     if (!args.frequency.empty()) {
         unsigned long hz = 0;
         if (!integer(args.frequency, hz, "frequency") || hz == 0) {
-            std::cerr << "Invalid frequency: " << args.frequency << "\n";
+            Log::error("Stream1090") << "Invalid frequency: " << args.frequency;
             return std::nullopt;
         }
         cfg.frequencyHz = static_cast<uint32_t>(hz);
@@ -204,7 +205,7 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
     if (!args.tunerBandwidth.empty()) {
         unsigned long hz = 0;
         if (!integer(args.tunerBandwidth, hz, "tuner bandwidth") || hz == 0) {
-            std::cerr << "Invalid tuner bandwidth: " << args.tunerBandwidth << "\n";
+            Log::error("Stream1090") << "Invalid tuner bandwidth: " << args.tunerBandwidth;
             return std::nullopt;
         }
         cfg.tunerBandwidth = static_cast<uint32_t>(hz);

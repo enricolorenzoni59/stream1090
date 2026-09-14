@@ -413,7 +413,10 @@ template <typename preset> class MainInstance {
     bool run() {
         // setup pipeline
         auto iqPipeline = IQPipelineSelector<inputRate, outputRate, pipelineOption>().make(m_runtimeVars.filterTaps);
-        const std::string pipelineName = iqPipeline.toString();
+        std::string pipelineName = iqPipeline.toString();
+        // toString() is multi-line for readability in a terminal. Flatten it so
+        // a logged entry stays one line (and the metrics label has no newline).
+        std::replace(pipelineName.begin(), pipelineName.end(), '\n', ' ');
         Log::info("Stream1090") << "IQ pipeline: " << (pipelineName.empty() ? "none" : pipelineName);
 
         auto& reg = Metrics::registry();
