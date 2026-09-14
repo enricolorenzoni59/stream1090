@@ -44,7 +44,8 @@ removes that path entirely and is **not a drop-in replacement**: scripts using
 ### RTL-SDR reception
 
 - Added continuous automatic PPM calibration using the RTL-SDR sample clock
-  measured against the host monotonic clock.
+  measured against the host monotonic clock, on by default unless a fixed
+  `--ppm` is given.
 - Calibration uses a median of clean measurement windows, rejects windows with
   sample loss, and applies bounded corrections with configurable warm-up,
   deadband, maximum step and absolute safety limit.
@@ -269,7 +270,7 @@ Sensible defaults are applied automatically and can be overridden per flag:
 - RTL-SDR gain defaults to a fixed 49.6 dB; `--gain <db>` overrides it and `--agc` switches to automatic gain. `--tuner-bandwidth <hz>` defaults to 3 MHz at 2.4/2.56 Msps and to 2.43 MHz at 3.2 Msps, the narrow state the 3.2 preset needs. `--ppm <n>` sets a fixed correction.
 - Airspy defaults to `--linearity-gain 21` with packing on; `--sensitivity-gain`, `--lna-gain/--mixer-gain/--vga-gain` and `--airspy-packing false` override that.
 - **Important:** if you power an LNA via bias-tee, pass `--bias-tee`. It is off by default.
-- RTL-SDR continuous crystal calibration is opt-in with `--auto-ppm`, with `--auto-ppm-warmup/-interval/-samples/-max-step/-deadband/-limit` for the details. Stream1090 measures the shared tuner/ADC clock against the host monotonic clock, takes the median of several clean windows, and applies the bounded correction through librtlsdr. Long-running measurements are deliberate; carrier offsets from individual aircraft are not used as a reference.
+- RTL-SDR continuous crystal calibration is **on by default**: stream1090 measures the shared tuner/ADC clock against the host monotonic clock, takes the median of several clean windows, and applies the bounded correction through librtlsdr. A fixed `--ppm` suppresses it; `--no-auto-ppm` disables it; `--auto-ppm-warmup/-interval/-samples/-max-step/-deadband/-limit` tune it. The first correction lands after the warm-up plus the window count (about 4-5 minutes by default), so short runs are unaffected. Long-running measurements are deliberate; carrier offsets from individual aircraft are not used as a reference.
 
 Use `--device stdin`, `--device rtlsdr` or `--device airspy` to be explicit, and `--serial <id>` to bind to one specific unit. A SIGHUP makes stream1090 stop the current run and select the device again, so a newly attached dongle is picked up without restarting the process.
 

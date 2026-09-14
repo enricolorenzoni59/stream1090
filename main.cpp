@@ -77,7 +77,9 @@ void print_help() {
                  "  --linearity-gain <n>     Airspy combined preset, 0..21\n"
                  "  --sensitivity-gain <n>   Airspy combined preset, 0..21\n"
                  "  --lna-gain/--mixer-gain/--vga-gain <n>  Per-stage manual gain\n"
-                 "  --auto-ppm           RTL-SDR closed-loop crystal calibration\n"
+                 "  --auto-ppm           RTL-SDR closed-loop crystal calibration (on by\n"
+                 "                       default unless --ppm is given)\n"
+                 "  --no-auto-ppm        Disable the calibration\n"
                  "  --auto-ppm-warmup <s> --auto-ppm-interval <s> --auto-ppm-samples <n>\n"
                  "  --auto-ppm-max-step <n> --auto-ppm-deadband <n> --auto-ppm-limit <n>\n\n";
 

@@ -66,12 +66,19 @@ struct DeviceConfig {
 // the 6 MHz IF state at 2.4/2.56 Msps and the narrow 2.43 MHz state at 3.2
 // Msps where the automatic 6 MHz state aliases noise across Nyquist. Airspy
 // starts from the strongest combined preset with packing on.
+//
+// Automatic PPM calibration is on by default for RTL-SDR: cheap crystals sit
+// tens of ppm off and ADS-B is sensitive to that. An explicit ppm is a fixed
+// choice and suppresses it; the caller can still override autoPpm afterwards
+// for --auto-ppm / --no-auto-ppm.
 inline DeviceConfig applyBackendDefaults(DeviceConfig cfg, InputDeviceType type, SampleRate inputRate) {
     if (type == InputDeviceType::RTLSDR) {
         if (!cfg.gainDb)
             cfg.gainDb = 49.6f;
         if (!cfg.tunerBandwidth)
             cfg.tunerBandwidth = (inputRate == Rate_3_2_Mhz) ? 2430000u : 3000000u;
+        if (!cfg.ppm)
+            cfg.autoPpm.enabled = true;
     } else if (type == InputDeviceType::AIRSPY) {
         const bool manualStages = cfg.lnaGain || cfg.mixerGain || cfg.vgaGain;
         if (!cfg.linearityGain && !cfg.sensitivityGain && !manualStages)

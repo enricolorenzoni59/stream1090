@@ -46,6 +46,9 @@ struct CliArgs {
     std::string mixerGain = "";
     std::string vgaGain = "";
     bool autoPpmEnabled = false;
+    // Whether --auto-ppm or --no-auto-ppm was given. Distinguishes "leave the
+    // backend default" from "explicitly off".
+    bool autoPpmSet = false;
     std::string autoPpmWarmup = "";
     std::string autoPpmInterval = "";
     std::string autoPpmSamples = "";
@@ -308,6 +311,12 @@ inline bool parse_cli(int argc, char** argv, CliArgs& out) {
         if (arg == "--auto-ppm") {
             if (!takeBoolean(out.autoPpmEnabled))
                 return unknown_argument(arg);
+            out.autoPpmSet = true;
+            continue;
+        }
+        if (arg == "--no-auto-ppm") {
+            out.autoPpmEnabled = false;
+            out.autoPpmSet = true;
             continue;
         }
         if (arg == "--auto-ppm-warmup") {

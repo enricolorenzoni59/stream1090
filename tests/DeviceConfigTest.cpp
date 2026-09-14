@@ -24,6 +24,15 @@ int main() {
         check(cfg.gainDb && *cfg.gainDb == 49.6f, "rtlsdr/3.2 gain default");
         check(cfg.tunerBandwidth && *cfg.tunerBandwidth == 2430000u, "rtlsdr/3.2 narrow bandwidth");
         check(cfg.frequencyHz == 1090000000u, "rtlsdr/frequency default");
+        check(cfg.autoPpm.enabled, "rtlsdr/auto ppm on by default");
+    }
+    {
+        // A fixed correction is a deliberate choice and suppresses the
+        // automatic calibration.
+        DeviceConfig input;
+        input.ppm = 12;
+        const auto cfg = applyBackendDefaults(input, InputDeviceType::RTLSDR, Rate_2_56_Mhz);
+        check(!cfg.autoPpm.enabled, "rtlsdr/explicit ppm disables auto ppm");
     }
     {
         const auto cfg = applyBackendDefaults(DeviceConfig{}, InputDeviceType::RTLSDR, Rate_2_56_Mhz);
@@ -53,6 +62,7 @@ int main() {
         check(cfg.linearityGain && *cfg.linearityGain == 21, "airspy/linearity default");
         check(cfg.packing, "airspy/packing default");
         check(!cfg.sensitivityGain, "airspy/no sensitivity by default");
+        check(!cfg.autoPpm.enabled, "airspy/no auto ppm");
     }
     {
         DeviceConfig input;

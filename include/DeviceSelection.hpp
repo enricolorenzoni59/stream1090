@@ -224,7 +224,9 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
     if (!args.vgaGain.empty() && !integer(args.vgaGain, cfg.vgaGain.emplace(), "VGA gain"))
         return std::nullopt;
 
-    cfg.autoPpm.enabled = args.autoPpmEnabled;
+    // The auto-PPM on/off default comes from applyBackendDefaults (on for
+    // RTL-SDR unless a fixed --ppm was given); an explicit --auto-ppm /
+    // --no-auto-ppm wins over it.
     if (!integer(args.autoPpmWarmup, cfg.autoPpm.warmupSeconds, "auto ppm warmup"))
         return std::nullopt;
     if (!integer(args.autoPpmInterval, cfg.autoPpm.intervalSeconds, "auto ppm interval"))
@@ -238,7 +240,10 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
     if (!integer(args.autoPpmLimit, cfg.autoPpm.limit, "auto ppm limit"))
         return std::nullopt;
 
-    return applyBackendDefaults(cfg, type, inputRate);
+    cfg = applyBackendDefaults(cfg, type, inputRate);
+    if (args.autoPpmSet)
+        cfg.autoPpm.enabled = args.autoPpmEnabled;
+    return cfg;
 }
 
 inline void print_backend_banner(InputDeviceType type) {
