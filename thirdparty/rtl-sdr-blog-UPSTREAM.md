@@ -18,7 +18,8 @@ per-stage gain controls, and a logging shim
 `src/rtlsdr_log.h`) as normal commits on top of that import. The shim rewrites
 the library's `fprintf(stderr, ...)` sites so a host can route them through its
 own logger; with no callback installed they still go to stderr. The import also
-marks the device as lost when `libusb_handle_events` reports
+exposes `rtlsdr_mark_dev_lost()` and marks the device lost internally when
+`libusb_handle_events` reports
 `LIBUSB_ERROR_NO_DEVICE`/`LIBUSB_ERROR_NOT_FOUND`, so `rtlsdr_close` skips the
 tuner deinit (and its failing register writes) on a device that has already been
 unplugged. Do not replace

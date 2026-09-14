@@ -260,9 +260,21 @@ void RtlSdrDevice::stop() {
 void RtlSdrDevice::close() {
     stop();
     if (m_dev) {
+#ifdef STREAM1090_HAVE_RTLSDR_BLOG
+        // Tell the library the device is gone so rtlsdr_close takes its
+        // dev_lost path and skips the tuner deinit. On a device that was
+        // unplugged every register write in there fails with
+        // LIBUSB_ERROR_NO_DEVICE, which is what the watchdog already knows.
+        if (m_deviceLost)
+            rtlsdr_mark_dev_lost(m_dev);
+#endif
         rtlsdr_close(m_dev);
         m_dev = nullptr;
     }
+}
+
+void RtlSdrDevice::markDeviceLost() {
+    m_deviceLost = true;
 }
 
 int RtlSdrDevice::nearestGain(int requested) {

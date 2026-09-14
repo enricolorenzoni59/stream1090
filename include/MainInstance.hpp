@@ -257,6 +257,7 @@ template <typename preset> class MainInstance {
                         // Closing from this thread as well means two threads run
                         // close() concurrently: both reach rtlsdr_close/airspy_close
                         // on the same handle and both join the same reader thread.
+                        m_device->markDeviceLost();
                         m_device->shutdownWriter();
                         ProcessSignals::handle_sigint(0);
                         // Ask the supervisor to try to recover instead of

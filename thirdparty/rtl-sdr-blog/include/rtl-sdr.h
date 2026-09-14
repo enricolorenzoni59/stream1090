@@ -424,6 +424,15 @@ RTLSDR_API int rtlsdr_r82xx_set_vga_gain(rtlsdr_dev_t *dev, int gain);
  */
 RTLSDR_API void rtlsdr_set_log_callback(rtlsdr_log_callback_t callback);
 
+/*!
+ * Mark the device as lost so rtlsdr_close() skips the tuner deinit. For hosts
+ * that detect the loss themselves (a watchdog that sees no samples, for
+ * example) before libusb reports an error to the async loop.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ */
+RTLSDR_API void rtlsdr_mark_dev_lost(rtlsdr_dev_t *dev);
+
 
 
 #ifdef __cplusplus

@@ -24,6 +24,7 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     void stop() override;
     void close() override;
     void periodicMaintenance() override;
+    void markDeviceLost() override;
 
     // Runtime setters (shadow-aware)
     bool setFrequency(uint32_t hz);
@@ -75,6 +76,8 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     // Set once stop() has begun, so the reader thread can tell a clean
     // shutdown from an unexpected read_async failure.
     std::atomic<bool> m_stopping{false};
+    // Set by the watchdog when the device stops delivering samples.
+    bool m_deviceLost = false;
 
     rtlsdr_dev_t* m_dev = nullptr;
     std::thread m_thread;

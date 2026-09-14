@@ -1744,6 +1744,15 @@ err:
 	return r;
 }
 
+/* stream1090 patch: let a host that detects the loss itself (no samples for a
+ * while) tell the library, so rtlsdr_close() takes the dev_lost path and skips
+ * the register writes that would fail with LIBUSB_ERROR_NO_DEVICE. */
+void rtlsdr_mark_dev_lost(rtlsdr_dev_t *dev)
+{
+	if (dev)
+		dev->dev_lost = 1;
+}
+
 int rtlsdr_close(rtlsdr_dev_t *dev)
 {
 	if (!dev)

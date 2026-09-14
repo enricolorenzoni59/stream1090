@@ -75,8 +75,9 @@ inline std::optional<SampleRate> default_input_rate(InputDeviceType type, const 
 
 // Decides where IQ comes from. An explicit --device wins; otherwise a piped
 // stdin is used and an empty one (TTY or /dev/null) triggers auto detection.
-// Prints the reason and returns nullopt on failure.
-inline std::optional<DeviceChoice> choose_device(const CliArgs& args) {
+// Prints the reason and returns nullopt on failure. `quiet` is for the
+// recovery retries, where "no device yet" repeats every second.
+inline std::optional<DeviceChoice> choose_device(const CliArgs& args, bool quiet = false) {
     DeviceChoice choice;
     const std::string kind = args.device;
 
@@ -87,7 +88,9 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args) {
             return choice;
         }
     } else if (kind != "airspy" && kind != "rtlsdr") {
-        Log::error("Stream1090") << "Unknown --device value: " << kind << " (expected stdin, auto, airspy or rtlsdr)";
+        if (!quiet)
+            Log::error("Stream1090") << "Unknown --device value: " << kind
+                                     << " (expected stdin, auto, airspy or rtlsdr)";
         return std::nullopt;
     }
 
@@ -101,17 +104,20 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args) {
     }
 
     if (type == InputDeviceType::NONE) {
-        Log::error("Stream1090") << "No SDR device found. Use --device stdin to read IQ from standard input.";
+        if (!quiet)
+            Log::error("Stream1090") << "No SDR device found. Use --device stdin to read IQ from standard input.";
         return std::nullopt;
     }
     if (type == InputDeviceType::AIRSPY && !GlobalOptions::NativeAirspySupport) {
-        Log::error("Stream1090")
-            << "This build has no Airspy support; rerun with --device stdin or a backend-enabled build.";
+        if (!quiet)
+            Log::error("Stream1090")
+                << "This build has no Airspy support; rerun with --device stdin or a backend-enabled build.";
         return std::nullopt;
     }
     if (type == InputDeviceType::RTLSDR && !GlobalOptions::NativeRtlSdrSupport) {
-        Log::error("Stream1090")
-            << "This build has no RTL-SDR support; rerun with --device stdin or a backend-enabled build.";
+        if (!quiet)
+            Log::error("Stream1090")
+                << "This build has no RTL-SDR support; rerun with --device stdin or a backend-enabled build.";
         return std::nullopt;
     }
 
@@ -123,8 +129,9 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args) {
                 choice.serials.push_back(device.serial);
         }
         if (choice.serials.empty()) {
-            Log::error("Stream1090") << "No " << (type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
-                                     << " device found. Use --device stdin to read IQ from standard input.";
+            if (!quiet)
+                Log::error("Stream1090") << "No " << (type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
+                                         << " device found. Use --device stdin to read IQ from standard input.";
             return std::nullopt;
         }
     }

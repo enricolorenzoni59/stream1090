@@ -145,7 +145,7 @@ std::optional<bool> runInstanceFromPresets(const CompileTimeVars& c_vars, const 
 // newly plugged dongle can be picked up without restarting the process.
 enum class RunOutcome { Clean, DeviceLost, Failed };
 
-RunOutcome run_once(const CliArgs& args) {
+RunOutcome run_once(const CliArgs& args, bool quiet) {
     RuntimeVars r_vars;
     CompileTimeVars c_vars;
     r_vars.stdoutEnabled = args.stdoutEnabled;
@@ -160,7 +160,7 @@ RunOutcome run_once(const CliArgs& args) {
     // ------------------------
     // Device selection
     // ------------------------
-    const auto choice = choose_device(args);
+    const auto choice = choose_device(args, quiet);
     if (!choice)
         return RunOutcome::Failed;
 
@@ -369,7 +369,7 @@ int main(int argc, char** argv) {
             Log::msg("Stream1090") << "SIGHUP: selecting the device again.";
         }
 
-        const RunOutcome runOutcome = run_once(args);
+        const RunOutcome runOutcome = run_once(args, recovering);
 
         // A SIGHUP during the run is handled at the top of the next iteration.
         if (ProcessSignals::reselectRequested())

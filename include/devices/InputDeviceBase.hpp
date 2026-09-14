@@ -49,6 +49,11 @@ template <typename T> class InputDeviceBase {
     // for slow control loops; it must return quickly.
     virtual void periodicMaintenance() {}
 
+    // Called by the watchdog when the device stops delivering samples, before
+    // it is shut down. Backends can use this to tell their driver the device
+    // is gone, so a later close() does not touch a device that is not there.
+    virtual void markDeviceLost() {}
+
     // Called by device callback threads
     void markAsAlive() {
         m_lastSignOfLife.store(std::chrono::steady_clock::now(), std::memory_order_relaxed);
