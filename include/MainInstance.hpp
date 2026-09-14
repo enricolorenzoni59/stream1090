@@ -230,7 +230,7 @@ template <typename preset> class MainInstance {
             // warnings stay on).
             // -------------------------------
             const uint64_t iqPairsPerSec = (uint64_t)inputRate;
-            int maxDropsPerMin = 1;
+            int maxDropsPerMin = 10;
             if (const char* env = std::getenv("STREAM1090_MAX_DROPS_PER_MIN")) {
                 try {
                     maxDropsPerMin = std::max(0, std::stoi(env));
@@ -238,8 +238,7 @@ template <typename preset> class MainInstance {
                 }
             }
             Log::info("Watchdog") << "Sample-drop monitor active: exit after more than " << maxDropsPerMin
-                                  << " drop(s) in 60 s"
-                                  << (maxDropsPerMin == 1 ? " (STREAM1090_MAX_DROPS_PER_MIN to override)" : "") << ".";
+                                  << " drop(s) in 60 s (STREAM1090_MAX_DROPS_PER_MIN to override).";
             uint64_t seenDropEvents = 0;
             std::deque<std::chrono::steady_clock::time_point> recentDrops;
 
@@ -260,6 +259,10 @@ template <typename preset> class MainInstance {
                         // on the same handle and both join the same reader thread.
                         m_device->shutdownWriter();
                         ProcessSignals::handle_sigint(0);
+                        // Ask the supervisor to try to recover instead of
+                        // exiting, and count the loss for the metrics.
+                        ProcessSignals::requestDeviceRecovery();
+                        Metrics::registry().deviceLost.inc();
                         // mark that the shutdown was not intended
                         intendedShutdown = false;
                         break;

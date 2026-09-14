@@ -5,11 +5,13 @@
  * Public License v3.0. See the top-level LICENSE file for details.
  */
 
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <thread>
 
 #include "Cli.hpp"
 #include "DeviceSelection.hpp"
@@ -141,7 +143,9 @@ std::optional<bool> runInstanceFromPresets(const CompileTimeVars& c_vars, const 
 // One full run: select the device, configure it and decode until it stops.
 // A SIGHUP asks the supervisor in main() to call this again from scratch, so a
 // newly plugged dongle can be picked up without restarting the process.
-int run_once(const CliArgs& args) {
+enum class RunOutcome { Clean, DeviceLost, Failed };
+
+RunOutcome run_once(const CliArgs& args) {
     RuntimeVars r_vars;
     CompileTimeVars c_vars;
     r_vars.stdoutEnabled = args.stdoutEnabled;
@@ -158,7 +162,7 @@ int run_once(const CliArgs& args) {
     // ------------------------
     const auto choice = choose_device(args);
     if (!choice)
-        return 1;
+        return RunOutcome::Failed;
 
     r_vars.deviceType = choice->type;
     r_vars.deviceSerials = choice->serials;
@@ -175,7 +179,7 @@ int run_once(const CliArgs& args) {
         r_vars.filterTaps = load_taps_from_file(args.tapsFile);
         if (r_vars.filterTaps.empty()) {
             std::cerr << "Error loading taps from " << args.tapsFile << std::endl;
-            return 1;
+            return RunOutcome::Failed;
         }
         // Check the file's own numbers here, so a coefficient that cannot be
         // represented is reported as the user wrote it.
@@ -183,7 +187,7 @@ int run_once(const CliArgs& args) {
             FirDetail::requireTapsFitAccumulator(r_vars.filterTaps, args.tapsFile.c_str());
         } catch (const std::invalid_argument& error) {
             std::cerr << "[Stream1090] " << error.what() << std::endl;
-            return 1;
+            return RunOutcome::Failed;
         }
     }
 
@@ -196,7 +200,7 @@ int run_once(const CliArgs& args) {
     if (nativeDevice) {
         const auto rate = resolve_input_rate(args, r_vars.deviceType, r_vars.deviceSerials);
         if (!rate)
-            return 1;
+            return RunOutcome::Failed;
         c_vars.inputRate = *rate;
 
         if (r_vars.deviceType == InputDeviceType::RTLSDR && !GlobalOptions::RtlSdrBlogAdvanced &&
@@ -210,13 +214,13 @@ int run_once(const CliArgs& args) {
         // stdin needs an explicit rate, exactly as before.
         if (args.sampleRate.empty()) {
             print_help();
-            return 1;
+            return RunOutcome::Failed;
         }
         c_vars.inputRate = parse_sample_rate(args.sampleRate);
         if (!has_input_rate(c_vars.inputRate)) {
             std::cerr << "[Stream1090] Unsupported input rate: " << rate_mhz(c_vars.inputRate) << " MHz\n";
             print_rate_pairs();
-            return 1;
+            return RunOutcome::Failed;
         }
     }
 
@@ -228,14 +232,14 @@ int run_once(const CliArgs& args) {
             std::cerr << "[Stream1090] Unsupported rate combination: " << rate_mhz(c_vars.inputRate) << " -> "
                       << rate_mhz(c_vars.outputRate) << "\n";
             print_rate_pairs();
-            return 1;
+            return RunOutcome::Failed;
         }
     } else {
         auto def = find_default_output_rate(c_vars.inputRate);
         if (!def) {
             std::cerr << "[Stream1090] No valid output rate for input rate: " << rate_mhz(c_vars.inputRate) << "\n";
             print_rate_pairs();
-            return 1;
+            return RunOutcome::Failed;
         }
 
         c_vars.outputRate = *def;
@@ -247,7 +251,7 @@ int run_once(const CliArgs& args) {
     if (nativeDevice) {
         const auto config = build_device_config(args, r_vars.deviceType, c_vars.inputRate);
         if (!config)
-            return 1;
+            return RunOutcome::Failed;
         r_vars.deviceConfig = *config;
     }
 
@@ -296,14 +300,19 @@ int run_once(const CliArgs& args) {
         outcome = runInstanceFromPresets(c_vars, r_vars);
     } catch (const std::invalid_argument& error) {
         std::cerr << "[Stream1090] " << error.what() << std::endl;
-        return 1;
+        return RunOutcome::Failed;
     }
     if (!outcome) {
         std::cerr << "[Stream1090] Configuration is not supported: " << c_vars.inputRate << " -> " << c_vars.outputRate
                   << std::endl;
-        return 1;
+        return RunOutcome::Failed;
     }
-    return *outcome ? 0 : 1;
+
+    // A loss is reported by the watchdog through its own flag; anything else
+    // that ended the run cleanly is a normal shutdown.
+    if (ProcessSignals::deviceLostRequested())
+        return RunOutcome::DeviceLost;
+    return *outcome ? RunOutcome::Clean : RunOutcome::Failed;
 }
 
 int main(int argc, char** argv) {
@@ -338,20 +347,69 @@ int main(int argc, char** argv) {
     if (args.debug)
         Log::setLevel(Log::Level::DEBUG);
 
-    // Installed once, before any run, so a SIGHUP between two runs is never
+    // Installed once, before any run, so a signal between two runs is never
     // lost and never falls back to the default action.
     ProcessSignals::install();
 
+    // A lost device is retried a bounded number of times, one second apart, so
+    // a re-enumerating USB device has a chance to come back. One attempt
+    // budget is shared per loss event and reset when a fresh loss is seen.
+    constexpr int kMaxRecoveryAttempts = 10;
+    constexpr auto kRecoveryDelay = std::chrono::seconds(1);
+    bool recovering = false;
+    int recoveryAttempts = 0;
+
     for (;;) {
-        const int code = run_once(args);
+        if (ProcessSignals::reselectRequested()) {
+            ProcessSignals::clearReselect();
+            ProcessSignals::clearShutdown();
+            ProcessSignals::clearDeviceLost();
+            recovering = false;
+            recoveryAttempts = 0;
+            Log::msg("Stream1090") << "SIGHUP: selecting the device again.";
+        }
 
-        // Only SIGHUP asks for another pass. A device loss or a plain SIGINT
-        // keeps the exit status of the finished run.
-        if (!ProcessSignals::reselectRequested())
-            return code;
+        const RunOutcome runOutcome = run_once(args);
 
-        ProcessSignals::clearReselect();
-        ProcessSignals::clearShutdown();
-        Log::msg("Stream1090") << "SIGHUP: selecting the device again.";
+        // A SIGHUP during the run is handled at the top of the next iteration.
+        if (ProcessSignals::reselectRequested())
+            continue;
+
+        if (runOutcome == RunOutcome::Clean)
+            return 0;
+
+        if (runOutcome == RunOutcome::DeviceLost) {
+            // The device had been streaming, so this is a fresh loss: restart
+            // the attempt budget and say so once.
+            ProcessSignals::clearDeviceLost();
+            ProcessSignals::clearShutdown();
+            if (!recovering) {
+                Log::warn("Stream1090") << "Device lost; trying to recover (up to " << kMaxRecoveryAttempts
+                                        << " attempts, " << kRecoveryDelay.count() << " s apart).";
+            }
+            recovering = true;
+            recoveryAttempts = 0;
+        } else if (!recovering) {
+            // A setup failure with no prior loss is not a recovery situation.
+            return 1;
+        }
+
+        if (recoveryAttempts >= kMaxRecoveryAttempts) {
+            Metrics::registry().deviceRecoveryFailed.inc();
+            Log::error("Stream1090") << "Device did not come back after " << kMaxRecoveryAttempts
+                                     << " attempts; exiting.";
+            return 1;
+        }
+
+        ++recoveryAttempts;
+        Metrics::registry().deviceRecoveryAttempts.inc();
+        Log::warn("Stream1090") << "Recovery attempt " << recoveryAttempts << "/" << kMaxRecoveryAttempts << ".";
+        std::this_thread::sleep_for(kRecoveryDelay);
+
+        // Ctrl-C during recovery still means stop.
+        if (ProcessSignals::shutdownRequested() && !ProcessSignals::reselectRequested()) {
+            Log::warn("Stream1090") << "Shutdown requested during recovery; exiting.";
+            return 1;
+        }
     }
 }

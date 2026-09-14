@@ -20,9 +20,9 @@ enum class InputDeviceType { STREAM, AIRSPY, RTLSDR, NONE };
 // it is off unless explicitly requested.
 struct AutoPpmConfig {
     bool enabled = false;
-    unsigned intervalSeconds = 30;
-    unsigned warmupSeconds = 60;
-    unsigned samples = 7;
+    unsigned intervalSeconds = 20;
+    unsigned warmupSeconds = 30;
+    unsigned samples = 5;
     int maxStep = 20;
     int deadband = 2;
     int limit = 200;

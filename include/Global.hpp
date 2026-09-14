@@ -71,6 +71,9 @@ namespace ProcessSignals {
 // reader would wait forever on another.
 inline std::atomic<bool> g_shutdownRequested{false};
 inline std::atomic<bool> g_reselectRequested{false};
+// Set by the watchdog when the device stops delivering samples. The supervisor
+// in main() treats it as "try to recover the device" rather than "exit".
+inline std::atomic<bool> g_deviceLostRequested{false};
 
 inline bool shutdownRequested() {
     return g_shutdownRequested.load(std::memory_order_relaxed);
@@ -80,8 +83,20 @@ inline bool reselectRequested() {
     return g_reselectRequested.load(std::memory_order_relaxed);
 }
 
+inline bool deviceLostRequested() {
+    return g_deviceLostRequested.load(std::memory_order_relaxed);
+}
+
+inline void requestDeviceRecovery() {
+    g_deviceLostRequested.store(true, std::memory_order_relaxed);
+}
+
 inline void clearReselect() {
     g_reselectRequested.store(false, std::memory_order_relaxed);
+}
+
+inline void clearDeviceLost() {
+    g_deviceLostRequested.store(false, std::memory_order_relaxed);
 }
 
 inline void clearShutdown() {

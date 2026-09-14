@@ -18,6 +18,15 @@ void check(bool ok, const char* what) {
 } // namespace
 
 int main() {
+    // Tuned auto-PPM timing: the first correction lands after about two
+    // minutes instead of four to five.
+    {
+        const AutoPpmConfig defaults;
+        check(defaults.intervalSeconds == 20, "auto ppm interval default");
+        check(defaults.warmupSeconds == 30, "auto ppm warmup default");
+        check(defaults.samples == 5, "auto ppm samples default");
+    }
+
     // RTL-SDR defaults: fixed gain, and the IF state that matches the rate.
     {
         const auto cfg = applyBackendDefaults(DeviceConfig{}, InputDeviceType::RTLSDR, Rate_3_2_Mhz);

@@ -85,6 +85,9 @@ int main() {
     reg.deviceUp.set(1.0);
     reg.outputBytes.inc(128);
     reg.tcpFramesDropped.inc(3);
+    reg.deviceLost.inc(2);
+    reg.deviceRecoveryAttempts.inc(3);
+    reg.deviceRecoveryFailed.inc(1);
 
     Stats::Counters counters{};
     counters.events[Stats::DF17_GOOD_MESSAGE] = 7;
@@ -182,6 +185,11 @@ int main() {
     if (!contains(page, "stream1090_rtl_auto_ppm_windows_total{result=\"clean\"} 9")) return 74;
     if (!contains(page, "stream1090_rtl_auto_ppm_windows_total{result=\"sample_drop\"} 2")) return 75;
     if (!contains(page, "stream1090_rtl_auto_ppm_decisions_total{result=\"applied\"} 1")) return 76;
+
+    // ---- device loss and recovery ----------------------------------------
+    if (!contains(page, "stream1090_device_lost_total 2")) return 77;
+    if (!contains(page, "stream1090_device_recovery_attempts_total 3")) return 78;
+    if (!contains(page, "stream1090_device_recovery_failed_total 1")) return 79;
 
     // ---- listen address parsing ------------------------------------------
     std::string host;

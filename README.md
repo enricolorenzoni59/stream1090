@@ -55,7 +55,10 @@ removes that path entirely and is **not a drop-in replacement**: scripts using
 - Added explicit tuner, backend and bandwidth diagnostics at startup.
 - Added detection and accounting of USB/FIFO sample loss, including a recovery
   window that distinguishes transient callback backlog from persistent loss and
-  a configurable watchdog limit.
+  a configurable watchdog limit (default: exit after more than 10 drops in 60 s,
+  `STREAM1090_MAX_DROPS_PER_MIN`).
+- A lost device is recovered automatically with a bounded retry budget (10
+  attempts, one second apart) before stream1090 gives up.
 - Added 3.2 Msps RTL-SDR input paths with 8, 12, 16 and 24 MHz output rates.
 - Added an experimentally selected 3.2 → 24 MHz preset with a narrow tuner state
   and refitted FIR taps, plus guardrails for unsupported backend configurations.
@@ -120,6 +123,8 @@ removes that path entirely and is **not a drop-in replacement**: scripts using
   queue drops and log counts.
 - Exposes sample-loss events, cumulative missing IQ pairs and the worst observed
   deficit.
+- Exposes device losses and recovery: `device_lost_total`,
+  `device_recovery_attempts_total` and `device_recovery_failed_total`.
 - Exposes the complete automatic PPM controller state: phase, effective
   configuration, applied correction, observed sample rate, residual and estimated
   crystal error, measurement progress and age, discarded windows and controller
@@ -270,7 +275,7 @@ Sensible defaults are applied automatically and can be overridden per flag:
 - RTL-SDR gain defaults to a fixed 49.6 dB; `--gain <db>` overrides it and `--agc` switches to automatic gain. `--tuner-bandwidth <hz>` defaults to 3 MHz at 2.4/2.56 Msps and to 2.43 MHz at 3.2 Msps, the narrow state the 3.2 preset needs. `--ppm <n>` sets a fixed correction.
 - Airspy defaults to `--linearity-gain 21` with packing on; `--sensitivity-gain`, `--lna-gain/--mixer-gain/--vga-gain` and `--airspy-packing false` override that.
 - **Important:** if you power an LNA via bias-tee, pass `--bias-tee`. It is off by default.
-- RTL-SDR continuous crystal calibration is **on by default**: stream1090 measures the shared tuner/ADC clock against the host monotonic clock, takes the median of several clean windows, and applies the bounded correction through librtlsdr. A fixed `--ppm` suppresses it; `--no-auto-ppm` disables it; `--auto-ppm-warmup/-interval/-samples/-max-step/-deadband/-limit` tune it. The first correction lands after the warm-up plus the window count (about 4-5 minutes by default), so short runs are unaffected. Long-running measurements are deliberate; carrier offsets from individual aircraft are not used as a reference.
+- RTL-SDR continuous crystal calibration is **on by default**: stream1090 measures the shared tuner/ADC clock against the host monotonic clock, takes the median of several clean windows, and applies the bounded correction through librtlsdr. A fixed `--ppm` suppresses it; `--no-auto-ppm` disables it; `--auto-ppm-warmup/-interval/-samples/-max-step/-deadband/-limit` tune it. The first correction lands after the warm-up plus the window count (about 2-3 minutes by default), so short runs are unaffected. Long-running measurements are deliberate; carrier offsets from individual aircraft are not used as a reference.
 
 Use `--device stdin`, `--device rtlsdr` or `--device airspy` to be explicit, and `--serial <id>` to bind to one specific unit. A SIGHUP makes stream1090 stop the current run and select the device again, so a newly attached dongle is picked up without restarting the process.
 
@@ -518,6 +523,12 @@ or `pidof stream1090`.
 The sample rate, backend and every setting come from the command line, so they
 stay the same across a reselect; only which unit is opened can change. To change
 a setting, restart with the new flag.
+
+A device that stops delivering samples (cable pull, USB re-enumeration) is
+handled the same way without a signal: stream1090 tries to re-select it up to 10
+times, one second apart, then gives up and exits. Losses and recoveries are
+exported as `device_lost_total`, `device_recovery_attempts_total` and
+`device_recovery_failed_total`.
 
 ### Advanced RTL-SDR gain controls
 

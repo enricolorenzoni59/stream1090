@@ -256,6 +256,11 @@ class Registry {
     Gauge sampleDropDeficit;
     Gauge sampleDropWorst;
 
+    // ---- device recovery -------------------------------------------------
+    Counter deviceLost;
+    Counter deviceRecoveryAttempts;
+    Counter deviceRecoveryFailed;
+
     // ---- demodulator (published from the demodulation thread) -------------
     std::array<std::atomic<uint64_t>, Stats::NUM_EVENTS> demodEvents {};
     std::array<std::atomic<uint64_t>, Stats::NumDF> demodSent {};
@@ -738,6 +743,13 @@ inline std::string render(Registry& reg) {
     sample(out, "sample_drop_deficit_pairs", "", reg.sampleDropDeficit.get());
     head(out, "sample_drop_worst_deficit_pairs", "Worst single drop gap observed this run.", "gauge");
     sample(out, "sample_drop_worst_deficit_pairs", "", reg.sampleDropWorst.get());
+
+    head(out, "device_lost_total", "Devices lost (no samples for over a second) detected by the watchdog.", "counter");
+    sample(out, "device_lost_total", "", double(reg.deviceLost.get()));
+    head(out, "device_recovery_attempts_total", "Device re-selection attempts after a loss.", "counter");
+    sample(out, "device_recovery_attempts_total", "", double(reg.deviceRecoveryAttempts.get()));
+    head(out, "device_recovery_failed_total", "Device losses that did not recover within the attempt budget.", "counter");
+    sample(out, "device_recovery_failed_total", "", double(reg.deviceRecoveryFailed.get()));
 
     // ---- signal quality ---------------------------------------------------
     histogram(out, "message_rssi_ratio",

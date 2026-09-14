@@ -13,3 +13,7 @@ bool probeShutdownRequested() {
 bool probeReselectRequested() {
     return ProcessSignals::reselectRequested();
 }
+
+bool probeDeviceLostRequested() {
+    return ProcessSignals::deviceLostRequested();
+}
