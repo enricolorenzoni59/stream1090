@@ -119,7 +119,7 @@ For ```airspy_rx``` this works the same way. However, make sure that your sample
     ```
     timeout 1m airspy_rx -t 4 -b 1 -l 10 -m 9 -v 11 -f 1090.0 -a 20000000 -r - > ./samples.bin
     ```
-    Make sure that you use the correct parameters that correspond to your airspy.ini. In this example:
+    Make sure that you use the correct parameters that correspond to the gain flags you pass to stream1090 (`--lna-gain`, `--mixer-gain`, `--vga-gain`). In this example:
     - LNA gain is set to 10 with ```-l 10```
     - MIX gain is set to  9 with ```-m 10```
     - VGA gain is  set to 11 with ```-v 10```

@@ -166,14 +166,17 @@ Regardless of your hardware, you will need
 - C++ compiler that supports C++20
 
 Stream1090 has native device support for Airspy and RTL-SDR based dongles.
-For both, you will need the dev version of the corresponding libraries. 
+For Airspy you need the dev version of libairspy. For RTL-SDR the vendored
+rtl-sdr-blog fork is built by default, so only libusb is needed; configure with
+`-DENABLE_RTLSDR_BLOG=OFF` to link the system librtlsdr instead.
 
 - For Airspy ```sudo apt install libairspy-dev``` 
-- For RTL-SDR ```sudo apt install librtlsdr-dev``` 
+- For RTL-SDR (vendored, default) ```sudo apt install libusb-1.0-0-dev```
+- For RTL-SDR (system lib) ```sudo apt install librtlsdr-dev``` and configure with `-DENABLE_RTLSDR_BLOG=OFF`
 
 On macOS, install the build tools and device libraries with Homebrew:
 
-```brew install cmake pkgconf airspy rtl-sdr```
+```brew install cmake pkgconf airspy libusb```
 
 We are ready to compile. Switch to the stream1090 folder and do the usual cmake thing.
 
@@ -227,6 +230,7 @@ Everything is passed on the command line; there is no device configuration file.
 Sensible defaults are applied automatically and can be overridden per flag:
 
 - Sample rate: `-s <MHz>`. Defaults to 2.56 Msps on RTL-SDR and to the highest rate the Airspy supports. `-u <MHz>` defaults to the highest upsample for that input.
+- The IQ FIR filter with built-in taps is on by default. `--no-iq-filter` turns it off, and `-f <taps file>` uses your own taps instead.
 - RTL-SDR gain defaults to a fixed 49.6 dB; `--gain <db>` overrides it and `--agc` switches to automatic gain. `--tuner-bandwidth <hz>` defaults to 3 MHz at 2.4/2.56 Msps and to 2.43 MHz at 3.2 Msps, the narrow state the 3.2 preset needs. `--ppm <n>` sets a fixed correction.
 - Airspy defaults to `--linearity-gain 21` with packing on; `--sensitivity-gain`, `--lna-gain/--mixer-gain/--vga-gain` and `--airspy-packing false` override that.
 - **Important:** if you power an LNA via bias-tee, pass `--bias-tee`. It is off by default.
@@ -467,11 +471,17 @@ cmake --build build-orb-on
 
 The two binaries can then be swapped without reconfiguring during a live A/B.
 
-### SIGHUP support
+### SIGHUP
 
-There is now basic experimental support for the SIGHUP signal. This signal can be send via ```kill -HUP <process id of stream1090>``` telling stream1090 to reload the device specific ini file. You can figure out the PID via ```ps```or ```pidof stream1090``` when it is running.
+A SIGHUP (`kill -HUP <pid>`) makes stream1090 stop the current run and run the
+device selection again from scratch, then start over on the freshly selected
+device. This is how a dongle you just attached is picked up without restarting
+the process, and how you move from one unit to another. Find the PID with `ps`
+or `pidof stream1090`.
 
-Clearly, there are some things you will not be able to change like serial (and sample rate which is not part of the ini anyways). The purpose is to not have to restart for adjusting gain settings. For airspy, make sure you know what you are doing when switching between manual and simple gain controls.
+The sample rate, backend and every setting come from the command line, so they
+stay the same across a reselect; only which unit is opened can change. To change
+a setting, restart with the new flag.
 
 ### Advanced RTL-SDR gain controls
 
@@ -479,21 +489,19 @@ If you have an RTL-SDR device and still not happy, you can push things further. 
 - This lib behaves differently in terms of results. Might be in your favour.
 - If you have an R82xx tuner, this version gives you gain control over the LNA, MIX and VGA stages.
 
-If you want to use it, there is no need to download anything nor building and such. Stream1090's CMake project will take care of it. Go to the build folder and rebuild with
-```
-cmake .. -DENABLE_RTLSDR_BLOG=1 && cmake --build .
-``` 
-Check if everything has worked out by running ```./stream1090 -h```. The native device support section should now list ```RTL-SDR Blog (advanced)```.
+The fork is built by default; there is nothing to download. Configure with
+`-DENABLE_RTLSDR_BLOG=OFF` to link the system librtlsdr instead. With the fork,
+its tuner and PLL messages are routed through stream1090's logger, so they carry
+the same timestamp and level as the rest of the log.
+
+Check if everything has worked out by running ```./stream1090 -h```. The native device support section lists ```RTL-SDR Blog (advanced)``` when the fork is in use.
 
 Regarding the manual gain control of the stages: I am not taking any responsibility here. It might work, it might not. I added these functions to the lib. There are usually good reasons that these functions are not exposed.
 
-
-However, in the ini file you can now add something like
+Set the stages on the command line:
 ```
-lna_gain = 14
-mixer_gain = 13
-vga_gain = 10
-``` 
+--lna-gain 14 --mixer-gain 13 --vga-gain 10
+```
 
 ## FAQ & Troubleshooting
 - Why is my message rate 0-2 messages per second?
