@@ -10,7 +10,7 @@
 
 #include <airspy.h>
 #include "devices/InputDeviceBase.hpp"
-#include "IniConfig.hpp"
+#include "devices/DeviceConfig.hpp"
 
 class AirspyDevice : public InputDeviceBase<uint16_t> {
   public:
@@ -34,10 +34,10 @@ class AirspyDevice : public InputDeviceBase<uint16_t> {
     bool setBiasTee(bool enabled);
 
     // Called before opening the device to parse the serial
-    void applyConfigPreOpen(const IniConfig::Section& cfg) override;
+    void applyConfigPreOpen(const DeviceConfig& cfg) override;
 
     // Reload hook
-    void applyConfigPostOpen(const IniConfig::Section& cfg) override;
+    void applyConfigPostOpen(const DeviceConfig& cfg) override;
 
     // Applied gain as the device shadow state sees it.
     GainState gainState() const override;
@@ -45,7 +45,7 @@ class AirspyDevice : public InputDeviceBase<uint16_t> {
   private:
     bool open_with_serial(uint64_t serial);
     bool tryEnablingPacking();
-    bool applySetting(const std::string& key, const std::string& value);
+    void applySetting(const DeviceConfig& cfg);
 
     // Dumps everything the device can tell us about itself. Two receivers that
     // behave differently usually differ in firmware or board revision, and

@@ -51,14 +51,14 @@ stream1090 can expose a scrape endpoint for Prometheus. It is compiled in by
 default (`-DENABLE_METRICS=OFF` removes it) and stays off until you ask for it:
 
 ```
-./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini --metrics
+./build/stream1090 --device rtlsdr -s 2.4 --metrics
 ```
 
 `--metrics` alone listens on `127.0.0.1:9109`. An explicit address is also
 accepted, either `addr:port`, `:port` or a bare `port`:
 
 ```
-./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini --metrics 0.0.0.0:9109
+./build/stream1090 --device rtlsdr -s 2.4 --metrics 0.0.0.0:9109
 ```
 
 There are three routes:

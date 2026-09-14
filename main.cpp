@@ -5,76 +5,17 @@
  * Public License v3.0. See the top-level LICENSE file for details.
  */
 
-#include <iostream>
-#include <stdexcept>
 #include <fstream>
-#include <unistd.h>
-#include <algorithm>
-#include <thread>
-#include <chrono>
+#include <iostream>
 #include <optional>
+#include <stdexcept>
+#include <string>
 
+#include "Cli.hpp"
+#include "DeviceSelection.hpp"
 #include "MainInstance.hpp"
 #include "PresetDispatcher.hpp"
-
-struct RatePair {
-    SampleRate in;
-    SampleRate out;
-};
-
-std::vector<RatePair> collect_rate_pairs() {
-    std::vector<RatePair> pairs;
-    std::apply([&](auto... p) { ((pairs.push_back({decltype(p)::inputRate, decltype(p)::outputRate})), ...); },
-               presets);
-
-    // Sort by input, then output
-    std::sort(pairs.begin(), pairs.end(), [](auto& a, auto& b) {
-        if (a.in != b.in)
-            return (int)a.in < (int)b.in;
-        return (int)a.out < (int)b.out;
-    });
-
-    // Remove duplicates
-    pairs.erase(
-        std::unique(pairs.begin(), pairs.end(), [](auto& a, auto& b) { return a.in == b.in && a.out == b.out; }),
-        pairs.end());
-
-    return pairs;
-}
-
-std::optional<SampleRate> find_default_output_rate(SampleRate input) {
-    auto pairs = collect_rate_pairs();
-    for (auto& p : pairs) {
-        if (p.in == input)
-            return p.out; // first match
-    }
-    return std::nullopt;
-}
-
-bool is_valid_rate_pair(SampleRate in, SampleRate out) {
-    auto pairs = collect_rate_pairs();
-    for (auto& p : pairs) {
-        if (p.in == in && p.out == out)
-            return true;
-    }
-    return false;
-}
-
-void print_rate_pairs() {
-    auto pairs = collect_rate_pairs();
-
-    std::cout << "Supported sample rate combinations:\n";
-    for (auto& p : pairs) {
-#if defined(STREAM1090_CUSTOM_INPUT) && STREAM1090_CUSTOM_INPUT
-        std::string fmt = "float32 IQ";
-#else
-        std::string fmt = (p.in < 6'000'000) ? "uint8 IQ" : "uint16 IQ";
-#endif
-        std::cout << "  " << (float(p.in) / 1'000'000.0f) << "  →  " << (float(p.out) / 1'000'000.0f) << " (" << fmt
-                  << ")\n";
-    }
-    std::cout << "\n";
-}
+#include "RateUtils.hpp"
 
 void print_help() {
     std::cout << "Stream1090 build " << STREAM1090_VERSION << "\n";
@@ -104,11 +45,10 @@ void print_help() {
     std::cout << "Usage:\n"
                  "  stream1090 [options]\n\n"
                  "Options:\n"
-                 "  -s <rate>            Input sample rate in MHz (required)\n"
-                 "  -u <rate>            Upsample rate in MHz\n"
-                 "  -d <file.ini>        Device configuration INI file for native devices\n"
-                 "                       See configs/airspy.ini or configs/rtlsdr.ini\n"
-                 "  -q                   Enables IQ FIR filter with built-in taps\n"
+                 "  -s <rate>            Input sample rate in MHz (default: device dependent)\n"
+                 "  -u <rate>            Upsample rate in MHz (default: highest for the input)\n"
+                 "  -q                   Enables IQ FIR filter with built-in taps (on by default)\n"
+                 "  --no-iq-filter       Disable the IQ FIR filter\n"
                  "  -f <taps file>       Taps to load that are used for the IQ FIR filter\n"
                  "  -v, --verbose        Verbose output\n"
                  "  --debug              Debug output (implies verbose)\n"
@@ -120,187 +60,34 @@ void print_help() {
                  "                                 plus /healthz and /readyz. Defaults to\n"
                  "                                 127.0.0.1:9109. There is no authentication,\n"
                  "                                 so a public interface is a deliberate choice\n"
-                 "  -h, --help           Show this help message\n\n";
+                 "  -h, --help           Show this help message\n\n"
+                 "Device options:\n"
+                 "  --device <kind>      stdin, auto, airspy or rtlsdr. When omitted, a\n"
+                 "                       piped stdin is used and an empty /dev/null otherwise\n"
+                 "                       triggers auto detection (Airspy first, then RTL-SDR).\n"
+                 "  --serial <id>        Select one unit; otherwise the first free one\n"
+                 "  --freq <hz>          Center frequency (default: 1090000000)\n"
+                 "  --gain <db>          RTL-SDR tuner gain (default: 49.6)\n"
+                 "  --agc                Enable RTL-SDR AGC\n"
+                 "  --bias-tee           Enable the 5V bias tee\n"
+                 "  --ppm <int>          Frequency correction in PPM\n"
+                 "  --tuner-bandwidth <hz>  RTL-SDR IF bandwidth (default: rate dependent)\n"
+                 "  --offset-tuning      Enable RTL-SDR offset tuning\n"
+                 "  --airspy-packing <bool>  Pack the 12-bit Airspy samples (default: true)\n"
+                 "  --linearity-gain <n>     Airspy combined preset, 0..21\n"
+                 "  --sensitivity-gain <n>   Airspy combined preset, 0..21\n"
+                 "  --lna-gain/--mixer-gain/--vga-gain <n>  Per-stage manual gain\n"
+                 "  --auto-ppm           RTL-SDR closed-loop crystal calibration\n"
+                 "  --auto-ppm-warmup <s> --auto-ppm-interval <s> --auto-ppm-samples <n>\n"
+                 "  --auto-ppm-max-step <n> --auto-ppm-deadband <n> --auto-ppm-limit <n>\n\n";
 
     print_rate_pairs();
 
     std::cout << "Examples:\n"
-                 "  ./build/stream1090 -s 2.4 -u 8 -q -d ./configs/rtlsdr.ini\n"
-                 "  ./build/stream1090 -s 6 -u 12 -q -d ./configs/airspy.ini\n"
-                 "  ./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini --net-beast-port 30007 --no-stdout\n"
+                 "  ./build/stream1090 --device auto -s 2.56 -u 12 -q\n"
+                 "  ./build/stream1090 --device rtlsdr --gain 40 --net-beast-port 30007\n"
+                 "  rtl_sdr -f 1090000000 -s 2400000 - | ./build/stream1090 --device stdin -s 2.4 -q\n"
                  "  readsb --net --net-connector=127.0.0.1,30007,beast_in\n\n";
-}
-
-struct CliArgs {
-    std::string sampleRate = "";
-    std::string upsampleRate = "";
-    std::string deviceConfig = "";
-    std::string tapsFile = "";
-    bool iq_filter = false;
-    bool verbose = false;
-    bool debug = false;
-    std::string netBindAddress = "127.0.0.1";
-    uint16_t netAvrPort = 0;
-    uint16_t netBeastPort = 0;
-    bool stdoutEnabled = true;
-    std::string metricsBind = "";
-};
-
-bool parse_tcp_port(const std::string& value, uint16_t& port) {
-    try {
-        size_t consumed = 0;
-        const unsigned long parsed = std::stoul(value, &consumed, 10);
-        if (consumed != value.size() || parsed == 0 || parsed > 65535)
-            return false;
-        port = static_cast<uint16_t>(parsed);
-        return true;
-    } catch (...) {
-        return false;
-    }
-}
-
-bool parse_cli(int argc, char** argv, CliArgs& out) {
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-
-        if (arg == "-h" || arg == "--help") {
-            print_help();
-            std::exit(0);
-        }
-
-        if (arg == "-s" && i + 1 < argc) {
-            out.sampleRate = argv[++i];
-            continue;
-        }
-
-        if (arg == "-u" && i + 1 < argc) {
-            out.upsampleRate = argv[++i];
-            continue;
-        }
-
-        if (arg == "-d" && i + 1 < argc) {
-            out.deviceConfig = argv[++i];
-            continue;
-        }
-
-        if (arg == "-f" && i + 1 < argc) {
-            out.tapsFile = argv[++i];
-            continue;
-        }
-
-        if (arg == "-q") {
-            out.iq_filter = true;
-            continue;
-        }
-
-        if ((arg == "-v") || (arg == "--verbose")) {
-            out.verbose = true;
-            continue;
-        }
-
-        if (arg == "--debug") {
-            out.debug = true;
-            continue;
-        }
-
-        if (arg == "--net-bind-address" && i + 1 < argc) {
-            out.netBindAddress = argv[++i];
-            continue;
-        }
-
-        if (arg == "--net-avr-port" && i + 1 < argc) {
-            if (!parse_tcp_port(argv[++i], out.netAvrPort)) {
-                std::cerr << "Invalid AVR TCP port: " << argv[i] << "\n";
-                return false;
-            }
-            continue;
-        }
-
-        if (arg == "--net-beast-port" && i + 1 < argc) {
-            if (!parse_tcp_port(argv[++i], out.netBeastPort)) {
-                std::cerr << "Invalid Beast TCP port: " << argv[i] << "\n";
-                return false;
-            }
-            continue;
-        }
-
-        if (arg == "--no-stdout") {
-            out.stdoutEnabled = false;
-            continue;
-        }
-
-        if (arg == "--metrics") {
-            // The address is optional: "--metrics" alone takes the default.
-            if (i + 1 < argc && argv[i + 1][0] != '-')
-                out.metricsBind = argv[++i];
-            else
-                out.metricsBind = "127.0.0.1:9109";
-            continue;
-        }
-
-        std::cerr << "Unknown or incomplete argument: " << arg << "\n";
-        return false;
-    }
-
-    return true;
-}
-
-SampleRate parse_sample_rate(const std::string& raw) {
-    // Strip optional trailing 'M' or 'm'
-    std::string s = raw;
-    if (!s.empty() && (s.back() == 'M' || s.back() == 'm'))
-        s.pop_back();
-
-    // Parse as float MHz
-    float mhz = 0.0f;
-    try {
-        mhz = std::stof(s);
-    } catch (...) {
-        std::cerr << "Invalid sample rate: " << raw << "\n";
-        std::exit(1);
-    }
-
-    // Convert MHz → Hz
-    int hz = static_cast<int>(mhz * 1'000'000.0f + 0.5f);
-
-    // Match directly against enum values
-    switch (hz) {
-    case Rate_1_0_Mhz:
-        return Rate_1_0_Mhz;
-    case Rate_2_0_Mhz:
-        return Rate_2_0_Mhz;
-    case Rate_2_4_Mhz:
-        return Rate_2_4_Mhz;
-    case Rate_2_56_Mhz:
-        return Rate_2_56_Mhz;
-    case Rate_3_0_Mhz:
-        return Rate_3_0_Mhz;
-    case Rate_3_2_Mhz:
-        return Rate_3_2_Mhz;
-    case Rate_4_0_Mhz:
-        return Rate_4_0_Mhz;
-    case Rate_6_0_Mhz:
-        return Rate_6_0_Mhz;
-    case Rate_8_0_Mhz:
-        return Rate_8_0_Mhz;
-    case Rate_10_0_Mhz:
-        return Rate_10_0_Mhz;
-    case Rate_12_0_Mhz:
-        return Rate_12_0_Mhz;
-    case Rate_16_0_Mhz:
-        return Rate_16_0_Mhz;
-    case Rate_20_0_Mhz:
-        return Rate_20_0_Mhz;
-    case Rate_24_0_Mhz:
-        return Rate_24_0_Mhz;
-    case Rate_40_0_Mhz:
-        return Rate_40_0_Mhz;
-    case Rate_48_0_Mhz:
-        return Rate_48_0_Mhz;
-    }
-
-    std::cerr << "Unsupported sample rate: " << raw << "\n";
-    std::exit(1);
 }
 
 std::vector<float> load_taps_from_file(const std::string& filename) {
@@ -312,22 +99,17 @@ std::vector<float> load_taps_from_file(const std::string& filename) {
 
     std::string line;
     while (std::getline(file, line)) {
-        // trim whitespace
         if (line.empty())
             continue;
 
-        // skip comments
         if (line[0] == '#')
             continue;
 
-        // parse float
         try {
             double v = std::stod(line);
             taps.push_back((float)v);
         } catch (...) {
-            // malformed line
             return std::vector<float>();
-            ;
         }
 
         // too many taps
@@ -354,36 +136,12 @@ std::optional<bool> runInstanceFromPresets(const CompileTimeVars& c_vars, const 
 #endif
 }
 
-int main(int argc, char** argv) {
-    // Input and logging may run beside AVR output. Their default ties must not
-    // flush std::cout concurrently from another thread.
-    std::ios::sync_with_stdio(false);
-    std::cin.tie(nullptr);
-    std::cerr.tie(nullptr);
-
+// One full run: select the device, configure it and decode until it stops.
+// A SIGHUP asks the supervisor in main() to call this again from scratch, so a
+// newly plugged dongle can be picked up without restarting the process.
+int run_once(const CliArgs& args) {
     RuntimeVars r_vars;
     CompileTimeVars c_vars;
-
-    CliArgs args;
-    if (!parse_cli(argc, argv, args)) {
-        std::cerr << "Usage: stream1090 -s <rate> -u <rate> [-d <device.ini>] [-f <taps file>] [-q] [--verbose] "
-                     "[--debug] [-h]\n";
-        return 1;
-    }
-
-    if (args.sampleRate.empty()) {
-        print_help();
-        return 1;
-    }
-
-    if (args.netAvrPort != 0 && args.netAvrPort == args.netBeastPort) {
-        std::cerr << "AVR and Beast TCP ports must be different.\n";
-        return 1;
-    }
-    if (!args.stdoutEnabled && args.netAvrPort == 0 && args.netBeastPort == 0) {
-        std::cerr << "--no-stdout requires --net-avr-port and/or --net-beast-port.\n";
-        return 1;
-    }
     r_vars.stdoutEnabled = args.stdoutEnabled;
     r_vars.tcpOutput.bindAddress = args.netBindAddress;
     r_vars.tcpOutput.avrPort = args.netAvrPort;
@@ -391,73 +149,22 @@ int main(int argc, char** argv) {
     r_vars.tcpOutput.enableAvr = args.netAvrPort != 0;
     r_vars.tcpOutput.enableBeast = args.netBeastPort != 0;
     r_vars.metricsBind = args.metricsBind;
-
-    if (args.verbose)
-        Log::setLevel(Log::Level::INFO);
-    if (args.debug)
-        Log::setLevel(Log::Level::DEBUG);
+    r_vars.verbose = args.verbose;
 
     // ------------------------
-    // Device config loading
+    // Device selection
     // ------------------------
+    const auto choice = choose_device(args);
+    if (!choice)
+        return 1;
 
-    if (args.deviceConfig.empty()) {
-        // No config file → stdin mode
-        r_vars.deviceType = InputDeviceType::STREAM;
-        std::cerr << "[Stream1090] Reading from Stdin" << std::endl;
-    } else {
-        // Load config file
-        IniConfig dev_ini(args.deviceConfig);
+    r_vars.deviceType = choice->type;
+    r_vars.deviceSerials = choice->serials;
 
-        if (!dev_ini.load()) {
-            std::cerr << "[Stream1090] Cannot load device config from " << args.deviceConfig << std::endl;
-            return 1;
-        }
-
-        // Store full config (including filename)
-        r_vars.deviceConfig = dev_ini;
-
-        // Detect device type
-        auto& cfg = dev_ini.get();
-
-        if (cfg.count("airspy")) {
-            r_vars.deviceType = InputDeviceType::AIRSPY;
-            r_vars.deviceConfigSection = cfg.at("airspy");
-
-            if (!GlobalOptions::NativeAirspySupport) {
-                std::cerr << "[Stream1090] Error. No native device support for airspy" << std::endl;
-                return 1;
-            }
-
-        } else if (cfg.count("rtlsdr")) {
-            r_vars.deviceType = InputDeviceType::RTLSDR;
-            r_vars.deviceConfigSection = cfg.at("rtlsdr");
-
-            if (!GlobalOptions::NativeRtlSdrSupport) {
-                std::cerr << "[Stream1090] Error. No native device support for rtlsdr" << std::endl;
-                return 1;
-            }
-
-            // Name whether librtlsdr is vendored or externally provided so
-            // bug reports carry the build configuration that selected it.
-            if (GlobalOptions::RtlSdrBlogAdvanced) {
-                std::cerr << "[Stream1090] RTL-SDR backend: vendored rtl-sdr-blog fork" << std::endl;
-            } else {
-                std::cerr << "[Stream1090] RTL-SDR backend: external librtlsdr" << std::endl;
-                if (c_vars.inputRate == Rate_3_2_Mhz) {
-                    std::cerr << "[Stream1090] WARNING: the 3.2 Msps preset is tuned against the vendored\n"
-                                 "[Stream1090] rtl-sdr-blog fork (-DENABLE_RTLSDR_BLOG=ON). With the system\n"
-                                 "[Stream1090] librtlsdr the same ini settings land in a different tuner\n"
-                                 "[Stream1090] state and the preset loses ~35% frames."
-                              << std::endl;
-                }
-            }
-
-        } else {
-            std::cerr << "[Stream1090] Error. Config file does not contain [airspy] or [rtlsdr] section." << std::endl;
-            return 1;
-        }
-    }
+    if (r_vars.deviceType == InputDeviceType::STREAM)
+        Log::msg("Stream1090") << "Reading from Stdin";
+    else
+        print_backend_banner(r_vars.deviceType);
 
     // ------------------------
     // FIR taps loading
@@ -469,9 +176,7 @@ int main(int argc, char** argv) {
             return 1;
         }
         // Check the file's own numbers here, so a coefficient that cannot be
-        // represented is reported as the user wrote it. The pipeline checks
-        // again once the branch alignment has convolved them, but by then the
-        // values no longer match anything in the file.
+        // represented is reported as the user wrote it.
         try {
             FirDetail::requireTapsFitAccumulator(r_vars.filterTaps, args.tapsFile.c_str());
         } catch (const std::invalid_argument& error) {
@@ -480,42 +185,68 @@ int main(int argc, char** argv) {
         }
     }
 
-    // set the verbose flag
-    r_vars.verbose = args.verbose;
-
     // ------------------------
-    // Sample speed parsing
+    // Sample speed
     // ------------------------
-    c_vars.inputRate = parse_sample_rate(args.sampleRate);
+    const bool nativeDevice = r_vars.deviceType == InputDeviceType::AIRSPY ||
+                              r_vars.deviceType == InputDeviceType::RTLSDR;
 
-    // Case 1: user provided both -s and -u
-    if (!args.upsampleRate.empty()) {
-        c_vars.outputRate = parse_sample_rate(args.upsampleRate);
+    if (nativeDevice) {
+        const auto rate = resolve_input_rate(args, r_vars.deviceType, r_vars.deviceSerials);
+        if (!rate)
+            return 1;
+        c_vars.inputRate = *rate;
 
-        if (!is_valid_rate_pair(c_vars.inputRate, c_vars.outputRate)) {
-            std::cerr << "[Stream1090] Unsupported rate combination: " << float(c_vars.inputRate) / 1'000'000.0f
-                      << " → " << float(c_vars.outputRate) / 1'000'000.0f << "\n";
+        if (r_vars.deviceType == InputDeviceType::RTLSDR && !GlobalOptions::RtlSdrBlogAdvanced &&
+            c_vars.inputRate == Rate_3_2_Mhz) {
+            Log::warn("Stream1090") << "the 3.2 Msps preset is tuned against the vendored\n"
+                                       "rtl-sdr-blog fork (-DENABLE_RTLSDR_BLOG=ON). With the system\n"
+                                       "librtlsdr the same settings land in a different tuner state\n"
+                                       "and the preset loses ~35% frames.";
+        }
+    } else {
+        // stdin needs an explicit rate, exactly as before.
+        if (args.sampleRate.empty()) {
+            print_help();
+            return 1;
+        }
+        c_vars.inputRate = parse_sample_rate(args.sampleRate);
+        if (!has_input_rate(c_vars.inputRate)) {
+            std::cerr << "[Stream1090] Unsupported input rate: " << rate_mhz(c_vars.inputRate) << " MHz\n";
             print_rate_pairs();
             return 1;
         }
     }
 
-    // Case 2: user provided only -s
-    else {
+    // Output rate: explicit, or the highest upsample available for the input.
+    if (!args.upsampleRate.empty()) {
+        c_vars.outputRate = parse_sample_rate(args.upsampleRate);
+
+        if (!is_valid_rate_pair(c_vars.inputRate, c_vars.outputRate)) {
+            std::cerr << "[Stream1090] Unsupported rate combination: " << rate_mhz(c_vars.inputRate) << " -> "
+                      << rate_mhz(c_vars.outputRate) << "\n";
+            print_rate_pairs();
+            return 1;
+        }
+    } else {
         auto def = find_default_output_rate(c_vars.inputRate);
         if (!def) {
-            std::cerr << "[Stream1090] No valid output rate for input rate: " << float(c_vars.inputRate) / 1'000'000.0f
-                      << "\n";
+            std::cerr << "[Stream1090] No valid output rate for input rate: " << rate_mhz(c_vars.inputRate) << "\n";
             print_rate_pairs();
             return 1;
         }
 
         c_vars.outputRate = *def;
 
-        if (args.verbose) {
-            std::cerr << "[Stream1090] Auto-selected output rate: " << float(c_vars.outputRate) / 1'000'000.0f
-                      << " MHz\n";
-        }
+        Log::msg("Stream1090") << "Auto-selected output rate: " << rate_mhz(c_vars.outputRate) << " MHz";
+    }
+
+    // The device settings need the rate to resolve their automatic defaults.
+    if (nativeDevice) {
+        const auto config = build_device_config(args, r_vars.deviceType, c_vars.inputRate);
+        if (!config)
+            return 1;
+        r_vars.deviceConfig = *config;
     }
 
     // ------------------------
@@ -525,9 +256,15 @@ int main(int argc, char** argv) {
         c_vars.rawFormat = InputFormatType::IQ_FLOAT32;
         c_vars.pipelineOption = IQPipelineOptions::NONE;
     } else {
-        // the default behaviour
-        c_vars.rawFormat = (c_vars.inputRate < Rate_6_0_Mhz) ? InputFormatType::IQ_UINT8_RTL_SDR
-                                                             : InputFormatType::IQ_UINT16_RAW_AIRSPY;
+        // The backend decides the raw format; for stdin it is implied by the
+        // requested rate, exactly as it always was.
+        if (r_vars.deviceType == InputDeviceType::AIRSPY)
+            c_vars.rawFormat = InputFormatType::IQ_UINT16_RAW_AIRSPY;
+        else if (r_vars.deviceType == InputDeviceType::RTLSDR)
+            c_vars.rawFormat = InputFormatType::IQ_UINT8_RTL_SDR;
+        else
+            c_vars.rawFormat = (c_vars.inputRate < Rate_6_0_Mhz) ? InputFormatType::IQ_UINT8_RTL_SDR
+                                                                 : InputFormatType::IQ_UINT16_RAW_AIRSPY;
 
         c_vars.pipelineOption = IQPipelineOptions::NONE;
         if (!r_vars.filterTaps.empty()) {
@@ -565,4 +302,54 @@ int main(int argc, char** argv) {
         return 1;
     }
     return *outcome ? 0 : 1;
+}
+
+int main(int argc, char** argv) {
+    // Input and logging may run beside AVR output. Their default ties must not
+    // flush std::cout concurrently from another thread.
+    std::ios::sync_with_stdio(false);
+    std::cin.tie(nullptr);
+    std::cerr.tie(nullptr);
+
+    CliArgs args;
+    if (!parse_cli(argc, argv, args)) {
+        std::cerr << "Usage: stream1090 [--device stdin|auto|airspy|rtlsdr] [-s <rate>] [-u <rate>] "
+                     "[-f <taps file>] [-q] [--verbose] [--debug] [-h]\n";
+        return 1;
+    }
+    if (args.helpRequested) {
+        print_help();
+        return 0;
+    }
+
+    if (args.netAvrPort != 0 && args.netAvrPort == args.netBeastPort) {
+        std::cerr << "AVR and Beast TCP ports must be different.\n";
+        return 1;
+    }
+    if (!args.stdoutEnabled && args.netAvrPort == 0 && args.netBeastPort == 0) {
+        std::cerr << "--no-stdout requires --net-avr-port and/or --net-beast-port.\n";
+        return 1;
+    }
+
+    if (args.verbose)
+        Log::setLevel(Log::Level::INFO);
+    if (args.debug)
+        Log::setLevel(Log::Level::DEBUG);
+
+    // Installed once, before any run, so a SIGHUP between two runs is never
+    // lost and never falls back to the default action.
+    ProcessSignals::install();
+
+    for (;;) {
+        const int code = run_once(args);
+
+        // Only SIGHUP asks for another pass. A device loss or a plain SIGINT
+        // keeps the exit status of the finished run.
+        if (!ProcessSignals::reselectRequested())
+            return code;
+
+        ProcessSignals::clearReselect();
+        ProcessSignals::clearShutdown();
+        Log::msg("Stream1090") << "SIGHUP: selecting the device again.";
+    }
 }

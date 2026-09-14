@@ -64,27 +64,40 @@ struct GlobalOptions {
 
 namespace ProcessSignals {
 
-static std::atomic<bool> g_shutdownRequested{false};
-static std::atomic<bool> g_reloadRequested{false};
+// inline, not static: these are read and written from several translation
+// units (the handler is installed in main.cpp, the pipeline and the watchdog
+// check it from the preset translation units). A header-local `static` would
+// give every TU its own copy, so a delivered SIGINT would set one copy and the
+// reader would wait forever on another.
+inline std::atomic<bool> g_shutdownRequested{false};
+inline std::atomic<bool> g_reselectRequested{false};
 
 inline bool shutdownRequested() {
     return g_shutdownRequested.load(std::memory_order_relaxed);
 }
 
-inline bool reloadRequested() {
-    return g_reloadRequested.load(std::memory_order_relaxed);
+inline bool reselectRequested() {
+    return g_reselectRequested.load(std::memory_order_relaxed);
 }
 
-inline void clearReload() {
-    g_reloadRequested.store(false, std::memory_order_relaxed);
+inline void clearReselect() {
+    g_reselectRequested.store(false, std::memory_order_relaxed);
 }
 
-static void handle_sigint(int) {
+inline void clearShutdown() {
+    g_shutdownRequested.store(false, std::memory_order_relaxed);
+}
+
+inline void handle_sigint(int) {
     g_shutdownRequested.store(true, std::memory_order_relaxed);
 }
 
-static void handle_sighup(int) {
-    g_reloadRequested.store(true, std::memory_order_relaxed);
+// A SIGHUP no longer re-reads a file: it asks the supervisor to tear the
+// current run down and select the device again, so a newly plugged dongle is
+// picked up. Stopping the run is what wakes the DSP pipeline.
+inline void handle_sighup(int) {
+    g_reselectRequested.store(true, std::memory_order_relaxed);
+    g_shutdownRequested.store(true, std::memory_order_relaxed);
 }
 
 inline void install() {

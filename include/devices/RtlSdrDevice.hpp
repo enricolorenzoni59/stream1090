@@ -12,7 +12,7 @@
 #include <thread>
 #include <vector>
 #include "devices/InputDeviceBase.hpp"
-#include "IniConfig.hpp"
+#include "devices/DeviceConfig.hpp"
 
 class RtlSdrDevice : public InputDeviceBase<uint8_t> {
   public:
@@ -38,10 +38,10 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     bool setVgaGain(int value);
 
     // Called before opening the device to parse the serial
-    void applyConfigPreOpen(const IniConfig::Section& cfg) override;
+    void applyConfigPreOpen(const DeviceConfig& cfg) override;
 
     // Reload hook
-    void applyConfigPostOpen(const IniConfig::Section& cfg) override;
+    void applyConfigPostOpen(const DeviceConfig& cfg) override;
     // Applied gain as the device shadow state sees it.
     GainState gainState() const override;
     int frequencyCorrectionPpm() const override { return m_state.ppm; }
@@ -49,11 +49,10 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
   private:
     static void callback(unsigned char* buf, uint32_t len, void* ctx);
     void observeSamples(uint32_t len);
-    void configureAutoPpm(const IniConfig::Section& cfg);
+    void configureAutoPpm(const AutoPpmConfig& cfg);
     void resetAutoPpmMeasurement();
     bool open_with_serial(uint64_t serial = 0);
     bool open_with_serial(const std::string& serial);
-    bool applySetting(const std::string& key, const std::string& value);
 
     int nearestGain(int requested);
 

@@ -14,6 +14,35 @@
 #include <string>
 #include <vector>
 
+#ifdef STREAM1090_HAVE_RTLSDR_BLOG
+// The vendored fork reports its messages through this callback instead of
+// writing straight to stderr, so tuner detection, PLL failures and the rest
+// carry the same timestamp and level as the rest of the log. See the
+// rtlsdr_log patch in thirdparty/rtl-sdr-blog.
+static void forwardRtlsdrLog(rtlsdr_log_level_t level, const char* message) {
+    // The library messages end with a newline; the logger adds its own, so
+    // strip one to avoid a blank line after every entry.
+    std::string text(message);
+    if (!text.empty() && text.back() == '\n')
+        text.pop_back();
+
+    switch (level) {
+    case RTLSDR_LOG_ERROR:
+        Log::error("librtlsdr") << text;
+        break;
+    case RTLSDR_LOG_WARN:
+        Log::warn("librtlsdr") << text;
+        break;
+    case RTLSDR_LOG_DEBUG:
+        Log::debug("librtlsdr") << text;
+        break;
+    default:
+        Log::info("librtlsdr") << text;
+        break;
+    }
+}
+#endif
+
 void RtlSdrDevice::callback(unsigned char* buf, uint32_t len, void* ctx) {
     auto* self = static_cast<RtlSdrDevice*>(ctx);
 
@@ -154,6 +183,9 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
 }
 
 bool RtlSdrDevice::open() {
+#ifdef STREAM1090_HAVE_RTLSDR_BLOG
+    rtlsdr_set_log_callback(forwardRtlsdrLog);
+#endif
     if (!open_with_serial(m_serialString))
         return false;
 
@@ -349,7 +381,7 @@ void RtlSdrDevice::resetAutoPpmMeasurement() {
         metrics.rtlAutoPpmPhase.store(enabled ? 1 : 0, std::memory_order_relaxed);
 }
 
-void RtlSdrDevice::configureAutoPpm(const IniConfig::Section& cfg) {
+void RtlSdrDevice::configureAutoPpm(const AutoPpmConfig& cfg) {
     bool enabled;
     unsigned interval;
     unsigned warmup;
@@ -368,23 +400,13 @@ void RtlSdrDevice::configureAutoPpm(const IniConfig::Section& cfg) {
         limit = m_autoPpm.limit;
     }
 
-    auto isTrue = [](const std::string& value) {
-        return value == "1" || value == "true" || value == "on" || value == "yes";
-    };
-    if (auto it = cfg.find("auto_ppm"); it != cfg.end())
-        enabled = isTrue(it->second);
-    if (auto it = cfg.find("auto_ppm_interval"); it != cfg.end())
-        interval = std::max(10, std::stoi(it->second));
-    if (auto it = cfg.find("auto_ppm_warmup"); it != cfg.end())
-        warmup = std::max(0, std::stoi(it->second));
-    if (auto it = cfg.find("auto_ppm_samples"); it != cfg.end())
-        samples = std::clamp(std::stoi(it->second), 3, 31);
-    if (auto it = cfg.find("auto_ppm_max_step"); it != cfg.end())
-        maxStep = std::clamp(std::stoi(it->second), 1, 100);
-    if (auto it = cfg.find("auto_ppm_deadband"); it != cfg.end())
-        deadband = std::clamp(std::stoi(it->second), 0, 20);
-    if (auto it = cfg.find("auto_ppm_limit"); it != cfg.end())
-        limit = std::clamp(std::stoi(it->second), 1, 1000);
+    enabled = cfg.enabled;
+    interval = static_cast<unsigned>(std::max(10, static_cast<int>(cfg.intervalSeconds)));
+    warmup = static_cast<unsigned>(std::max(0, static_cast<int>(cfg.warmupSeconds)));
+    samples = static_cast<unsigned>(std::clamp(static_cast<int>(cfg.samples), 3, 31));
+    maxStep = std::clamp(cfg.maxStep, 1, 100);
+    deadband = std::clamp(cfg.deadband, 0, 20);
+    limit = std::clamp(cfg.limit, 1, 1000);
 
     // Publish the effective (clamped) configuration even when it matches the
     // defaults and therefore does not reset an in-progress measurement.
@@ -641,56 +663,23 @@ RtlSdrDevice::GainState RtlSdrDevice::gainState() const {
 // ----------------------
 // applySetting()
 // ----------------------
-bool RtlSdrDevice::applySetting(const std::string& key, const std::string& value) {
-    if (!m_dev)
-        return false;
-
-    // Core controls
-    if (key == "frequency")
-        return setFrequency(std::stoul(value));
-    if (key == "gain")
-        return setGain(std::stof(value));
-    if (key == "agc")
-        return setAgc(value == "1" || value == "true" || value == "on");
-    if (key == "bias_tee")
-        return setBiasTee(value == "1" || value == "true" || value == "on");
-    if (key == "ppm")
-        return setPpm(std::stoi(value));
-    if (key == "offset_tuning")
-        return setOffsetTuning(value == "1" || value == "true" || value == "on");
-    if (key == "tuner_bandwidth")
-        return setTunerBandwidth(std::stoul(value));
-
-    // Advanced per‑stage gain controls (R820T manual mode)
-    if (key == "lna_gain")
-        return setLnaGain(std::stoi(value));
-    if (key == "mixer_gain")
-        return setMixerGain(std::stoi(value));
-    if (key == "vga_gain")
-        return setVgaGain(std::stoi(value));
-
-    return false;
-}
-
-void RtlSdrDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
-    for (auto& [key, value] : cfg) {
-
-        if (key == "serial")
-            m_serialString = value;
-        else if (key == "frequency")
-            m_openFrequency = static_cast<uint32_t>(std::stoul(value));
-    }
+void RtlSdrDevice::applyConfigPreOpen(const DeviceConfig& cfg) {
+    if (cfg.serial)
+        m_serialString = *cfg.serial;
+    else
+        m_serialString.clear();
+    m_openFrequency = cfg.frequencyHz;
 }
 
 // ----------------------
 // Reload logic
 // ----------------------
-void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
-    configureAutoPpm(cfg);
+void RtlSdrDevice::applyConfigPostOpen(const DeviceConfig& cfg) {
+    configureAutoPpm(cfg.autoPpm);
     if (!m_initialConfigApplied) {
         m_initialConfigApplied = true;
 
-        if (!cfg.count("tuner_bandwidth") && rtlsdr_get_tuner_type(m_dev) == RTLSDR_TUNER_R820T) {
+        if (!cfg.tunerBandwidth && rtlsdr_get_tuner_type(m_dev) == RTLSDR_TUNER_R820T) {
             Log::warn("RtlSdrDevice") << "No tuner_bandwidth configured for this R820T/R820T2 tuner; "
                                          "automatic IF filter selection depends on the sample rate and "
                                          "librtlsdr implementation. Set it explicitly (for example, "
@@ -698,17 +687,23 @@ void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
         }
     }
 
-    for (auto& [key, value] : cfg) {
+    setFrequency(cfg.frequencyHz);
+    setAgc(cfg.agc);
+    if (cfg.gainDb)
+        setGain(*cfg.gainDb);
+    if (cfg.tunerBandwidth)
+        setTunerBandwidth(*cfg.tunerBandwidth);
+    setBiasTee(cfg.biasTee);
+    setOffsetTuning(cfg.offsetTuning);
+    if (cfg.ppm)
+        setPpm(*cfg.ppm);
 
-        if (key == "serial" || key == "auto_ppm" ||
-            key == "auto_ppm_interval" || key == "auto_ppm_warmup" ||
-            key == "auto_ppm_samples" || key == "auto_ppm_max_step" ||
-            key == "auto_ppm_deadband" ||
-            key == "auto_ppm_limit")
-            continue;
-
-        applySetting(key, value);
-    }
+    if (cfg.lnaGain)
+        setLnaGain(*cfg.lnaGain);
+    if (cfg.mixerGain)
+        setMixerGain(*cfg.mixerGain);
+    if (cfg.vgaGain)
+        setVgaGain(*cfg.vgaGain);
 
     // Report the bandwidth setting once. librtlsdr has no read-back API for
     // the effective bandwidth it derives when tuner_bandwidth is omitted.

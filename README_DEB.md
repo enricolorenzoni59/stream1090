@@ -84,7 +84,7 @@ sudo nano /etc/stream1090/stream1090.conf
 The default contents are:
 
 ```bash
-STREAM1090_OPTS="-s 2.4 -d /etc/stream1090/rtlsdr.ini"
+STREAM1090_OPTS="--device auto -s 2.56 -u 12"
 READSB_PORT=30001
 ```
 
@@ -92,16 +92,18 @@ Adjust `STREAM1090_OPTS` for your setup:
 
 | Hardware | Minimum options |
 |----------|----------------|
-| RTL-SDR  | `-s 2.4 -d /etc/stream1090/rtlsdr.ini` |
-| RTL-SDR (higher rate) | `-s 2.56 -d /etc/stream1090/rtlsdr.ini` |
-| Airspy   | `-s 6 -d /etc/stream1090/airspy.ini` |
-| Airspy (10 Msps) | `-s 10 -d /etc/stream1090/airspy.ini` |
+| RTL-SDR  | `--device rtlsdr` |
+| RTL-SDR (higher rate) | `--device rtlsdr -s 2.56` |
+| Airspy   | `--device airspy -s 6` |
+| Airspy (10 Msps) | `--device airspy -s 10` |
+| IQ on stdin | `--device stdin -s 2.4` |
 
 Add `-u <rate>` to enable upsampling, or `-q` to enable the IQ FIR filter.
 See [README.md](./README.md) for the full list of supported rate combinations.
 
-Device-specific settings (gain, bias-tee, serial number, etc.) are in the
-corresponding `.ini` file under `/etc/stream1090/`.
+Device-specific settings (gain, bias-tee, serial number, etc.) are command line
+flags: `--gain`, `--agc`, `--bias-tee`, `--serial`, `--ppm`, and so on. Run
+`stream1090 --help` for the full list.
 
 ## Running as a Service
 

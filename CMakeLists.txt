@@ -23,7 +23,7 @@ set(PREAMBLE_GATE_THRESHOLD 1.2 CACHE STRING "Preamble score a real transmission
 set(MIN_SNR               2.5 CACHE STRING "Reject address-parity frames below this signal-to-noise ratio (0 disables; a ratio, so it transfers between receivers)")
 option(ENABLE_ORBGRAND "Enable reliability-ordered last-resort DF17 repair" OFF)
 set(ORBGRAND_GUESSES "1024" CACHE STRING "Hard cap on ORBGRAND error-pattern guesses per frame")
-option(ENABLE_RTLSDR_BLOG    "Enable vendored RTL-SDR Blog fork" OFF)
+option(ENABLE_RTLSDR_BLOG    "Enable vendored RTL-SDR Blog fork" ON)
 option(ENABLE_TOO_MUCH_CPU   "Unlocks the 40 and 48 Msps speeds" OFF)
 option(BUILD_TESTING         "Build tests" OFF)
 set(INTERPOLATION_KERNEL "6" CACHE STRING "RTL-SDR interpolation kernel (1 linear, 6 sharpening cubic)")
@@ -302,6 +302,10 @@ else()
     endif()
 endif()
 
+# Device enumeration is backend-neutral and always compiled; the per-backend
+# code inside is guarded by STREAM1090_HAVE_*.
+list(APPEND DEVICE_SOURCES src/devices/DeviceEnumerator.cpp)
+
 
 # ------------------------------------------------------------
 # Feature flags
@@ -393,6 +397,10 @@ stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
     stream1090_add_test(sampler_interp_sharpening_test tests/SamplerInterpolationTest.cpp)
     target_compile_definitions(sampler_interp_sharpening_test PRIVATE STREAM1090_INTERP=6)
     stream1090_add_test(rtlsdr_serial_test tests/RtlSdrSerialTest.cpp)
+    stream1090_add_test(device_config_test tests/DeviceConfigTest.cpp)
+    stream1090_add_test(device_enumerator_test tests/DeviceEnumeratorTest.cpp)
+    stream1090_add_test(signals_test tests/SignalsTest.cpp)
+    target_sources(signals_test PRIVATE tests/SignalsProbe.cpp)
     stream1090_add_test(sample_drop_event_gate_test tests/SampleDropEventGateTest.cpp)
     stream1090_add_test(noise_false_positive_test tests/NoiseFalsePositiveTest.cpp)
     stream1090_add_test(metrics_test tests/MetricsTest.cpp)
@@ -417,10 +425,6 @@ include(GNUInstallDirs)
 
 install(TARGETS stream1090
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-
-install(FILES configs/rtlsdr.ini configs/airspy.ini
-    DESTINATION ${CMAKE_INSTALL_SYSCONFDIR}/stream1090
 )
 
 install(DIRECTORY custom_filters/

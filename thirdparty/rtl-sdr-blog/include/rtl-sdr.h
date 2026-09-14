@@ -26,6 +26,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <rtl-sdr_export.h>
+#include "rtlsdr_log.h"
 
 typedef struct rtlsdr_dev rtlsdr_dev_t;
 
@@ -413,6 +414,15 @@ RTLSDR_API int rtlsdr_check_dongle_model(void *dev, char *manufact_check, char *
 RTLSDR_API int rtlsdr_r82xx_set_lna_gain(rtlsdr_dev_t *dev, int gain);
 RTLSDR_API int rtlsdr_r82xx_set_mixer_gain(rtlsdr_dev_t *dev, int gain);
 RTLSDR_API int rtlsdr_r82xx_set_vga_gain(rtlsdr_dev_t *dev, int gain);
+
+/*!
+ * Redirect the messages the library used to print to stderr to a callback.
+ * Passing NULL restores the default stderr output. The levels and the
+ * callback signature come from rtlsdr_log.h.
+ *
+ * \param callback the callback to install, or NULL.
+ */
+RTLSDR_API void rtlsdr_set_log_callback(rtlsdr_log_callback_t callback);
 
 
 

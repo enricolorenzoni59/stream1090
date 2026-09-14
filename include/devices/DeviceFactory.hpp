@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 
-#include "devices/IniConfig.hpp"
+#include "devices/DeviceConfig.hpp"
 #include "devices/InputDeviceBase.hpp"
 
 #ifdef STREAM1090_HAVE_AIRSPY
@@ -18,8 +18,6 @@
 #ifdef STREAM1090_HAVE_RTLSDR
 #include "devices/RtlSdrDevice.hpp"
 #endif
-
-enum class InputDeviceType { STREAM, AIRSPY, RTLSDR, NONE };
 
 template <typename RawType> class DeviceFactory {
   public:

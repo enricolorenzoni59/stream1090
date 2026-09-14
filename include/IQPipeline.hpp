@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <utility>
+#include <sstream>
 #include "RawInputFormat.hpp"
 
 /*

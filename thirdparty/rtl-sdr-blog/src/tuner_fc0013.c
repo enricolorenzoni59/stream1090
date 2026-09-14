@@ -29,6 +29,7 @@
 
 #include "rtlsdr_i2c.h"
 #include "tuner_fc0013.h"
+#include "rtlsdr_log.h"
 
 static int fc0013_writereg(void *dev, uint8_t reg, uint8_t val)
 {
@@ -333,7 +334,7 @@ int fc0013_set_params(void *dev, uint32_t freq, uint32_t bandwidth)
 	}
 
 	if ((reg[1] > 15) || (reg[2] < 0x0b)) {
-		fprintf(stderr, "[FC0013] no valid PLL combination "
+		rtlsdr_log(RTLSDR_LOG_WARN, "[FC0013] no valid PLL combination "
 				"found for %u Hz!\n", freq);
 		return -1;
 	}

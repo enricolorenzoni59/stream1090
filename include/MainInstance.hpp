@@ -15,7 +15,7 @@
 #include "InputBufferReader.hpp"
 #include "IQPipeline.hpp"
 #include "LowPassFilter.hpp"
-#include "devices/IniConfig.hpp"
+#include "devices/DeviceConfig.hpp"
 #include "devices/DeviceFactory.hpp"
 #include "TcpOutputServer.hpp"
 #include "Metrics.hpp"
@@ -29,15 +29,13 @@
 #include <unistd.h>
 
 template <typename Sampler> void printSamplerConfig() {
-    std::cerr << "[Stream1090] build " << STREAM1090_VERSION << std::endl;
-    std::cerr << "[Stream1090] Input sampling speed: " << (double)Sampler::InputSampleRate / 1000000.0 << " MHz"
-              << std::endl;
-    std::cerr << "[Stream1090] Output sampling speed: " << Sampler::OutputSampleRate / 1000000 << " MHz" << std::endl;
-    std::cerr << "[Stream1090] Input to output ratio: " << Sampler::RatioInput << ":" << Sampler::RatioOutput
-              << std::endl;
-    std::cerr << "[Stream1090] Number of streams: " << Sampler::NumStreams << std::endl;
-    std::cerr << "[Stream1090] Size of input buffer: " << Sampler::InputBufferSize << " samples " << std::endl;
-    std::cerr << "[Stream1090] Size of sample buffer: " << Sampler::SampleBufferSize << " samples " << std::endl;
+    Log::msg("Stream1090") << "build " << STREAM1090_VERSION;
+    Log::msg("Stream1090") << "Input sampling speed: " << (double)Sampler::InputSampleRate / 1000000.0 << " MHz";
+    Log::msg("Stream1090") << "Output sampling speed: " << Sampler::OutputSampleRate / 1000000 << " MHz";
+    Log::msg("Stream1090") << "Input to output ratio: " << Sampler::RatioInput << ":" << Sampler::RatioOutput;
+    Log::msg("Stream1090") << "Number of streams: " << Sampler::NumStreams;
+    Log::msg("Stream1090") << "Size of input buffer: " << Sampler::InputBufferSize << " samples ";
+    Log::msg("Stream1090") << "Size of sample buffer: " << Sampler::SampleBufferSize << " samples ";
 }
 
 struct CompileTimeVars {
@@ -49,8 +47,10 @@ struct CompileTimeVars {
 
 struct RuntimeVars {
     InputDeviceType deviceType = InputDeviceType::STREAM;
-    IniConfig deviceConfig;
-    IniConfig::Section deviceConfigSection;
+    DeviceConfig deviceConfig;
+    // Ordered serial candidates for the selected backend. The device is opened
+    // on the first one that is not busy; empty means "use deviceConfig.serial".
+    std::vector<std::string> deviceSerials;
     std::vector<float> filterTaps;
     bool verbose = true;
     bool stdoutEnabled = true;
@@ -80,35 +80,6 @@ template <typename preset> class MainInstance {
     using RingBuffer = RingBufferAsync<RawType, SamplerType::InputBufferSize * 2>;
     using Writer = typename RingBuffer::Writer;
 
-    bool reloadDeviceConfig() {
-        // Re-read the INI file from disk
-        if (!m_runtimeVars.deviceConfig.reload()) {
-            Log::error("Stream1090", "Failed to reload INI file.");
-            return false;
-        }
-
-        auto& cfg = m_runtimeVars.deviceConfig.get();
-
-        // Extract the correct section
-        if (m_runtimeVars.deviceType == InputDeviceType::AIRSPY) {
-            if (!cfg.count("airspy")) {
-                Log::error("Stream1090", "Reloaded INI missing [airspy] section.");
-                return false;
-            }
-            m_runtimeVars.deviceConfigSection = cfg.at("airspy");
-        }
-
-        else if (m_runtimeVars.deviceType == InputDeviceType::RTLSDR) {
-            if (!cfg.count("rtlsdr")) {
-                Log::error("Stream1090", "Reloaded INI missing [rtlsdr] section.");
-                return false;
-            }
-            m_runtimeVars.deviceConfigSection = cfg.at("rtlsdr");
-        }
-
-        return true;
-    }
-
     static const char* deviceName(InputDeviceType type) {
         switch (type) {
         case InputDeviceType::AIRSPY:
@@ -125,22 +96,11 @@ template <typename preset> class MainInstance {
     void publishDeviceSettings() {
         if constexpr (!Metrics::Enabled)
             return;
-        const auto& cfg = m_runtimeVars.deviceConfigSection;
+        const auto& cfg = m_runtimeVars.deviceConfig;
         auto& reg = Metrics::registry();
-        const auto number = [&cfg](const char* key, double fallback) {
-            const auto it = cfg.find(key);
-            if (it == cfg.end())
-                return fallback;
-            try {
-                return std::stod(it->second);
-            } catch (const std::exception&) {
-                return fallback;
-            }
-        };
-        reg.settingPpm.set(m_device ? double(m_device->frequencyCorrectionPpm()) : number("ppm", 0.0));
-        reg.settingFrequencyHz.set(number("frequency", 1090000000.0));
-        const auto agc = cfg.find("agc");
-        reg.settingAgc.set(agc != cfg.end() && (agc->second == "1" || agc->second == "true") ? 1.0 : 0.0);
+        reg.settingPpm.set(m_device ? double(m_device->frequencyCorrectionPpm()) : double(cfg.ppm.value_or(0)));
+        reg.settingFrequencyHz.set(double(cfg.frequencyHz));
+        reg.settingAgc.set(cfg.agc ? 1.0 : 0.0);
 
         if (m_device) {
             const auto gain = m_device->gainState();
@@ -150,23 +110,40 @@ template <typename preset> class MainInstance {
     }
 
     bool setup_device() {
-        const auto& cfg = m_runtimeVars.deviceConfigSection;
+        Log::info("Stream1090", "Applying device configuration.");
 
-        // tell the device to read all properties required to open it
-        Log::info("Stream1090", "Reading initial properties from the ini file");
-        m_device->applyConfigPreOpen(cfg);
-
-        // let us try to open the device
-        Log::info("Stream1090", "Trying to open the device.");
-        if (!m_device->open()) {
-            Log::error("Stream1090", "Opening device failed.");
-            // this is not good at all
-            return false;
+        // Try the candidate serials in order. A device that is already claimed
+        // by another process fails to open and the next one is tried, so a
+        // second dongle is picked up without any probe open/close.
+        const auto attempt = [this](const std::string& serial) {
+            DeviceConfig cfg = m_runtimeVars.deviceConfig;
+            if (!serial.empty())
+                cfg.serial = serial;
+            m_device->applyConfigPreOpen(cfg);
+            Log::info("Stream1090", "Trying to open the device.");
+            return m_device->open();
         };
 
+        bool opened = false;
+        if (m_runtimeVars.deviceSerials.empty()) {
+            opened = attempt(m_runtimeVars.deviceConfig.serial.value_or(""));
+        } else {
+            for (const auto& serial : m_runtimeVars.deviceSerials) {
+                if (attempt(serial)) {
+                    opened = true;
+                    break;
+                }
+                Log::warn("Stream1090", "Device unusable, trying the next one.");
+            }
+        }
+        if (!opened) {
+            Log::error("Stream1090", "Opening device failed.");
+            return false;
+        }
+
         // device is ready, apply all the other properties
-        Log::info("Stream1090", "Device is open. Reading the ini file.");
-        m_device->applyConfigPostOpen(cfg);
+        Log::info("Stream1090", "Device is open. Applying settings.");
+        m_device->applyConfigPostOpen(m_runtimeVars.deviceConfig);
 
         // we do not care if any of the properties did not work
         return true;
@@ -219,9 +196,6 @@ template <typename preset> class MainInstance {
             return false;
         }
         Log::info("Stream1090", "Device is running. ");
-
-        Log::info("Stream1090", "Installing sig handlers.");
-        ProcessSignals::install();
 
         // If we made it until here, we assume that this device is ready and alive.
         // We mark it here as such, because especially the rtlsdr driver needs some
@@ -296,25 +270,7 @@ template <typename preset> class MainInstance {
                     }
                 }
 
-                // 3) Reload request (SIGHUP)
-                if (ProcessSignals::reloadRequested()) {
-                    ProcessSignals::clearReload();
-                    Log::info("Stream1090", "Re-reading config file.");
-
-                    if (reloadDeviceConfig()) {
-                        Log::info("Stream1090", "Applying new configuration.");
-                        m_device->applyConfigPostOpen(m_runtimeVars.deviceConfigSection);
-                        auto& reg = Metrics::registry();
-                        reg.configReloadsOk.inc();
-                        reg.configGeneration.set(reg.configGeneration.get() + 1.0);
-                        publishDeviceSettings();
-                    } else {
-                        Metrics::registry().configReloadsFailed.inc();
-                        Log::warn("Stream1090", "Reload failed. Keeping old settings.");
-                    }
-                }
-
-                // 4) Sample-drop policy. The detection runs on the device
+                // 3) Sample-drop policy. The detection runs on the device
                 // callback thread; this side only warns and decides whether
                 // the run may continue.
                 if (m_device) {
@@ -455,7 +411,7 @@ template <typename preset> class MainInstance {
         // setup pipeline
         auto iqPipeline = IQPipelineSelector<inputRate, outputRate, pipelineOption>().make(m_runtimeVars.filterTaps);
         const std::string pipelineName = iqPipeline.toString();
-        Log::info("", pipelineName);
+        Log::info("Stream1090") << "IQ pipeline: " << (pipelineName.empty() ? "none" : pipelineName);
 
         auto& reg = Metrics::registry();
         reg.setBuildInfo(STREAM1090_VERSION, pipelineName.empty() ? std::string("none") : pipelineName,

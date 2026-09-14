@@ -53,7 +53,10 @@ class Logger {
   private:
     Logger() = default;
     mutable std::mutex mutex_;
-    Level max_level_ = Level::WARN; // default: WARN + ERROR
+    // WARN + ERROR are problems, MSG is normal user-facing status, INFO/DEBUG
+    // are verbose detail (-v / --debug). MSG is on by default so the startup
+    // banner is visible.
+    Level max_level_ = Level::MSG;
 };
 
 class Stream {

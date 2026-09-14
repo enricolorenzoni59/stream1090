@@ -8,7 +8,7 @@
 
 #include "Sampler.hpp"
 #include "RingBuffer.hpp"
-#include "IniConfig.hpp"
+#include "devices/DeviceConfig.hpp"
 #include "devices/SampleDropEventGate.hpp"
 #include <string>
 #include <atomic>
@@ -36,12 +36,12 @@ template <typename T> class InputDeviceBase {
     virtual void close() = 0;
 
     // Called before open() is called to parse things like serial, packing etc.
-    virtual void applyConfigPreOpen(const IniConfig::Section&) {
+    virtual void applyConfigPreOpen(const DeviceConfig&) {
         // we do not do anything as default
     };
 
     // Called by the watchdog after SIGHUP
-    virtual void applyConfigPostOpen(const IniConfig::Section&) {
+    virtual void applyConfigPostOpen(const DeviceConfig&) {
         // we do not do anything as default
     };
 

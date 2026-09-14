@@ -24,8 +24,7 @@ std::string hex32(uint32_t value) {
 
 // libairspy applies these stage values for the combined gain presets and
 // gives no way to read them back, so they are mirrored here to keep the
-// shadow state honest. They are the table documented in configs/airspy.ini,
-// which is also what airspy_rx uses.
+// shadow state honest. They are the same table airspy_rx uses.
 struct StageGains {
     int lna;
     int mixer;
@@ -329,8 +328,8 @@ bool AirspyDevice::tryEnablingPacking() {
         return false;
     }
     if (result != AIRSPY_SUCCESS) {
-        Log::error("AirspyDevice") << "Packing not supported by this "
-                                      "device or firmware; continuing unpacked";
+        Log::error("AirspyDevice") << "Packing is not supported by this device or "
+                                      "firmware; rerun with --airspy-packing=false";
         return false;
     }
 
@@ -340,63 +339,47 @@ bool AirspyDevice::tryEnablingPacking() {
 // ----------------------
 // applySetting()
 // ----------------------
-bool AirspyDevice::applySetting(const std::string& key, const std::string& value) {
+void AirspyDevice::applySetting(const DeviceConfig& cfg) {
     if (!m_dev)
-        return false;
+        return;
 
-    if (key == "frequency")
-        return setFrequency(std::stoul(value));
-    if (key == "linearity_gain")
-        return setLinearityGain(std::stoi(value));
-    if (key == "sensitivity_gain")
-        return setSensitivityGain(std::stoi(value));
-    if (key == "lna_gain")
-        return setLnaGain(std::stoi(value));
-    if (key == "mixer_gain")
-        return setMixerGain(std::stoi(value));
-    if (key == "vga_gain")
-        return setVgaGain(std::stoi(value));
-    if (key == "bias_tee") {
-        bool enabled = (value == "1" || value == "true" || value == "on");
-        return setBiasTee(enabled);
-    }
+    setFrequency(cfg.frequencyHz);
 
-    return false;
+    // Combined presets first, so explicit per-stage controls win over them.
+    if (cfg.linearityGain)
+        setLinearityGain(*cfg.linearityGain);
+    if (cfg.sensitivityGain)
+        setSensitivityGain(*cfg.sensitivityGain);
+    if (cfg.lnaGain)
+        setLnaGain(*cfg.lnaGain);
+    if (cfg.mixerGain)
+        setMixerGain(*cfg.mixerGain);
+    if (cfg.vgaGain)
+        setVgaGain(*cfg.vgaGain);
+
+    setBiasTee(cfg.biasTee);
 }
 
-void AirspyDevice::applyConfigPreOpen(const IniConfig::Section& cfg) {
-    for (auto& [key, value] : cfg) {
-
-        if (key == "serial") {
-            try {
-                std::size_t pos = 0;
-                uint64_t serial = std::stoull(value, &pos, 0);
-                if (pos != value.size()) {
-                    m_serial = 0;
-                }
-                m_serial = serial;
-            } catch (...) {
+void AirspyDevice::applyConfigPreOpen(const DeviceConfig& cfg) {
+    if (cfg.serial) {
+        try {
+            std::size_t pos = 0;
+            m_serial = std::stoull(*cfg.serial, &pos, 0);
+            if (pos != cfg.serial->size())
                 m_serial = 0;
-            }
+        } catch (...) {
+            m_serial = 0;
         }
-
-        if (key == "packing") {
-            m_packingEnabled = (value == "1" || value == "true" || value == "on");
-        }
+    } else {
+        m_serial = 0;
     }
+
+    m_packingEnabled = cfg.packing;
 }
 
 // ----------------------
 // Reload logic
 // ----------------------
-void AirspyDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
-    for (auto& [key, value] : cfg) {
-
-        if (key == "serial")
-            continue; // immutable
-        if (key == "packing")
-            continue; // immutable
-
-        applySetting(key, value);
-    }
+void AirspyDevice::applyConfigPostOpen(const DeviceConfig& cfg) {
+    applySetting(cfg);
 }

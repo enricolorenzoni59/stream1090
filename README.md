@@ -221,48 +221,29 @@ As a next step, we configure stream1090 for a test run without any decoder. The 
 - Device specific parameters
 - General parameters
 
-The latter ones are passed via command line, while the device specific ones are located in a config file. 
+Everything is passed on the command line; there is no device configuration file. With no `--device`, stream1090 looks at where its input comes from: a piped stdin (regular file, pipe or socket) is decoded as IQ input, while an empty stdin (a terminal or `/dev/null`, as under systemd) picks an attached SDR automatically - Airspy first, then RTL-SDR, in serial order, skipping any unit that is already busy.
 
-### Device specific configuration
-The stream1090 directory contains a folder named ```./configs```. There you can find two device specific files, ```rtlsdr.ini``` and ```airspy.ini```. 
-Edit the corresponding file for your device and read the comments. For now you may only want to adjust the gain settings with one exception:
+### Device settings
+Sensible defaults are applied automatically and can be overridden per flag:
 
-For RTL-SDR devices, the startup diagnostics identify the linked librtlsdr backend, the detected tuner, and whether the tuner bandwidth was explicitly configured. An `auto` bandwidth setting means librtlsdr derives it from the selected sample rate.
+- Sample rate: `-s <MHz>`. Defaults to 2.56 Msps on RTL-SDR and to the highest rate the Airspy supports. `-u <MHz>` defaults to the highest upsample for that input.
+- RTL-SDR gain defaults to a fixed 49.6 dB; `--gain <db>` overrides it and `--agc` switches to automatic gain. `--tuner-bandwidth <hz>` defaults to 3 MHz at 2.4/2.56 Msps and to 2.43 MHz at 3.2 Msps, the narrow state the 3.2 preset needs. `--ppm <n>` sets a fixed correction.
+- Airspy defaults to `--linearity-gain 21` with packing on; `--sensitivity-gain`, `--lna-gain/--mixer-gain/--vga-gain` and `--airspy-packing false` override that.
+- **Important:** if you power an LNA via bias-tee, pass `--bias-tee`. It is off by default.
+- RTL-SDR continuous crystal calibration is opt-in with `--auto-ppm`, with `--auto-ppm-warmup/-interval/-samples/-max-step/-deadband/-limit` for the details. Stream1090 measures the shared tuner/ADC clock against the host monotonic clock, takes the median of several clean windows, and applies the bounded correction through librtlsdr. Long-running measurements are deliberate; carrier offsets from individual aircraft are not used as a reference.
 
-**Important:** If you are powering an LNA via bias-tee, you have to turn that on by setting ```bias_tee = true```. It is off by default.
-
-For common R820T/R820T2 receivers, the supplied `rtlsdr.ini` pins
-`tuner_bandwidth` to 3 MHz. At the commonly used 2.4 and 2.56 Msps sample rates,
-librtlsdr maps this request to the 6 MHz IF filter state. Setting it explicitly
-keeps the tuner state consistent across librtlsdr implementations. Stream1090
-warns at startup when the setting is missing on these tuners. Other tuner types
-or sample rates may need a different value.
-
-RTL-SDR users can opt into continuous crystal calibration with
-`auto_ppm = true`. Stream1090 measures the shared tuner/ADC clock against the
-host monotonic clock, takes the median of several clean windows, and applies
-the bounded correction through librtlsdr. See `configs/rtlsdr.ini` for the
-warm-up, window count, deadband, step, and safety-limit controls. Long-running
-measurements are deliberate; carrier offsets from individual aircraft are not
-used as a reference.
+Use `--device stdin`, `--device rtlsdr` or `--device airspy` to be explicit, and `--serial <id>` to bind to one specific unit. A SIGHUP makes stream1090 stop the current run and select the device again, so a newly attached dongle is picked up without restarting the process.
 
 ### Minimal running example
-For the sake of a first try, we will focus only on parameters that are necessary to get things up and running. You may have noticed that the sample rate is not part of the ini file. There are reasons for that. 
+For a first try we only need the essentials. All messages found by stream1090 are written to stdout, so we suppress them by sending them to `/dev/null`.
 
-So we have to tell stream1090 two things to get going:
+Switch to the stream1090 directory. With an RTL-SDR attached (the default rate there is 2.56 Msps):
 
-- The sample rate via ```-s <rate>``` in MHz
-- The location of the device configuration file via ```-d <file.ini>```
+```./build/stream1090 --device auto > /dev/null```
 
-However, all messages found by stream1090 will be written to stdout. Since we cannot use them right now, we will suppress them by sending them to ```/dev/null```. 
+The same command without `--device` auto-detects. To force one backend when both are connected:
 
-Switch to the stream1090 directory. In case of RTL-SDR, we will select 2.4 MHz as sampling rate.
-
-```./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini > /dev/null```
-
-For Airspy the minimum supported sample rate is 6 MHz
-
-```./build/stream1090 -s 6 -d ./configs/airspy.ini > /dev/null```
+```./build/stream1090 --device airspy -s 6 > /dev/null```
 
 In both cases you should see stream1090 starting up and after around 5 seconds some statistics similar to this.
 ```
@@ -326,15 +307,15 @@ restore linear interpolation. Other rate combinations are unaffected.
 The rule of thumb here is simple: The higher the upsample rate, the more messages will be found, but at the cost of higher CPU usage.
 If you do not care about CPU usage, then use the highest upsample rate. For RTL-SDR this would be something like
 ```
-./build/stream1090 -s 2.56 -u 12 -d ./configs/rtlsdr.ini > /dev/null
+./build/stream1090 --device rtlsdr -s 2.56 -u 12 > /dev/null
 ```
 There is no higher upsampling rate in this case. For Airspy you can do
 ```
-./build/stream1090 -s 6 -u 24 -d ./configs/airspy.ini  > /dev/null
+./build/stream1090 --device airspy -s 6 -u 24 > /dev/null
 ```
 or if your hardware supports 10 Msps sample rate
 ```
-./build/stream1090 -s 10 -u 24 -d ./configs/airspy.ini > /dev/null
+./build/stream1090 --device airspy -s 10 -u 24 > /dev/null
 ```
 
 #### A note on RTL-SDR devices and 2.56 MHz
@@ -410,7 +391,7 @@ Readsb can ingest either AVR/raw text or Beast binary data. For testing, start
 stream1090's loopback-only Beast server:
 
 ```
-./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini \
+./build/stream1090 --device rtlsdr -s 2.4 \
     --net-bind-address 127.0.0.1 --net-beast-port 30007 --no-stdout
 ```
 
@@ -425,7 +406,7 @@ readsb --net --net-connector=127.0.0.1,30007,beast_in --interactive
 To use AVR/raw instead:
 
 ```
-./build/stream1090 -s 2.4 -d ./configs/rtlsdr.ini \
+./build/stream1090 --device rtlsdr -s 2.4 \
     --net-bind-address 127.0.0.1 --net-avr-port 30006 --no-stdout
 readsb --net --net-connector=127.0.0.1,30006,raw_in --interactive
 ```
