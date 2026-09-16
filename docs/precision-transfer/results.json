@@ -1,0 +1,1994 @@
+[
+  {
+    "case": "N53_5601_near_mixed",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 0,
+          "false": 0,
+          "missed": 6000,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 1100
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 0,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "method": "empty truth or output; no alignment needed"
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 0,
+          "false": 0,
+          "missed": 6000,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 1100
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 0,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "method": "empty truth or output; no alignment needed"
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5603_dispersed_mixed",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 713,
+          "false": 5,
+          "missed": 5287,
+          "per_df": {
+            "0": {
+              "true": 105,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 125,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 108,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 30,
+              "false": 5,
+              "truth": 1100
+            },
+            "16": {
+              "true": 88,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 118,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 22,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 60,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 57,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "anchors": 713,
+          "slope": 0.999999993870399,
+          "offset_samples": -334.4819916174045,
+          "residual_std_samples": 0.14692181737224666
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 710,
+          "false": 0,
+          "missed": 5290,
+          "per_df": {
+            "0": {
+              "true": 105,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 125,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 108,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 27,
+              "false": 0,
+              "truth": 1100
+            },
+            "16": {
+              "true": 88,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 118,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 22,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 60,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 57,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "anchors": 710,
+          "slope": 0.9999999936654188,
+          "offset_samples": -334.48133872854226,
+          "residual_std_samples": 0.14728052502703323
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5611_noise",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 4603,
+          "false": 29,
+          "missed": 13697,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 3,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 21,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "17": {
+              "true": 4603,
+              "false": 1,
+              "truth": 18300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 2,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 4603,
+          "slope": 1.0000000000063893,
+          "offset_samples": -334.4037820272323,
+          "residual_std_samples": 0.03913812584914314
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 4603,
+          "false": 8,
+          "missed": 13697,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 3,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "17": {
+              "true": 4603,
+              "false": 1,
+              "truth": 18300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 2,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 4603,
+          "slope": 1.0000000000063893,
+          "offset_samples": -334.4037820272323,
+          "residual_std_samples": 0.03913812584914314
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5613_ES_only",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 15828,
+          "false": 8,
+          "missed": 14172,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 2,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "17": {
+              "true": 15828,
+              "false": 4,
+              "truth": 30000
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 15828,
+          "slope": 0.9999999999946335,
+          "offset_samples": -334.4010780056835,
+          "residual_std_samples": 0.037116510817196906
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 15828,
+          "false": 6,
+          "missed": 14172,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "17": {
+              "true": 15828,
+              "false": 4,
+              "truth": 30000
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 15828,
+          "slope": 0.9999999999946335,
+          "offset_samples": -334.4010780056835,
+          "residual_std_samples": 0.037116510817196906
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5621_near_stable",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 7471,
+          "false": 379,
+          "missed": 28829,
+          "per_df": {
+            "0": {
+              "true": 806,
+              "false": 36,
+              "truth": 5000
+            },
+            "4": {
+              "true": 797,
+              "false": 42,
+              "truth": 5000
+            },
+            "5": {
+              "true": 716,
+              "false": 79,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 13,
+              "truth": 0
+            },
+            "16": {
+              "true": 670,
+              "false": 84,
+              "truth": 5000
+            },
+            "17": {
+              "true": 3231,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 661,
+              "false": 93,
+              "truth": 5000
+            },
+            "21": {
+              "true": 590,
+              "false": 32,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 7471,
+          "slope": 0.9999999999573159,
+          "offset_samples": -334.4526346627498,
+          "residual_std_samples": 0.11479398473853157
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 7471,
+          "false": 366,
+          "missed": 28829,
+          "per_df": {
+            "0": {
+              "true": 806,
+              "false": 36,
+              "truth": 5000
+            },
+            "4": {
+              "true": 797,
+              "false": 42,
+              "truth": 5000
+            },
+            "5": {
+              "true": 716,
+              "false": 79,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 670,
+              "false": 84,
+              "truth": 5000
+            },
+            "17": {
+              "true": 3231,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 661,
+              "false": 93,
+              "truth": 5000
+            },
+            "21": {
+              "true": 590,
+              "false": 32,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 7471,
+          "slope": 0.9999999999573159,
+          "offset_samples": -334.4526346627498,
+          "residual_std_samples": 0.11479398473853157
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5623_dispersed_stable",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 3575,
+          "false": 48,
+          "missed": 32725,
+          "per_df": {
+            "0": {
+              "true": 399,
+              "false": 7,
+              "truth": 5000
+            },
+            "4": {
+              "true": 371,
+              "false": 9,
+              "truth": 5000
+            },
+            "5": {
+              "true": 363,
+              "false": 6,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 9,
+              "truth": 0
+            },
+            "16": {
+              "true": 316,
+              "false": 3,
+              "truth": 5000
+            },
+            "17": {
+              "true": 1533,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 329,
+              "false": 10,
+              "truth": 5000
+            },
+            "21": {
+              "true": 264,
+              "false": 4,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3575,
+          "slope": 0.9999999999216213,
+          "offset_samples": -334.446852631418,
+          "residual_std_samples": 0.1116090201603386
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 3575,
+          "false": 39,
+          "missed": 32725,
+          "per_df": {
+            "0": {
+              "true": 399,
+              "false": 7,
+              "truth": 5000
+            },
+            "4": {
+              "true": 371,
+              "false": 9,
+              "truth": 5000
+            },
+            "5": {
+              "true": 363,
+              "false": 6,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 316,
+              "false": 3,
+              "truth": 5000
+            },
+            "17": {
+              "true": 1533,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 329,
+              "false": 10,
+              "truth": 5000
+            },
+            "21": {
+              "true": 264,
+              "false": 4,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3575,
+          "slope": 0.9999999999216213,
+          "offset_samples": -334.446852631418,
+          "residual_std_samples": 0.1116090201603386
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5627_near_independent",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 6959,
+          "false": 422,
+          "missed": 29341,
+          "per_df": {
+            "0": {
+              "true": 789,
+              "false": 61,
+              "truth": 5000
+            },
+            "4": {
+              "true": 764,
+              "false": 49,
+              "truth": 5000
+            },
+            "5": {
+              "true": 647,
+              "false": 65,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 17,
+              "truth": 0
+            },
+            "16": {
+              "true": 565,
+              "false": 99,
+              "truth": 5000
+            },
+            "17": {
+              "true": 3023,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 618,
+              "false": 99,
+              "truth": 5000
+            },
+            "21": {
+              "true": 553,
+              "false": 32,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 6959,
+          "slope": 0.9999999999881549,
+          "offset_samples": -334.4550652997219,
+          "residual_std_samples": 0.11678179087774791
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 6959,
+          "false": 406,
+          "missed": 29341,
+          "per_df": {
+            "0": {
+              "true": 789,
+              "false": 61,
+              "truth": 5000
+            },
+            "4": {
+              "true": 764,
+              "false": 49,
+              "truth": 5000
+            },
+            "5": {
+              "true": 647,
+              "false": 65,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "16": {
+              "true": 565,
+              "false": 99,
+              "truth": 5000
+            },
+            "17": {
+              "true": 3023,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 618,
+              "false": 99,
+              "truth": 5000
+            },
+            "21": {
+              "true": 553,
+              "false": 32,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 6959,
+          "slope": 0.9999999999881549,
+          "offset_samples": -334.4550652997219,
+          "residual_std_samples": 0.11678179087774791
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5629_dispersed_independent",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 3494,
+          "false": 40,
+          "missed": 32806,
+          "per_df": {
+            "0": {
+              "true": 375,
+              "false": 6,
+              "truth": 5000
+            },
+            "4": {
+              "true": 371,
+              "false": 10,
+              "truth": 5000
+            },
+            "5": {
+              "true": 295,
+              "false": 3,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 6,
+              "truth": 0
+            },
+            "16": {
+              "true": 341,
+              "false": 5,
+              "truth": 5000
+            },
+            "17": {
+              "true": 1529,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 315,
+              "false": 6,
+              "truth": 5000
+            },
+            "21": {
+              "true": 268,
+              "false": 4,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3494,
+          "slope": 0.9999999999757985,
+          "offset_samples": -334.4537587703282,
+          "residual_std_samples": 0.11331100213859073
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 3494,
+          "false": 34,
+          "missed": 32806,
+          "per_df": {
+            "0": {
+              "true": 375,
+              "false": 6,
+              "truth": 5000
+            },
+            "4": {
+              "true": 371,
+              "false": 10,
+              "truth": 5000
+            },
+            "5": {
+              "true": 295,
+              "false": 3,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 341,
+              "false": 5,
+              "truth": 5000
+            },
+            "17": {
+              "true": 1529,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 315,
+              "false": 6,
+              "truth": 5000
+            },
+            "21": {
+              "true": 268,
+              "false": 4,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3494,
+          "slope": 0.9999999999757985,
+          "offset_samples": -334.4537587703282,
+          "residual_std_samples": 0.11331100213859073
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5631_collision",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 606,
+          "false": 0,
+          "missed": 4194,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "17": {
+              "true": 606,
+              "false": 0,
+              "truth": 3600
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 1200
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "method": "unique-payload anchors, nominal same-input rate, robust offset/line fit",
+          "anchors": 606,
+          "slope": 0.9999999992490548,
+          "offset_samples": -334.50727056139385,
+          "residual_std_samples": 0.20677887483083243
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 606,
+          "false": 0,
+          "missed": 4194,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "17": {
+              "true": 606,
+              "false": 0,
+              "truth": 3600
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 1200
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "method": "unique-payload anchors, nominal same-input rate, robust offset/line fit",
+          "anchors": 606,
+          "slope": 0.9999999992490548,
+          "offset_samples": -334.50727056139385,
+          "residual_std_samples": 0.20677887483083243
+        }
+      }
+    }
+  },
+  {
+    "case": "N53_5633_collision",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 623,
+          "false": 1,
+          "missed": 4177,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "17": {
+              "true": 623,
+              "false": 1,
+              "truth": 3600
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 1200
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "method": "unique-payload anchors, nominal same-input rate, robust offset/line fit",
+          "anchors": 623,
+          "slope": 0.9999999983852927,
+          "offset_samples": -334.48183507267225,
+          "residual_std_samples": 0.19209237710569707
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 623,
+          "false": 1,
+          "missed": 4177,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "17": {
+              "true": 623,
+              "false": 1,
+              "truth": 3600
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 1200
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "method": "unique-payload anchors, nominal same-input rate, robust offset/line fit",
+          "anchors": 623,
+          "slope": 0.9999999983852927,
+          "offset_samples": -334.48183507267225,
+          "residual_std_samples": 0.19209237710569707
+        }
+      }
+    }
+  },
+  {
+    "case": "N73_7301_near_mixed",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 0,
+          "false": 0,
+          "missed": 6000,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 1100
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 0,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "method": "empty truth or output; no alignment needed"
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 0,
+          "false": 0,
+          "missed": 6000,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 1100
+            },
+            "16": {
+              "true": 0,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 0,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "method": "empty truth or output; no alignment needed"
+        }
+      }
+    }
+  },
+  {
+    "case": "N73_7303_dispersed_mixed",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 673,
+          "false": 2,
+          "missed": 5327,
+          "per_df": {
+            "0": {
+              "true": 94,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 118,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 106,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 30,
+              "false": 2,
+              "truth": 1100
+            },
+            "16": {
+              "true": 77,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 126,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 17,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 52,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 53,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "anchors": 673,
+          "slope": 0.9999999945350447,
+          "offset_samples": -334.4928800787337,
+          "residual_std_samples": 0.15570730443523012
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 672,
+          "false": 0,
+          "missed": 5328,
+          "per_df": {
+            "0": {
+              "true": 94,
+              "false": 0,
+              "truth": 580
+            },
+            "4": {
+              "true": 118,
+              "false": 0,
+              "truth": 600
+            },
+            "5": {
+              "true": 106,
+              "false": 0,
+              "truth": 600
+            },
+            "11": {
+              "true": 29,
+              "false": 0,
+              "truth": 1100
+            },
+            "16": {
+              "true": 77,
+              "false": 0,
+              "truth": 600
+            },
+            "17": {
+              "true": 126,
+              "false": 0,
+              "truth": 1020
+            },
+            "18": {
+              "true": 17,
+              "false": 0,
+              "truth": 500
+            },
+            "20": {
+              "true": 52,
+              "false": 0,
+              "truth": 500
+            },
+            "21": {
+              "true": 53,
+              "false": 0,
+              "truth": 500
+            }
+          }
+        },
+        "registration": {
+          "anchors": 672,
+          "slope": 0.9999999943662976,
+          "offset_samples": -334.4920694559001,
+          "residual_std_samples": 0.15456452781317562
+        }
+      }
+    }
+  },
+  {
+    "case": "N73_7311_near_unknown",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 6931,
+          "false": 393,
+          "missed": 29369,
+          "per_df": {
+            "0": {
+              "true": 780,
+              "false": 46,
+              "truth": 5000
+            },
+            "4": {
+              "true": 750,
+              "false": 48,
+              "truth": 5000
+            },
+            "5": {
+              "true": 650,
+              "false": 80,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 11,
+              "truth": 0
+            },
+            "16": {
+              "true": 590,
+              "false": 86,
+              "truth": 5000
+            },
+            "17": {
+              "true": 3030,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 622,
+              "false": 93,
+              "truth": 5000
+            },
+            "21": {
+              "true": 509,
+              "false": 29,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 6931,
+          "slope": 0.9999999999252064,
+          "offset_samples": -334.4480598352365,
+          "residual_std_samples": 0.11358549502544651
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 6931,
+          "false": 382,
+          "missed": 29369,
+          "per_df": {
+            "0": {
+              "true": 780,
+              "false": 46,
+              "truth": 5000
+            },
+            "4": {
+              "true": 750,
+              "false": 48,
+              "truth": 5000
+            },
+            "5": {
+              "true": 650,
+              "false": 80,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 590,
+              "false": 86,
+              "truth": 5000
+            },
+            "17": {
+              "true": 3030,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 622,
+              "false": 93,
+              "truth": 5000
+            },
+            "21": {
+              "true": 509,
+              "false": 29,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 6931,
+          "slope": 0.9999999999252064,
+          "offset_samples": -334.4480598352365,
+          "residual_std_samples": 0.11358549502544651
+        }
+      }
+    }
+  },
+  {
+    "case": "N73_7313_dispersed_unknown",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 3463,
+          "false": 39,
+          "missed": 32837,
+          "per_df": {
+            "0": {
+              "true": 388,
+              "false": 7,
+              "truth": 5000
+            },
+            "4": {
+              "true": 393,
+              "false": 5,
+              "truth": 5000
+            },
+            "5": {
+              "true": 328,
+              "false": 7,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 7,
+              "truth": 0
+            },
+            "16": {
+              "true": 304,
+              "false": 6,
+              "truth": 5000
+            },
+            "17": {
+              "true": 1487,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 312,
+              "false": 5,
+              "truth": 5000
+            },
+            "21": {
+              "true": 251,
+              "false": 2,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3463,
+          "slope": 0.9999999999163576,
+          "offset_samples": -334.45200899538236,
+          "residual_std_samples": 0.1161600731853216
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 3463,
+          "false": 32,
+          "missed": 32837,
+          "per_df": {
+            "0": {
+              "true": 388,
+              "false": 7,
+              "truth": 5000
+            },
+            "4": {
+              "true": 393,
+              "false": 5,
+              "truth": 5000
+            },
+            "5": {
+              "true": 328,
+              "false": 7,
+              "truth": 5000
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 304,
+              "false": 6,
+              "truth": 5000
+            },
+            "17": {
+              "true": 1487,
+              "false": 0,
+              "truth": 6300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 312,
+              "false": 5,
+              "truth": 5000
+            },
+            "21": {
+              "true": 251,
+              "false": 2,
+              "truth": 5000
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3463,
+          "slope": 0.9999999999163576,
+          "offset_samples": -334.45200899538236,
+          "residual_std_samples": 0.1161600731853216
+        }
+      }
+    }
+  },
+  {
+    "case": "N73_7321_noise",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 3531,
+          "false": 28,
+          "missed": 8769,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 4,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 20,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 2,
+              "truth": 0
+            },
+            "17": {
+              "true": 3531,
+              "false": 0,
+              "truth": 12300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3531,
+          "slope": 1.0000000000178262,
+          "offset_samples": -334.405160159403,
+          "residual_std_samples": 0.03781624620856395
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 3531,
+          "false": 8,
+          "missed": 8769,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 4,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 2,
+              "truth": 0
+            },
+            "17": {
+              "true": 3531,
+              "false": 0,
+              "truth": 12300
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 3531,
+          "slope": 1.0000000000178262,
+          "offset_samples": -334.405160159403,
+          "residual_std_samples": 0.03781624620856395
+        }
+      }
+    }
+  },
+  {
+    "case": "N73_7323_ES_only",
+    "variants": {
+      "baseline": {
+        "metrics": {
+          "true": 14389,
+          "false": 11,
+          "missed": 15611,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 6,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "17": {
+              "true": 14389,
+              "false": 4,
+              "truth": 30000
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 14389,
+          "slope": 0.9999999999968596,
+          "offset_samples": -334.4020663537577,
+          "residual_std_samples": 0.04108142185793336
+        }
+      },
+      "bounded": {
+        "metrics": {
+          "true": 14389,
+          "false": 5,
+          "missed": 15611,
+          "per_df": {
+            "0": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "4": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "5": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "11": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "16": {
+              "true": 0,
+              "false": 1,
+              "truth": 0
+            },
+            "17": {
+              "true": 14389,
+              "false": 4,
+              "truth": 30000
+            },
+            "18": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "20": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            },
+            "21": {
+              "true": 0,
+              "false": 0,
+              "truth": 0
+            }
+          }
+        },
+        "registration": {
+          "anchors": 14389,
+          "slope": 0.9999999999968596,
+          "offset_samples": -334.4020663537577,
+          "residual_std_samples": 0.04108142185793336
+        }
+      }
+    }
+  }
+]

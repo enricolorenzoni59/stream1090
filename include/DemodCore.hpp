@@ -774,23 +774,10 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
                 logStats(Stats::DF11_ICAO_CA_FOUND_1_BIT_FIX);
                 // we are good now and proceed as with the normal zero crc case
                 return handleDF11ShortMessageWithZeroCRC(streamIndex, frameShort, true);
-            } else {
-                // the crc is not good and no repairs with the error table. We do now a dirty trick here.
-                // get the address including the CA field
-                const auto icaoWithCA = ModeS::extractICAOWithCA_Short(frameShort);
-                // look up the address in the trusted list
-                const auto e = m_cache.findWithCA(icaoWithCA);
-                // if it is there and we consider this as an active trusted transponder
-                if (e.isValid() && m_cache.isTrusted(e) &&
-                    (preambleConfirms(streamIndex) || !signalAtNoiseFloor(streamIndex))) {
-                    const uint64_t corrected = frameShort ^ crc;
-                    // Hence, we trust the address including the CA field. Downlink format is correct.
-                    // make sure to have this sender address in the list of known but not thrustworthy addresses
-                    m_cache.markAsSeen(e);
-                    // The only remaining data in this short message is the parity block. Fix it and output the message
-                    return sendFrameShortAligned(streamIndex, 11, 0, corrected, e);
-                }
             }
+            // A trusted ICAO/CA is not evidence for all 24 received parity
+            // bits. If bounded correction failed, reject rather than synthesize
+            // a CRC-valid reply by overwriting the entire parity field.
         }
         return false;
     }

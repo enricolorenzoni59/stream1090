@@ -1,0 +1,21 @@
+{
+  "base": "17bfd4179639a594c5ae46cc06a05c7a5d03b712",
+  "branch": "codex/ml-precision-transfer",
+  "flags": [
+    "-s",
+    "2.4",
+    "-u",
+    "12",
+    "-q"
+  ],
+  "binary_sha256": {
+    "baseline": "ab090b6f6399ca57e6b54f04c8aadc0e7d998cb6aefb5c84eacd49100efb0eef",
+    "bounded": "f4877c71bfc3e0029c5f8c905f2a256b75343f474c8389c37c6323d9a75563e2"
+  },
+  "tests": {
+    "baseline": "14/14 passed",
+    "bounded": "14/14 passed",
+    "new_regression_on_base": "failed with exit 3",
+    "new_regression_on_bounded": "passed"
+  }
+}
