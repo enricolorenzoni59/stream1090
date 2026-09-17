@@ -71,6 +71,7 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     };
 
     ShadowState m_state;
+    bool m_bandwidthApplied = false;
     bool m_initialConfigApplied = false;
     bool m_stateReported = false;
     // Set once stop() has begun, so the reader thread can tell a clean

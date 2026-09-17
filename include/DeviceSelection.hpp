@@ -211,7 +211,11 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
         return std::nullopt;
     if (!args.tunerBandwidth.empty()) {
         unsigned long hz = 0;
-        if (!integer(args.tunerBandwidth, hz, "tuner bandwidth") || hz == 0) {
+        // 0 is librtlsdr's "derive the IF bandwidth from the sample rate".
+        // Rejecting it made the automatic mode unreachable from the command
+        // line, and with a backend default always filling in a value it could
+        // not be reached any other way either.
+        if (!integer(args.tunerBandwidth, hz, "tuner bandwidth")) {
             Log::error("Stream1090") << "Invalid tuner bandwidth: " << args.tunerBandwidth;
             return std::nullopt;
         }
