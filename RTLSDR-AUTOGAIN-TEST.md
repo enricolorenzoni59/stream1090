@@ -26,6 +26,16 @@ cmake --build build --parallel 4
 ./build/stream1090 -h
 ```
 
+If you already have a checkout, update it and rebuild before each run:
+
+```sh
+cd stream1090
+git fetch origin
+git switch rtlsdr-autogain
+git pull --ff-only origin rtlsdr-autogain
+cmake --build build --parallel 4
+```
+
 The help output should list **RTL-SDR Blog (advanced)** as a native device.
 Check `configs/rtlsdr.ini` before starting: it tunes to 1090 MHz and pins the
 R82xx tuner bandwidth to 3 MHz at the 2.4 Msps sample rate below. Its
