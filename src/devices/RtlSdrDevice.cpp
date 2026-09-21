@@ -651,7 +651,10 @@ void RtlSdrDevice::adaptiveGainLoop() {
         if (awaitingClimb) {
             const double responseDb = (climbRms > 0.0 && rms > 0.0)
                 ? 20.0 * std::log10(rms / climbRms) : 0.0;
-            if (responseDb < kClimbResponseDb)
+            // while the floor is quantisation-starved the RMS barely moves
+            // per step, so a weak response is not evidence of windup. Only
+            // count it once the loop is past the persistent-silence hold.
+            if (responseDb < kClimbResponseDb && !persistentSilence)
                 mudWindows++;
             else
                 mudWindows = 0;
