@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <chrono>
+#include <ctime>
 #include <iomanip>
 
 namespace Log {
@@ -23,8 +24,11 @@ namespace Log {
         auto t = system_clock::to_time_t(now);
         auto ms = duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
 
+        std::tm tm{};
+        ::localtime_r(&t, &tm);
+
         std::ostringstream oss;
-        oss << std::put_time(std::localtime(&t), "%H:%M:%S")
+        oss << std::put_time(&tm, "%H:%M:%S")
             << "." << std::setw(3) << std::setfill('0') << ms.count();
         return oss.str();
     }
@@ -52,15 +56,31 @@ namespace Log {
             if (lvl > max_level_)
                 return;
 
-            std::cerr << short_timestamp()
-                      << " [" << src << "] "
-                      << msg << "\n";
+            std::string prefix = short_timestamp();
+            if (!src.empty())
+                prefix += " [" + src + "]";
+            prefix += " ";
+
+            if (msg.empty()) {
+                std::cerr << prefix << "\n";
+                return;
+            }
+
+            std::size_t start = 0;
+            while (start < msg.size()) {
+                std::size_t end = msg.find('\n', start);
+                if (end == std::string::npos)
+                    end = msg.size();
+                if (end > start)
+                    std::cerr << prefix << msg.substr(start, end - start) << "\n";
+                start = end + 1;
+            }
         }
 
     private:
         Logger() = default;
         mutable std::mutex mutex_;
-        Level max_level_ = Level::WARN;   // default: WARN + ERROR
+        Level max_level_ = Level::MSG;   // default: normal messages + WARN + ERROR
     };
 
 

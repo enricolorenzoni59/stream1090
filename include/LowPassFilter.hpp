@@ -20,6 +20,7 @@
 #endif
 #include "Sampler.hpp"
 #include "CustomFilterTaps.hpp"
+#include "Logger.hpp"
 
 /*
  * How the filter is evaluated
@@ -284,11 +285,11 @@ public:
     }
 
     void printTabs() {
-        std::cerr << "Sym: " << m_areTapsSymmetric << std::endl;
-        std::cerr << "Odd: " << m_areTapsOdd << std::endl;
-        std::cerr << "Num: " << numTaps() << std::endl;
+        Log::info("IQLowPassDynamic") << "Sym: " << m_areTapsSymmetric;
+        Log::info("IQLowPassDynamic") << "Odd: " << m_areTapsOdd;
+        Log::info("IQLowPassDynamic") << "Num: " << numTaps();
         for (size_t i = 0; i < numTaps(); i++) {
-            std::cerr << m_taps[i] << std::endl;
+            Log::info("IQLowPassDynamic") << m_taps[i];
         }
     }
 
@@ -365,7 +366,7 @@ public:
             return false;
         }
 #if defined(STATS_ENABLED) && STATS_ENABLED
-        std::cerr << "[Stream1090] Loaded " << taps.size() << " taps from " << filename << std::endl;
+        Log::info("Stream1090") << "Loaded " << taps.size() << " taps from " << filename;
 #endif
         return setTaps(taps);
     }

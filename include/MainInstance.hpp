@@ -38,13 +38,13 @@ void closeAfterWatchdog(Device& device, std::thread& watchdog) {
 
 template<typename Sampler>
 void printSamplerConfig() {
-    std::cerr << "[Stream1090] build " << STREAM1090_VERSION << std::endl;
-    std::cerr << "[Stream1090] Input sampling speed: " << (double)Sampler::InputSampleRate / 1000000.0 << " MHz" << std::endl;
-    std::cerr << "[Stream1090] Output sampling speed: " << Sampler::OutputSampleRate / 1000000 << " MHz" << std::endl;
-    std::cerr << "[Stream1090] Input to output ratio: " << Sampler::RatioInput << ":" << Sampler::RatioOutput << std::endl;
-    std::cerr << "[Stream1090] Number of streams: " << Sampler::NumStreams << std::endl;
-    std::cerr << "[Stream1090] Size of input buffer: " << Sampler::InputBufferSize << " samples " << std::endl;
-    std::cerr << "[Stream1090] Size of sample buffer: " << Sampler::SampleBufferSize << " samples " << std::endl;  
+    Log::msg("Stream1090") << "build " << STREAM1090_VERSION;
+    Log::msg("Stream1090") << "Input sampling speed: " << (double)Sampler::InputSampleRate / 1000000.0 << " MHz";
+    Log::msg("Stream1090") << "Output sampling speed: " << Sampler::OutputSampleRate / 1000000 << " MHz";
+    Log::msg("Stream1090") << "Input to output ratio: " << Sampler::RatioInput << ":" << Sampler::RatioOutput;
+    Log::msg("Stream1090") << "Number of streams: " << Sampler::NumStreams;
+    Log::msg("Stream1090") << "Size of input buffer: " << Sampler::InputBufferSize << " samples";
+    Log::msg("Stream1090") << "Size of sample buffer: " << Sampler::SampleBufferSize << " samples";
 }
 
 struct CompileTimeVars {

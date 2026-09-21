@@ -15,6 +15,7 @@
 
 #include "MainInstance.hpp"
 #include "PresetDispatcher.hpp"
+#include "Logger.hpp"
 
 
 struct RatePair {
@@ -185,7 +186,7 @@ bool parse_cli(int argc, char** argv, CliArgs& out) {
             continue;
         }
 
-        std::cerr << "Unknown or incomplete argument: " << arg << "\n";
+        Log::error("Stream1090") << "Unknown or incomplete argument: " << arg;
         return false;
     }
 
@@ -204,7 +205,7 @@ SampleRate parse_sample_rate(const std::string& raw) {
     try {
         mhz = std::stof(s);
     } catch (...) {
-        std::cerr << "Invalid sample rate: " << raw << "\n";
+        Log::error("Stream1090") << "Invalid sample rate: " << raw;
         std::exit(1);
     }
 
@@ -232,7 +233,7 @@ SampleRate parse_sample_rate(const std::string& raw) {
     }*/
     return static_cast<SampleRate>(hz);
 
-    std::cerr << "Unsupported sample rate: " << raw << "\n";
+    Log::error("Stream1090") << "Unsupported sample rate: " << raw;
     std::exit(1);
 }
 
@@ -296,7 +297,7 @@ int main(int argc, char** argv) {
 
     CliArgs args;
     if (!parse_cli(argc, argv, args)) {
-        std::cerr << "Usage: stream1090 -s <rate> -u <rate> [-d <device.ini>] [-f <taps file>] [-q] [--verbose] [--debug] [-h]\n";
+        Log::error("Stream1090") << "Usage: stream1090 -s <rate> -u <rate> [-d <device.ini>] [-f <taps file>] [-q] [--verbose] [--debug] [-h]";
         return 1;
     }
 
@@ -317,14 +318,14 @@ int main(int argc, char** argv) {
     if (args.deviceConfig.empty()) {
         // No config file → stdin mode
         r_vars.deviceType = InputDeviceType::STREAM;
-        std::cerr << "[Stream1090] Reading from Stdin" << std::endl;
+        Log::info("Stream1090") << "Reading from Stdin";
     } else {
         // Load config file
         IniConfig dev_ini(args.deviceConfig);
 
         if (!dev_ini.load()) {
-            std::cerr << "[Stream1090] Cannot load device config from "
-                    << args.deviceConfig << std::endl;
+            Log::error("Stream1090") << "Cannot load device config from "
+                    << args.deviceConfig;
             return 1;
         }
 
@@ -339,7 +340,7 @@ int main(int argc, char** argv) {
             r_vars.deviceConfigSection = cfg.at("airspy");
 
             if (!GlobalOptions::NativeAirspySupport) {
-                std::cerr << "[Stream1090] Error. No native device support for airspy" << std::endl;
+                Log::error("Stream1090") << "No native device support for airspy";
                 return 1;
             }
 
@@ -348,20 +349,20 @@ int main(int argc, char** argv) {
             r_vars.deviceConfigSection = cfg.at("rtlsdr");
 
             if (!GlobalOptions::NativeRtlSdrSupport) {
-                std::cerr << "[Stream1090] Error. No native device support for rtlsdr" << std::endl;
+                Log::error("Stream1090") << "No native device support for rtlsdr";
                 return 1;
             }
 
             // Name whether librtlsdr is vendored or externally provided so
             // bug reports carry the build configuration that selected it.
             if (GlobalOptions::RtlSdrBlogAdvanced) {
-                std::cerr << "[Stream1090] RTL-SDR backend: vendored rtl-sdr-blog fork" << std::endl;
+                Log::info("Stream1090") << "RTL-SDR backend: vendored rtl-sdr-blog fork";
             } else {
-                std::cerr << "[Stream1090] RTL-SDR backend: external librtlsdr" << std::endl;
+                Log::info("Stream1090") << "RTL-SDR backend: external librtlsdr";
             }
 
         } else {
-            std::cerr << "[Stream1090] Error. Config file does not contain [airspy] or [rtlsdr] section." << std::endl;
+            Log::error("Stream1090") << "Config file does not contain [airspy] or [rtlsdr] section.";
             return 1;
         }
     }
@@ -373,7 +374,7 @@ int main(int argc, char** argv) {
     if (!args.tapsFile.empty()) {
         r_vars.filterTaps = load_taps_from_file(args.tapsFile);
         if (r_vars.filterTaps.empty()) {
-            std::cerr << "Error loading taps from " << args.tapsFile << std::endl;
+            Log::error("Stream1090") << "Error loading taps from " << args.tapsFile;
             return 1;
         }
     }
@@ -391,9 +392,9 @@ int main(int argc, char** argv) {
         c_vars.outputRate = parse_sample_rate(args.upsampleRate);
 
         if (!is_valid_rate_pair(c_vars.inputRate, c_vars.outputRate)) {
-            std::cerr << "[Stream1090] Unsupported rate combination: "
+            Log::error("Stream1090") << "Unsupported rate combination: "
                     << float(c_vars.inputRate)/1'000'000.0f << " → "
-                    << float(c_vars.outputRate)/1'000'000.0f << "\n";
+                    << float(c_vars.outputRate)/1'000'000.0f;
             print_rate_pairs();
             return 1;
         }
@@ -403,8 +404,8 @@ int main(int argc, char** argv) {
     else {
         auto def = find_default_output_rate(c_vars.inputRate);
         if (!def) {
-            std::cerr << "[Stream1090] No valid output rate for input rate: "
-                    << float(c_vars.inputRate)/1'000'000.0f << "\n";
+            Log::error("Stream1090") << "No valid output rate for input rate: "
+                    << float(c_vars.inputRate)/1'000'000.0f;
             print_rate_pairs();
             return 1;
         }
@@ -412,8 +413,8 @@ int main(int argc, char** argv) {
         c_vars.outputRate = *def;
 
         if (args.verbose) {
-            std::cerr << "[Stream1090] Auto-selected output rate: "
-                    << float(c_vars.outputRate)/1'000'000.0f << " MHz\n";
+            Log::info("Stream1090") << "Auto-selected output rate: "
+                    << float(c_vars.outputRate)/1'000'000.0f << " MHz";
         }
     }
 
@@ -455,7 +456,7 @@ int main(int argc, char** argv) {
     // ------------------------
     const auto outcome = runInstanceFromPresets(c_vars, r_vars);
     if (!outcome) {
-        std::cerr << "[Stream1090] Configuration is not supported: "<< c_vars.inputRate << " -> " << c_vars.outputRate << std::endl;
+        Log::error("Stream1090") << "Configuration is not supported: " << c_vars.inputRate << " -> " << c_vars.outputRate;
         return 1;
     }
     return *outcome ? 0 : 1;

@@ -74,7 +74,7 @@ bool RtlSdrDevice::open_with_serial(const std::string& serial) {
         case RTLSDR_TUNER_FC2580: tuner_name = "FC2580"; break;
         default: break;
     }
-    std::cerr << "[RtlSdrDevice] Tuner: " << tuner_name << std::endl;
+    Log::info("RtlSdrDevice") << "Tuner: " << tuner_name;
 
     auto check = [&](const char* name, int rc) {
         if (rc != 0) {
@@ -142,9 +142,8 @@ bool RtlSdrDevice::open_with_serial(uint64_t serial) {
         case RTLSDR_TUNER_FC2580: tuner_name = "FC2580"; break;
         default: break;
     }
-    std::cerr << "[RtlSdrDevice] Tuner: " << tuner_name << std::endl;
-    
-    
+    Log::info("RtlSdrDevice") << "Tuner: " << tuner_name;
+
     auto check = [&](const char* name, int rc) {
         if (rc != 0) {
             Log::error("RtlSdrDevice") << "ERROR: " << name
@@ -174,23 +173,12 @@ bool RtlSdrDevice::open() {
     if (!open_with_serial(m_serialString))
         return false;
 
-    const char* tunerName = "unknown";
-    switch (rtlsdr_get_tuner_type(m_dev)) {
-        case RTLSDR_TUNER_R820T:  tunerName = "R820T/R820T2"; break;
-        case RTLSDR_TUNER_R828D:  tunerName = "R828D"; break;
-        case RTLSDR_TUNER_E4000:  tunerName = "E4000"; break;
-        case RTLSDR_TUNER_FC0012: tunerName = "FC0012"; break;
-        case RTLSDR_TUNER_FC0013: tunerName = "FC0013"; break;
-        case RTLSDR_TUNER_FC2580: tunerName = "FC2580"; break;
-        default: break;
-    }
 #ifdef STREAM1090_HAVE_RTLSDR_BLOG
     const int tuner = rtlsdr_get_tuner_type(m_dev);
     m_vgaSupported = tuner == RTLSDR_TUNER_R820T || tuner == RTLSDR_TUNER_R828D;
 #else
     m_vgaSupported = false;
 #endif
-    std::cerr << "[RtlSdrDevice] Tuner: " << tunerName << std::endl;
     return true;
 }
 
@@ -424,6 +412,10 @@ void RtlSdrDevice::adaptiveGainLoop() {
     // connector: measured 0.86 and 0.88 LSB on the two cable events
     // of the 2026-09-05 bench, against 4.5..14 LSB in operation
     constexpr double kSilentRms = 1.5;
+    // the cable events last one window; a silent floor that persists is
+    // not that transient. Absorb a few windows, then treat the empty
+    // floor as a real, quiet input and let the loop climb again.
+    constexpr int kDropoutWindowsBeforeDecide = 3;
     // the VGA index the linear path fixes (16.3 dB): the digital-floor
     // climb may push it above this, the rebalance paths walk it back
     constexpr int VGA_LINEAR_IDX = 8;
@@ -456,6 +448,8 @@ void RtlSdrDevice::adaptiveGainLoop() {
     // +12 dB of level above the 49.6 dB top with the frames still flat and
     // the ADC quiet)
     int vgaIdx = m_state.vga_gain;
+    int silentWindows = 0;
+    bool persistentSilence = false;
 
     while (m_adaptiveRun.load(std::memory_order_relaxed)) {
         std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -637,13 +631,18 @@ void RtlSdrDevice::adaptiveGainLoop() {
         // band. Both cable events of the 2026-09-05 bench did exactly this
         // and cost a step in the wrong direction. Publish the window so it
         // stays visible, leave any pending climb pending, and decide
-        // nothing: prevP50 is deliberately not updated either.
-        if (rms < kSilentRms && sat <= 0.0) {
+        // nothing: prevP50 is deliberately not updated either. A silence
+        // that outlasts kDropoutWindowsBeforeDecide is not that transient:
+        // the loop resumes deciding so the gain can chase the quiet floor.
+        const SilentFloorState silence = advanceSilentFloor(
+            silentWindows, kDropoutWindowsBeforeDecide, rms, sat, kSilentRms);
+        if (silence == SilentFloorState::Transient) {
             Log::info("RtlSdrDevice") << "adaptive gain: input dropout (rms="
                       << rms << " sat=" << sat << "%), window skipped";
             reportDiagnostics("input dropout, holding");
             continue;
         }
+        persistentSilence = (silence == SilentFloorState::Persistent);
 
         // Windup guard, first half: score the previous climb. Two
         // non-responding climbs in a row declare the setpoint
@@ -715,7 +714,7 @@ void RtlSdrDevice::adaptiveGainLoop() {
                     steps = -1; why = "rails warming, holding";
                 }
                 mudWindows = 0;
-            } else if (centerFrac > kCenterStarved) {
+            } else if (centerFrac > kCenterStarved && !persistentSilence) {
                 // quantization starvation: p50 is pinned at 1 by
                 // discreteness, so the floor metrics cannot steer and
                 // more gain would only buy digital noise.
@@ -1042,10 +1041,9 @@ void RtlSdrDevice::applyConfigPostOpen(const IniConfig::Section& cfg) {
             std::lock_guard<std::mutex> lock(m_controlMutex);
             state = m_state;
         }
-        std::cerr << "[RtlSdrDevice] Tuner bandwidth setting: "
+        Log::info("RtlSdrDevice") << "Tuner bandwidth setting: "
                   << (state.tuner_bandwidth
                           ? std::to_string(state.tuner_bandwidth) + " Hz (explicit)"
-                          : std::string("auto (derived by librtlsdr from sample rate)"))
-                  << std::endl;
+                          : std::string("auto (derived by librtlsdr from sample rate)"));
     }
 }
