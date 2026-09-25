@@ -14,6 +14,7 @@
 #include <vector>
 #include "devices/InputDeviceBase.hpp"
 #include "devices/DeviceConfig.hpp"
+#include "devices/DisciplinedClock.hpp"
 
 class RtlSdrDevice : public InputDeviceBase<uint8_t> {
   public:
@@ -126,7 +127,7 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     std::string m_serialString = "";
     uint32_t m_openFrequency = 1090000000;
     // The tuner and ADC share the RTL-SDR crystal. Measuring the ADC sample
-    // rate against steady_clock therefore measures the residual oscillator
+    // rate against the host clock therefore measures the residual oscillator
     // error without relying on the (rather loose) carrier accuracy of remote
     // Mode-S transponders.
     struct AutoPpmState {
@@ -141,9 +142,10 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
         uint64_t totalPairs = 0;
         uint64_t baselinePairs = 0;
         uint64_t baselineDropEvents = 0;
-        std::chrono::steady_clock::time_point firstSample{};
-        std::chrono::steady_clock::time_point latestSample{};
-        std::chrono::steady_clock::time_point baselineTime{};
+        // DisciplinedClock, not steady_clock: see DisciplinedClock.hpp.
+        DisciplinedClock::time_point firstSample{};
+        DisciplinedClock::time_point latestSample{};
+        DisciplinedClock::time_point baselineTime{};
         bool haveSample = false;
         bool haveBaseline = false;
         std::vector<double> measurements;

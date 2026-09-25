@@ -443,7 +443,7 @@ bool RtlSdrDevice::setPpm(int ppm) {
 }
 
 void RtlSdrDevice::observeSamples(uint32_t len) {
-    const auto now = std::chrono::steady_clock::now();
+    const auto now = DisciplinedClock::now();
     std::lock_guard<std::mutex> lock(m_autoPpmMutex);
     m_autoPpm.totalPairs += len / 2U;
     m_autoPpm.latestSample = now;
