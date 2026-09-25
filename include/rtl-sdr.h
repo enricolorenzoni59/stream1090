@@ -26,6 +26,7 @@ extern "C" {
 
 #include <stdint.h>
 #include <rtl-sdr_export.h>
+#include "rtlsdr_log.h"
 
 typedef struct rtlsdr_dev rtlsdr_dev_t;
 
@@ -223,6 +224,61 @@ RTLSDR_API int rtlsdr_get_tuner_gains(rtlsdr_dev_t *dev, int *gains);
 RTLSDR_API int rtlsdr_set_tuner_gain(rtlsdr_dev_t *dev, int gain);
 
 /*!
+ * Individual gain stages of an R82xx based tuner
+ * (R820T/R820T2/R860/R828D/R828S).
+ */
+enum rtlsdr_gain_stage {
+	RTLSDR_GAIN_STAGE_LNA = 0,
+	RTLSDR_GAIN_STAGE_MIXER,
+	RTLSDR_GAIN_STAGE_VGA,
+};
+
+/*!
+ * Get the available gain values for an individual tuner gain stage.
+ * Only supported by R82xx based tuners (R820T/R860/R828D/R828S).
+ * Values correspond to hardware indices 0 through 15, in tenths of a dB,
+ * and are monotonically increasing (the anomalous final mixer step is
+ * clamped).
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param stage gain stage, see enum rtlsdr_gain_stage
+ * \param gains array to be filled with gain values in tenths of a dB
+ *        (at least 16 entries), or NULL to query the number of values
+ * \return <= 0 on error, number of available gain values otherwise
+ */
+RTLSDR_API int rtlsdr_get_tuner_gain_stage_gains(rtlsdr_dev_t *dev, int stage, int *gains);
+
+/*!
+ * Set the gain for an individual tuner gain stage.
+ * Only supported by R82xx based tuners (R820T/R860/R828D/R828S).
+ * The requested gain is snapped to the nearest available step.
+ * Setting LNA or Mixer gain puts that stage in manual mode. A later call
+ * to rtlsdr_set_tuner_gain() or rtlsdr_set_tuner_gain_mode() can replace
+ * the individual stage settings.
+ * After this call, rtlsdr_get_tuner_gain() reports the combined LNA + Mixer
+ * gain when both are manual, or 0 while either uses AGC, so it stays within
+ * the range reported by rtlsdr_get_tuner_gains().
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param stage gain stage, see enum rtlsdr_gain_stage
+ * \param gain in tenths of a dB
+ * \return 0 on success
+ */
+RTLSDR_API int rtlsdr_set_tuner_gain_stage(rtlsdr_dev_t *dev, int stage, int gain);
+
+/*!
+ * Get the current gain of an individual tuner gain stage.
+ * Only supported by R82xx based tuners (R820T/R860/R828D/R828S).
+ * Returns -1 for LNA or Mixer while that stage is under automatic gain
+ * control, since the configured register does not show its live gain.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ * \param stage gain stage, see enum rtlsdr_gain_stage
+ * \return -1 on error, gain in tenths of a dB otherwise
+ */
+RTLSDR_API int rtlsdr_get_tuner_gain_stage(rtlsdr_dev_t *dev, int stage);
+
+/*!
  * Set the bandwidth for the device.
  *
  * \param dev the device handle given by rtlsdr_open()
@@ -408,6 +464,31 @@ RTLSDR_API int rtlsdr_set_bias_tee(rtlsdr_dev_t *dev, int on);
 RTLSDR_API int rtlsdr_set_bias_tee_gpio(rtlsdr_dev_t *dev, int gpio, int on);
 
 RTLSDR_API int rtlsdr_check_dongle_model(void *dev, char *manufact_check, char *product_check);
+
+
+RTLSDR_API int rtlsdr_r82xx_set_lna_gain(rtlsdr_dev_t *dev, int gain);
+RTLSDR_API int rtlsdr_r82xx_set_mixer_gain(rtlsdr_dev_t *dev, int gain);
+RTLSDR_API int rtlsdr_r82xx_set_vga_gain(rtlsdr_dev_t *dev, int gain);
+
+/*!
+ * Redirect the messages the library used to print to stderr to a callback.
+ * Passing NULL restores the default stderr output. The levels and the
+ * callback signature come from rtlsdr_log.h.
+ *
+ * \param callback the callback to install, or NULL.
+ */
+RTLSDR_API void rtlsdr_set_log_callback(rtlsdr_log_callback_t callback);
+
+/*!
+ * Mark the device as lost so rtlsdr_close() skips the tuner deinit. For hosts
+ * that detect the loss themselves (a watchdog that sees no samples, for
+ * example) before libusb reports an error to the async loop.
+ *
+ * \param dev the device handle given by rtlsdr_open()
+ */
+RTLSDR_API void rtlsdr_mark_dev_lost(rtlsdr_dev_t *dev);
+
+
 
 #ifdef __cplusplus
 }

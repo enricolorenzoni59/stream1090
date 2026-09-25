@@ -1,0 +1,92 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux / GCC
+            os: ubuntu-latest
+            cc: gcc
+          - name: Linux / Clang
+            os: ubuntu-latest
+            cc: clang
+          - name: macOS / Apple Clang
+            os: macos-latest
+            cc: clang
+    env:
+      CC: ${{ matrix.cc }}
+      # The warnings CMakeLists.txt enables for GCC only, passed to every
+      # compiler, and any warning fails the build.
+      CFLAGS: >-
+        -Wall -Wextra -Wno-unused-parameter -Wno-unused -Wsign-compare
+        -Wdeclaration-after-statement -Werror
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the version comes from git describe
+
+      - name: Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libusb-1.0-0-dev pkg-config cmake
+
+      - name: Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install libusb pkgconf
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="$CFLAGS"
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Check the tools and the library linkage
+        run: |
+          for t in rtl_sdr rtl_tcp rtl_test rtl_fm rtl_eeprom rtl_adsb rtl_power rtl_biast; do
+            test -x build/src/$t || { echo "missing $t"; exit 1; }
+          done
+          if [ "$RUNNER_OS" = macOS ]; then otool -L build/src/rtl_test; else ldd build/src/rtl_test; fi
+
+      - name: Build as a subproject
+        # How stream1090 vendors it: add_subdirectory() and rtlsdr_static,
+        # with no rtl_* tools built and nothing of librtlsdr installed.
+        run: |
+          mkdir -p ../host
+          cat > ../host/CMakeLists.txt <<EOF
+          cmake_minimum_required(VERSION 3.13)
+          project(host C)
+          add_subdirectory(\${CMAKE_CURRENT_LIST_DIR}/../rtl-sdr-blog-src rtl-sdr-blog)
+          add_executable(host main.c)
+          target_link_libraries(host rtlsdr_static)
+          install(TARGETS host DESTINATION bin)
+          EOF
+          cat > ../host/main.c <<EOF
+          #include <stdio.h>
+          #include "rtl-sdr.h"
+          static void cb(rtlsdr_log_level_t l, const char *m) { (void)l; (void)m; }
+          int main(void) {
+              void *p[] = { (void *)rtlsdr_r82xx_set_lna_gain, (void *)rtlsdr_r82xx_set_mixer_gain,
+                            (void *)rtlsdr_r82xx_set_vga_gain, (void *)rtlsdr_mark_dev_lost,
+                            (void *)rtlsdr_set_tuner_gain_stage, (void *)rtlsdr_get_tuner_gain_stage_gains };
+              rtlsdr_set_log_callback(cb);
+              printf("%u devices, %d symbols\\n", rtlsdr_get_device_count(), (int)(sizeof p / sizeof p[0]));
+              return 0;
+          }
+          EOF
+          cp -R . ../rtl-sdr-blog-src && rm -rf ../rtl-sdr-blog-src/.git ../rtl-sdr-blog-src/build
+          cmake -S ../host -B ../host/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build ../host/build --parallel
+          ../host/build/host
+          test -z "$(find ../host/build/rtl-sdr-blog/src -name 'rtl_*' -type f -perm -u+x)"
+          cmake --install ../host/build --prefix ../host/inst
+          test "$(cd ../host/inst && find . -type f)" = "./bin/host"

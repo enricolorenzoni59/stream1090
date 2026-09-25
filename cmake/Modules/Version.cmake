@@ -37,9 +37,13 @@ if(GIT_FOUND)
     execute_process(
         COMMAND ${GIT_EXECUTABLE} describe --always --abbrev=4 --long
         OUTPUT_VARIABLE GIT_DESCRIBE OUTPUT_STRIP_TRAILING_WHITESPACE
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        ERROR_QUIET
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
     )
-else()
+endif()
+# No git, or not a git checkout (a release tarball, a copy vendored into
+# another tree): an empty VERSION would stop write_basic_package_version_file.
+if(NOT GIT_DESCRIBE)
     set(GIT_DESCRIBE "v${MAJOR_VERSION}.${MINOR_VERSION}.x-xxx-xunknown")
 endif()
 

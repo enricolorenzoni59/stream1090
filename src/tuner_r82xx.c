@@ -28,6 +28,7 @@
 
 #include "rtlsdr_i2c.h"
 #include "tuner_r82xx.h"
+#include "rtlsdr_log.h"
 
 #define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
 #define MHZ(x)		((x)*1000*1000)
@@ -275,7 +276,7 @@ static int r82xx_write(struct r82xx_priv *priv, uint8_t reg, const uint8_t *val,
 					 priv->buf, size + 1);
 
 		if (rc != size + 1) {
-			fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
+			rtlsdr_log(RTLSDR_LOG_ERROR, "%s: i2c wr failed=%d reg=%02x len=%d\n",
 				   __FUNCTION__, rc, reg, size);
 			if (rc < 0)
 				return rc;
@@ -336,7 +337,7 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int le
 	rc = rtlsdr_i2c_write_fn(priv->rtl_dev, priv->cfg->i2c_addr, priv->buf, 1);
 
 	if (rc != 1) {
-		fprintf(stderr, "%s: i2c wr failed=%d reg=%02x len=%d\n",
+		rtlsdr_log(RTLSDR_LOG_ERROR, "%s: i2c wr failed=%d reg=%02x len=%d\n",
 			   __FUNCTION__, rc, reg, 1);
 		if (rc < 0)
 			return rc;
@@ -346,7 +347,7 @@ static int r82xx_read(struct r82xx_priv *priv, uint8_t reg, uint8_t *val, int le
 	rc = rtlsdr_i2c_read_fn(priv->rtl_dev, priv->cfg->i2c_addr, p, len);
 
 	if (rc != len) {
-		fprintf(stderr, "%s: i2c rd failed=%d reg=%02x len=%d\n",
+		rtlsdr_log(RTLSDR_LOG_ERROR, "%s: i2c rd failed=%d reg=%02x len=%d\n",
 			   __FUNCTION__, rc, reg, len);
 		if (rc < 0)
 			return rc;
@@ -502,7 +503,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	vco_fra = (vco_freq - 2 * pll_ref * nint) / 1000;
 
 	if (nint > ((128 / vco_power_ref) - 1)) {
-		fprintf(stderr, "[R82XX] No valid PLL values for %u Hz!\n", freq);
+		rtlsdr_log(RTLSDR_LOG_WARN, "[R82XX] No valid PLL values for %u Hz!\n", freq);
 		return -1;
 	}
 
@@ -562,7 +563,7 @@ static int r82xx_set_pll(struct r82xx_priv *priv, uint32_t freq)
 	}
 
 	if (!(data[2] & 0x40)) {
-		fprintf(stderr, "[R82XX] PLL not locked!\n");
+		rtlsdr_log(RTLSDR_LOG_WARN, "[R82XX] PLL not locked!\n");
 		priv->has_lock = 0;
 		return 0;
 	}
@@ -1032,6 +1033,129 @@ int r82xx_set_gain(struct r82xx_priv *priv, int set_manual_gain, int gain)
 	return 0;
 }
 
+static const int *r82xx_gain_stage_steps(int stage)
+{
+	switch (stage) {
+	case R82XX_GAIN_STAGE_LNA:
+		return r82xx_lna_gain_steps;
+	case R82XX_GAIN_STAGE_MIXER:
+		return r82xx_mixer_gain_steps;
+	case R82XX_GAIN_STAGE_VGA:
+		return r82xx_vga_gain_steps;
+	default:
+		return NULL;
+	}
+}
+
+/* Build the measured gain at each hardware index, in tenths of a dB.
+ *
+ * The last mixer step is negative, so its raw table would not be sorted.
+ * Clamp the cumulative values to be monotonically non-decreasing: the
+ * returned array is used to build gain ranges (e.g. osmosdr::gain_range_t)
+ * which require monotonic input, and the anomalous final step is not a
+ * useful gain setting anyway. */
+static int r82xx_gain_stage_table(int stage, int *table)
+{
+	const int *steps = r82xx_gain_stage_steps(stage);
+	int i, total = stage == R82XX_GAIN_STAGE_VGA ? VGA_BASE_GAIN : 0;
+
+	if (!steps)
+		return -1;
+
+	for (i = 0; i < 16; i++) {
+		total += steps[i];
+		if (i > 0 && total < table[i - 1])
+			total = table[i - 1];
+		table[i] = total;
+	}
+
+	return 16;
+}
+
+int r82xx_get_gain_stage_gains(int stage, int *gains)
+{
+	if (!r82xx_gain_stage_steps(stage))
+		return -1;
+
+	if (!gains)
+		return 16;
+
+	return r82xx_gain_stage_table(stage, gains);
+}
+
+int r82xx_set_gain_stage(struct r82xx_priv *priv, int stage, int gain)
+{
+	int table[16];
+	int i, index = 0;
+	int64_t best_diff, diff;
+	int rc;
+
+	if (r82xx_gain_stage_table(stage, table) < 0)
+		return -1;
+
+	/* snap to the step whose cumulative gain is closest to the request */
+	best_diff = (int64_t)table[0] - gain;
+	if (best_diff < 0)
+		best_diff = -best_diff;
+	for (i = 1; i < 16; i++) {
+		diff = (int64_t)table[i] - gain;
+		if (diff < 0)
+			diff = -diff;
+		if (diff < best_diff) {
+			best_diff = diff;
+			index = i;
+		}
+	}
+
+	switch (stage) {
+	case R82XX_GAIN_STAGE_LNA:
+		/* disable LNA AGC and set manual LNA gain index */
+		rc = r82xx_write_reg_mask(priv, 0x05, 0x10, 0x10);
+		if (rc < 0)
+			return rc;
+		return r82xx_write_reg_mask(priv, 0x05, index, 0x0f);
+	case R82XX_GAIN_STAGE_MIXER:
+		/* disable mixer AGC and set manual mixer gain index */
+		rc = r82xx_write_reg_mask(priv, 0x07, 0x00, 0x10);
+		if (rc < 0)
+			return rc;
+		return r82xx_write_reg_mask(priv, 0x07, index, 0x0f);
+	case R82XX_GAIN_STAGE_VGA:
+		return r82xx_write_reg_mask(priv, 0x0c, index, 0x9f);
+	}
+
+	return -1;
+}
+
+int r82xx_get_gain_stage(struct r82xx_priv *priv, int stage)
+{
+	int table[16];
+	int index;
+
+	if (r82xx_gain_stage_table(stage, table) < 0)
+		return -1;
+
+	switch (stage) {
+	case R82XX_GAIN_STAGE_LNA:
+		if (!(priv->regs[0x05 - REG_SHADOW_START] & 0x10))
+			return -1;
+		index = priv->regs[0x05 - REG_SHADOW_START] & 0x0f;
+		break;
+	case R82XX_GAIN_STAGE_MIXER:
+		if (priv->regs[0x07 - REG_SHADOW_START] & 0x10)
+			return -1;
+		index = priv->regs[0x07 - REG_SHADOW_START] & 0x0f;
+		break;
+	case R82XX_GAIN_STAGE_VGA:
+		index = priv->regs[0x0c - REG_SHADOW_START] & 0x0f;
+		break;
+	default:
+		return -1;
+	}
+
+	return table[index];
+}
+
 int r82xx_set_vga_gain(struct r82xx_priv *priv) {
 
 	int rc;
@@ -1134,12 +1258,12 @@ int r82xx_toggle_test(struct r82xx_priv *priv, int toggle)
 
 	if (toggle)
 	{
-		fprintf(stderr, "TOGGLE ON \n");
+		rtlsdr_log(RTLSDR_LOG_DEBUG, "TOGGLE ON \n");
 		rc = r82xx_write_reg_mask(priv, 0x17, 0x08, 0x08); /* open_d notch on */
 	}
 	else
 	{
-		fprintf(stderr, "TOGGLE OFF \n");
+		rtlsdr_log(RTLSDR_LOG_DEBUG, "TOGGLE OFF \n");
 		rc = r82xx_write_reg_mask(priv, 0x17, 0x00, 0x08); /* open_d notch off */
 	}
 
@@ -1309,7 +1433,7 @@ int r82xx_set_freq(struct r82xx_priv *priv, uint32_t freq)
 
 err:
 	if (rc < 0)
-		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
+		rtlsdr_log(RTLSDR_LOG_ERROR, "%s: failed=%d\n", __FUNCTION__, rc);
 	return rc;
 }
 
@@ -1447,9 +1571,77 @@ int r82xx_init(struct r82xx_priv *priv)
 
 err:
 	if (rc < 0)
-		fprintf(stderr, "%s: failed=%d\n", __FUNCTION__, rc);
+		rtlsdr_log(RTLSDR_LOG_ERROR, "%s: failed=%d\n", __FUNCTION__, rc);
 	return rc;
 }
+
+
+
+// ---------------------------------------------------------
+// R820T LNA gain (0–15)
+// ---------------------------------------------------------
+int r82xx_set_lna_gain(struct r82xx_priv *priv, int gain)
+{
+    int rc;
+
+	if (!priv)
+        return -1;
+
+    if (gain < 0 || gain > 15)
+        return -1;
+
+    // Disable LNA auto-gain (bit 4 = 1)
+    rc = r82xx_write_reg_mask(priv, 0x05, 0x10, 0x10);
+    if (rc < 0)
+        return rc;
+
+    // Set LNA gain index (bits 0–3)
+    return r82xx_write_reg_mask(priv, 0x05, (uint8_t)gain, 0x0f);
+}
+
+
+
+// ---------------------------------------------------------
+// R820T Mixer gain (0–15)
+// ---------------------------------------------------------
+int r82xx_set_mixer_gain(struct r82xx_priv *priv, int gain)
+{
+	int rc;
+
+    if (!priv)
+        return -1;
+
+    if (gain < 0 || gain > 15)
+        return -1;
+
+    // Disable mixer auto-gain (bit 4 = 0)
+    rc = r82xx_write_reg_mask(priv, 0x07, 0x00, 0x10);
+    if (rc < 0)
+        return rc;
+
+    // Set mixer gain index (bits 0–3)
+    return r82xx_write_reg_mask(priv, 0x07, (uint8_t)gain, 0x0f);
+}
+
+
+
+// ---------------------------------------------------------
+// R820T VGA gain (0–15)
+// ---------------------------------------------------------
+int r82xx_set_vga_gain_new(struct r82xx_priv *priv, int gain)
+{
+    if (!priv)
+        return -1;
+
+    if (gain < 0 || gain > 15)
+        return -1;
+
+    // Set VGA gain index (bits 0-3). Mask 0x9f writes bits 0-4 and 7 and
+    // keeps 5-6, the same mask r82xx_set_gain() uses for this register.
+    return r82xx_write_reg_mask(priv, 0x0c, (uint8_t)gain, 0x9f);
+}
+
+
 
 #if 0
 /* Not used, for now */

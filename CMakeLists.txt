@@ -36,6 +36,17 @@ endif(NOT CMAKE_BUILD_TYPE)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
+# Built on its own, or pulled into another project with add_subdirectory()?
+# Inside another project the command line tools and the install rules are
+# off by default: the host links the library and installs what it needs.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(RTLSDR_TOP_LEVEL ON)
+else()
+    set(RTLSDR_TOP_LEVEL OFF)
+endif()
+option(BUILD_UTILS_RTLSDR "Build the rtl_* command line tools" ${RTLSDR_TOP_LEVEL})
+option(RTLSDR_INSTALL "Generate the install, uninstall and package config rules" ${RTLSDR_TOP_LEVEL})
+
 include(GNUInstallDirs)
 include(GenerateExportHeader)
 include(CMakePackageConfigHelpers)
@@ -94,6 +105,7 @@ endif()
 ########################################################################
 # Create uninstall target
 ########################################################################
+if(RTLSDR_INSTALL)
 configure_file(
     ${PROJECT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
@@ -102,6 +114,7 @@ configure_file(
 add_custom_target(uninstall
     ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
 )
+endif()
 
 ########################################################################
 # Install udev rules
@@ -134,6 +147,12 @@ else (ENABLE_ZEROCOPY)
 endif (ENABLE_ZEROCOPY)
 
 ########################################################################
+# Add subdirectories
+########################################################################
+add_subdirectory(src)
+
+if(RTLSDR_INSTALL)
+########################################################################
 # Install public header files
 ########################################################################
 install(FILES
@@ -141,11 +160,6 @@ install(FILES
     include/rtl-sdr_export.h
     DESTINATION include
 )
-
-########################################################################
-# Add subdirectories
-########################################################################
-add_subdirectory(src)
 
 ########################################################################
 # Create Pkg Config File
@@ -210,6 +224,7 @@ install(
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rtlsdr/
   COMPONENT Devel
   )
+endif(RTLSDR_INSTALL)
 
 ########################################################################
 # Print Summary
