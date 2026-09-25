@@ -144,6 +144,7 @@ struct rtlsdr_dev {
 	int dev_lost;
 	int driver_active;
 	unsigned int xfer_errors;
+	unsigned int xfer_completed; /* since the event loop last looked */
 	char manufact[256];
 	char product[256];
 	int force_bt;
@@ -1744,6 +1745,17 @@ err:
 	return r;
 }
 
+/* One control read: LIBUSB_ERROR_NO_DEVICE means the device is gone.
+ * Proposed upstream in rtlsdrblog/rtl-sdr-blog#81 and #83. */
+static int rtlsdr_device_gone(rtlsdr_dev_t *dev)
+{
+	unsigned char probe[2];
+
+	return libusb_control_transfer(dev->devh, CTRL_IN, 0, USB_SYSCTL,
+				       USBB << 8, probe, 1, CTRL_TIMEOUT)
+		== LIBUSB_ERROR_NO_DEVICE;
+}
+
 /* stream1090 patch: let a host that detects the loss itself (no samples for a
  * while) tell the library, so rtlsdr_close() takes the dev_lost path and skips
  * the register writes that would fail with LIBUSB_ERROR_NO_DEVICE. */
@@ -1757,6 +1769,12 @@ int rtlsdr_close(rtlsdr_dev_t *dev)
 {
 	if (!dev)
 		return -1;
+
+	/* An unplugged device is not always reported before we get here:
+	 * libusb on macOS keeps the event loop quiet. If it is gone, skip the
+	 * deinit, whose every register write would fail. */
+	if (!dev->dev_lost && rtlsdr_device_gone(dev))
+		dev->dev_lost = 1;
 
 	if(!dev->dev_lost) {
 		/* block until all async operations have been completed (if any) */
@@ -1820,6 +1838,7 @@ static void LIBUSB_CALL _libusb_callback(struct libusb_transfer *xfer)
 
 		libusb_submit_transfer(xfer); /* resubmit transfer */
 		dev->xfer_errors = 0;
+		dev->xfer_completed++;
 	} else if (LIBUSB_TRANSFER_CANCELLED != xfer->status) {
 #ifndef _WIN32
 		if (LIBUSB_TRANSFER_ERROR == xfer->status)
@@ -1969,6 +1988,7 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 	struct timeval tv = { 1, 0 };
 	struct timeval zerotv = { 0, 0 };
 	enum rtlsdr_async_status next_status = RTLSDR_INACTIVE;
+	int idle_wakeups = 0;
 
 	if (!dev)
 		return -1;
@@ -2024,12 +2044,27 @@ int rtlsdr_read_async(rtlsdr_dev_t *dev, rtlsdr_read_async_cb_t cb, void *ctx,
 			/*rtlsdr_log(RTLSDR_LOG_INFO, "handle_events returned: %d\n", r);*/
 			if (r == LIBUSB_ERROR_INTERRUPTED) /* stray signal */
 				continue;
-			/* stream1090 patch: the device is gone, so mark it lost. Without
-			 * this rtlsdr_close() still runs rtlsdr_deinit_baseband() and
-			 * every register access fails with LIBUSB_ERROR_NO_DEVICE. */
-			if (r == LIBUSB_ERROR_NO_DEVICE || r == LIBUSB_ERROR_NOT_FOUND)
-				dev->dev_lost = 1;
 			break;
+		}
+
+		/* A device unplugged mid-stream is not always reported:
+		 * libusb on macOS neither completes nor fails the pending
+		 * transfers, and this loop would wait forever. After two
+		 * wakeups without a completed transfer, ask the device; only
+		 * one that is gone ends the stream. */
+		if (RTLSDR_RUNNING == dev->async_status) {
+			if (dev->xfer_completed) {
+				dev->xfer_completed = 0;
+				idle_wakeups = 0;
+			} else if (++idle_wakeups >= 2) {
+				idle_wakeups = 0;
+				if (rtlsdr_device_gone(dev)) {
+					rtlsdr_log(RTLSDR_LOG_WARN, "Device lost, "
+						   "canceling...\n");
+					dev->dev_lost = 1;
+					rtlsdr_cancel_async(dev);
+				}
+			}
 		}
 
 		if (RTLSDR_CANCELING == dev->async_status) {

@@ -1452,91 +1452,6 @@ err:
 	return rc;
 }
 
-/*
-int r82xx_set_lna_gain(struct r82xx_priv *priv, int gain)
-{
-	int rc;
-
-	int i, total_gain = 0;
-	uint8_t lna_index = 0;
-	uint8_t data[4];
-
-	// LNA auto off 
-	rc = r82xx_write_reg_mask(priv, 0x05, 0x10, 0x10);
-	if (rc < 0)
-		return rc;
-
-	for (i = 0; i < 15; i++) {
-		if (total_gain >= gain)
-			break;
-
-		total_gain += r82xx_lna_gain_steps[++lna_index];
-
-	}
-
-	// set LNA gain 
-	rc = r82xx_write_reg_mask(priv, 0x05, lna_index, 0x0f);
-	if (rc < 0)
-		return rc;
-
-	return 0;
-}
-
-int r82xx_set_mixer_gain(struct r82xx_priv *priv, int gain)
-{
-	int rc;
-
-	int i, total_gain = 0;
-	uint8_t mix_index = 0;
-	uint8_t data[4];
-
-	// Mixer auto off
-	rc = r82xx_write_reg_mask(priv, 0x07, 0, 0x10);
-	if (rc < 0)
-		return rc;
-
-	rc = r82xx_read(priv, 0x00, data, sizeof(data));
-	if (rc < 0)
-		return rc;
-
-	for (i = 0; i < 15; i++) {
-		if (total_gain >= gain)
-			break;
-
-		total_gain += r82xx_mixer_gain_steps[++mix_index];
-	}
-
-	// set Mixer gain
-	rc = r82xx_write_reg_mask(priv, 0x07, mix_index, 0x0f);
-	if (rc < 0)
-		return rc;
-
-	return 0;
-}
-
-
-int r82xx_set_vga_gain_new(struct r82xx_priv *priv, int gain)
-{
-	int rc;
-
-	int i, total_gain = 0;
-	uint8_t vga_index = 0;
-	uint8_t data[4];
-
-	for (i = 0; i < 15; i++) {
-		if (total_gain >= gain)
-			break;
-
-		total_gain += r82xx_vga_gain_steps[++vga_index];
-	}
-
-	// set VGA gain 
-	rc = r82xx_write_reg_mask(priv, 0x0c, vga_index, 0x9f);
-	if (rc < 0)
-		return rc;
-
-	return 0;
-} */
 
 
 // ---------------------------------------------------------
@@ -1598,8 +1513,8 @@ int r82xx_set_vga_gain_new(struct r82xx_priv *priv, int gain)
     if (gain < 0 || gain > 15)
         return -1;
 
-    // Set VGA gain index (bits 0–4)
-    // Mask 0x9f = keep bits 5 and 7, replace bits 0–4
+    // Set VGA gain index (bits 0-3). Mask 0x9f writes bits 0-4 and 7 and
+    // keeps 5-6, the same mask r82xx_set_gain() uses for this register.
     return r82xx_write_reg_mask(priv, 0x0c, (uint8_t)gain, 0x9f);
 }
 
