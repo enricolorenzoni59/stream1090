@@ -222,111 +222,111 @@ fc2580_fci_result_type fc2580_set_freq( void *pTuner, unsigned int f_lo, unsigne
 		data_0x02 = data_0x02 & 0xF7;	//0x02[3] = 0;
 	
 //	if( band != curr_band ) {
-		switch(band)
-		{
-			case FC2580_UHF_BAND:
-				data_0x02 = (data_0x02 & 0x3F);
+	switch(band)
+	{
+		case FC2580_UHF_BAND:
+			data_0x02 = (data_0x02 & 0x3F);
 
-				result &= fc2580_i2c_write(pTuner, 0x25, 0xF0);
-				result &= fc2580_i2c_write(pTuner, 0x27, 0x77);
-				result &= fc2580_i2c_write(pTuner, 0x28, 0x53);
-				result &= fc2580_i2c_write(pTuner, 0x29, 0x60);
-				result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
-				result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
-				result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
+			result &= fc2580_i2c_write(pTuner, 0x25, 0xF0);
+			result &= fc2580_i2c_write(pTuner, 0x27, 0x77);
+			result &= fc2580_i2c_write(pTuner, 0x28, 0x53);
+			result &= fc2580_i2c_write(pTuner, 0x29, 0x60);
+			result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
+			result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
+			result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
 
-				if( f_lo < 538000 )
-					result &= fc2580_i2c_write(pTuner, 0x5F, 0x13);
-				else					
-					result &= fc2580_i2c_write(pTuner, 0x5F, 0x15);
+			if( f_lo < 538000 )
+				result &= fc2580_i2c_write(pTuner, 0x5F, 0x13);
+			else					
+				result &= fc2580_i2c_write(pTuner, 0x5F, 0x15);
 
-				if( f_lo < 538000 )
-				{
-					result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
-					result &= fc2580_i2c_write(pTuner, 0x62, 0x06);
-					result &= fc2580_i2c_write(pTuner, 0x67, 0x06);
-					result &= fc2580_i2c_write(pTuner, 0x68, 0x08);
-					result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
-					result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
-				}
-				else if( f_lo < 794000 )
-				{
-					result &= fc2580_i2c_write(pTuner, 0x61, 0x03);
-					result &= fc2580_i2c_write(pTuner, 0x62, 0x03);
-					result &= fc2580_i2c_write(pTuner, 0x67, 0x03);  //ACI improve
-					result &= fc2580_i2c_write(pTuner, 0x68, 0x05);  //ACI improve
-					result &= fc2580_i2c_write(pTuner, 0x69, 0x0C);
-					result &= fc2580_i2c_write(pTuner, 0x6A, 0x0E);
-				}
-				else
-				{
-					result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
-					result &= fc2580_i2c_write(pTuner, 0x62, 0x06);
-					result &= fc2580_i2c_write(pTuner, 0x67, 0x07);
-					result &= fc2580_i2c_write(pTuner, 0x68, 0x09);
-					result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
-					result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
-				}
-
-				result &= fc2580_i2c_write(pTuner, 0x63, 0x15);
-
-				result &= fc2580_i2c_write(pTuner, 0x6B, 0x0B);
-				result &= fc2580_i2c_write(pTuner, 0x6C, 0x0C);
-				result &= fc2580_i2c_write(pTuner, 0x6D, 0x78);
-				result &= fc2580_i2c_write(pTuner, 0x6E, 0x32);
-				result &= fc2580_i2c_write(pTuner, 0x6F, 0x14);
-				result &= fc2580_set_filter(pTuner, 8, freq_xtal);	//BW = 7.8MHz
-				break;
-			case FC2580_VHF_BAND:
-				data_0x02 = (data_0x02 & 0x3F) | 0x80;
-				result &= fc2580_i2c_write(pTuner, 0x27, 0x77);
-				result &= fc2580_i2c_write(pTuner, 0x28, 0x33);
-				result &= fc2580_i2c_write(pTuner, 0x29, 0x40);
-				result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
-				result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
-				result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
-				result &= fc2580_i2c_write(pTuner, 0x5F, 0x0F);
+			if( f_lo < 538000 )
+			{
 				result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
-				result &= fc2580_i2c_write(pTuner, 0x62, 0x00);
-				result &= fc2580_i2c_write(pTuner, 0x63, 0x15);
-				result &= fc2580_i2c_write(pTuner, 0x67, 0x03);
-				result &= fc2580_i2c_write(pTuner, 0x68, 0x05);
+				result &= fc2580_i2c_write(pTuner, 0x62, 0x06);
+				result &= fc2580_i2c_write(pTuner, 0x67, 0x06);
+				result &= fc2580_i2c_write(pTuner, 0x68, 0x08);
 				result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
 				result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
-				result &= fc2580_i2c_write(pTuner, 0x6B, 0x08);
-				result &= fc2580_i2c_write(pTuner, 0x6C, 0x0A);
-				result &= fc2580_i2c_write(pTuner, 0x6D, 0x78);
-				result &= fc2580_i2c_write(pTuner, 0x6E, 0x32);
-				result &= fc2580_i2c_write(pTuner, 0x6F, 0x54);
-				result &= fc2580_set_filter(pTuner, 7, freq_xtal);	//BW = 6.8MHz
-				break;
-			case FC2580_L_BAND:
-				data_0x02 = (data_0x02 & 0x3F) | 0x40;
-				result &= fc2580_i2c_write(pTuner, 0x2B, 0x70);
-				result &= fc2580_i2c_write(pTuner, 0x2C, 0x37);
-				result &= fc2580_i2c_write(pTuner, 0x2D, 0xE7);
-				result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
-				result &= fc2580_i2c_write(pTuner, 0x44, 0x20);
-				result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
-				result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
-				result &= fc2580_i2c_write(pTuner, 0x5F, 0x0F);
-				result &= fc2580_i2c_write(pTuner, 0x61, 0x0F);
-				result &= fc2580_i2c_write(pTuner, 0x62, 0x00);
-				result &= fc2580_i2c_write(pTuner, 0x63, 0x13);
-				result &= fc2580_i2c_write(pTuner, 0x67, 0x00);
-				result &= fc2580_i2c_write(pTuner, 0x68, 0x02);
+			}
+			else if( f_lo < 794000 )
+			{
+				result &= fc2580_i2c_write(pTuner, 0x61, 0x03);
+				result &= fc2580_i2c_write(pTuner, 0x62, 0x03);
+				result &= fc2580_i2c_write(pTuner, 0x67, 0x03);  //ACI improve
+				result &= fc2580_i2c_write(pTuner, 0x68, 0x05);  //ACI improve
 				result &= fc2580_i2c_write(pTuner, 0x69, 0x0C);
 				result &= fc2580_i2c_write(pTuner, 0x6A, 0x0E);
-				result &= fc2580_i2c_write(pTuner, 0x6B, 0x08);
-				result &= fc2580_i2c_write(pTuner, 0x6C, 0x0A);
-				result &= fc2580_i2c_write(pTuner, 0x6D, 0xA0);
-				result &= fc2580_i2c_write(pTuner, 0x6E, 0x50);
-				result &= fc2580_i2c_write(pTuner, 0x6F, 0x14);
-				result &= fc2580_set_filter(pTuner, 1, freq_xtal);	//BW = 1.53MHz
-				break;
-			default:
-				break;
-		}
+			}
+			else
+			{
+				result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
+				result &= fc2580_i2c_write(pTuner, 0x62, 0x06);
+				result &= fc2580_i2c_write(pTuner, 0x67, 0x07);
+				result &= fc2580_i2c_write(pTuner, 0x68, 0x09);
+				result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
+				result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
+			}
+
+			result &= fc2580_i2c_write(pTuner, 0x63, 0x15);
+
+			result &= fc2580_i2c_write(pTuner, 0x6B, 0x0B);
+			result &= fc2580_i2c_write(pTuner, 0x6C, 0x0C);
+			result &= fc2580_i2c_write(pTuner, 0x6D, 0x78);
+			result &= fc2580_i2c_write(pTuner, 0x6E, 0x32);
+			result &= fc2580_i2c_write(pTuner, 0x6F, 0x14);
+			result &= fc2580_set_filter(pTuner, 8, freq_xtal);	//BW = 7.8MHz
+			break;
+		case FC2580_VHF_BAND:
+			data_0x02 = (data_0x02 & 0x3F) | 0x80;
+			result &= fc2580_i2c_write(pTuner, 0x27, 0x77);
+			result &= fc2580_i2c_write(pTuner, 0x28, 0x33);
+			result &= fc2580_i2c_write(pTuner, 0x29, 0x40);
+			result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
+			result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
+			result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
+			result &= fc2580_i2c_write(pTuner, 0x5F, 0x0F);
+			result &= fc2580_i2c_write(pTuner, 0x61, 0x07);
+			result &= fc2580_i2c_write(pTuner, 0x62, 0x00);
+			result &= fc2580_i2c_write(pTuner, 0x63, 0x15);
+			result &= fc2580_i2c_write(pTuner, 0x67, 0x03);
+			result &= fc2580_i2c_write(pTuner, 0x68, 0x05);
+			result &= fc2580_i2c_write(pTuner, 0x69, 0x10);
+			result &= fc2580_i2c_write(pTuner, 0x6A, 0x12);
+			result &= fc2580_i2c_write(pTuner, 0x6B, 0x08);
+			result &= fc2580_i2c_write(pTuner, 0x6C, 0x0A);
+			result &= fc2580_i2c_write(pTuner, 0x6D, 0x78);
+			result &= fc2580_i2c_write(pTuner, 0x6E, 0x32);
+			result &= fc2580_i2c_write(pTuner, 0x6F, 0x54);
+			result &= fc2580_set_filter(pTuner, 7, freq_xtal);	//BW = 6.8MHz
+			break;
+		case FC2580_L_BAND:
+			data_0x02 = (data_0x02 & 0x3F) | 0x40;
+			result &= fc2580_i2c_write(pTuner, 0x2B, 0x70);
+			result &= fc2580_i2c_write(pTuner, 0x2C, 0x37);
+			result &= fc2580_i2c_write(pTuner, 0x2D, 0xE7);
+			result &= fc2580_i2c_write(pTuner, 0x30, 0x09);
+			result &= fc2580_i2c_write(pTuner, 0x44, 0x20);
+			result &= fc2580_i2c_write(pTuner, 0x50, 0x8C);
+			result &= fc2580_i2c_write(pTuner, 0x53, 0x50);
+			result &= fc2580_i2c_write(pTuner, 0x5F, 0x0F);
+			result &= fc2580_i2c_write(pTuner, 0x61, 0x0F);
+			result &= fc2580_i2c_write(pTuner, 0x62, 0x00);
+			result &= fc2580_i2c_write(pTuner, 0x63, 0x13);
+			result &= fc2580_i2c_write(pTuner, 0x67, 0x00);
+			result &= fc2580_i2c_write(pTuner, 0x68, 0x02);
+			result &= fc2580_i2c_write(pTuner, 0x69, 0x0C);
+			result &= fc2580_i2c_write(pTuner, 0x6A, 0x0E);
+			result &= fc2580_i2c_write(pTuner, 0x6B, 0x08);
+			result &= fc2580_i2c_write(pTuner, 0x6C, 0x0A);
+			result &= fc2580_i2c_write(pTuner, 0x6D, 0xA0);
+			result &= fc2580_i2c_write(pTuner, 0x6E, 0x50);
+			result &= fc2580_i2c_write(pTuner, 0x6F, 0x14);
+			result &= fc2580_set_filter(pTuner, 1, freq_xtal);	//BW = 1.53MHz
+			break;
+		default:
+			break;
+	}
 //		curr_band = band;
 //	}
 

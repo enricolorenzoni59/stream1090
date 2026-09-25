@@ -20,7 +20,7 @@
 #define __RTLSDR_LOG_H
 
 /*
- * stream1090 patch: library-internal logging shim.
+ * Library-internal logging shim.
  *
  * Every message the library used to write straight to stderr goes through
  * rtlsdr_log(), so a host can install rtlsdr_set_log_callback() (declared in

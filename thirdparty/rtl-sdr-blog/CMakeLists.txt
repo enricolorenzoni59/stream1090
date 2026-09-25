@@ -19,11 +19,7 @@
 ########################################################################
 # Project setup
 ########################################################################
-# 3.13 for target_link_directories(), which src/CMakeLists.txt needs to put
-# LIBUSB_LIBRARY_DIRS on the link line. Declared here rather than in the
-# parent project so it only binds builds that actually add this directory,
-# i.e. -DENABLE_RTLSDR_BLOG=ON.
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 3.7.2)
 
 # workaround for https://gitlab.kitware.com/cmake/cmake/issues/16967
 if(${CMAKE_VERSION} VERSION_LESS "3.12.0")
@@ -40,6 +36,17 @@ endif(NOT CMAKE_BUILD_TYPE)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake/Modules)
 
+# Built on its own, or pulled into another project with add_subdirectory()?
+# Inside another project the command line tools and the install rules are
+# off by default: the host links the library and installs what it needs.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+    set(RTLSDR_TOP_LEVEL ON)
+else()
+    set(RTLSDR_TOP_LEVEL OFF)
+endif()
+option(BUILD_UTILS_RTLSDR "Build the rtl_* command line tools" ${RTLSDR_TOP_LEVEL})
+option(RTLSDR_INSTALL "Generate the install, uninstall and package config rules" ${RTLSDR_TOP_LEVEL})
+
 include(GNUInstallDirs)
 include(GenerateExportHeader)
 include(CMakePackageConfigHelpers)
@@ -48,7 +55,7 @@ include(CMakePackageConfigHelpers)
 set(VERSION_INFO_MAJOR_VERSION 0) # increment major on api compatibility changes
 set(VERSION_INFO_MINOR_VERSION 6) # increment minor on feature-level changes
 set(VERSION_INFO_PATCH_VERSION git) # increment patch for bug fixes and docs
-#include(Version) # setup version info
+include(Version) # setup version info
 
 ########################################################################
 # Compiler specific setup
@@ -98,6 +105,7 @@ endif()
 ########################################################################
 # Create uninstall target
 ########################################################################
+if(RTLSDR_INSTALL)
 configure_file(
     ${PROJECT_SOURCE_DIR}/cmake/cmake_uninstall.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
@@ -106,6 +114,7 @@ configure_file(
 add_custom_target(uninstall
     ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_BINARY_DIR}/cmake_uninstall.cmake
 )
+endif()
 
 ########################################################################
 # Install udev rules
@@ -138,6 +147,12 @@ else (ENABLE_ZEROCOPY)
 endif (ENABLE_ZEROCOPY)
 
 ########################################################################
+# Add subdirectories
+########################################################################
+add_subdirectory(src)
+
+if(RTLSDR_INSTALL)
+########################################################################
 # Install public header files
 ########################################################################
 install(FILES
@@ -145,11 +160,6 @@ install(FILES
     include/rtl-sdr_export.h
     DESTINATION include
 )
-
-########################################################################
-# Add subdirectories
-########################################################################
-add_subdirectory(src)
 
 ########################################################################
 # Create Pkg Config File
@@ -190,16 +200,16 @@ INSTALL(
 ########################################################################
 # Create CMake Config File
 ########################################################################
-#write_basic_package_version_file(
-#  "${CMAKE_CURRENT_BINARY_DIR}/rtlsdr/rtlsdrConfigVersion.cmake"
-#  VERSION ${VERSION}
-#  COMPATIBILITY AnyNewerVersion
-#  )
+write_basic_package_version_file(
+  "${CMAKE_CURRENT_BINARY_DIR}/rtlsdr/rtlsdrConfigVersion.cmake"
+  VERSION ${VERSION}
+  COMPATIBILITY AnyNewerVersion
+  )
 
-#configure_file(cmake/rtlsdrConfig.cmake
-#  "${CMAKE_CURRENT_BINARY_DIR}/rtlsdr/rtlsdrConfig.cmake"
-#  COPYONLY
-#  )
+configure_file(cmake/rtlsdrConfig.cmake
+  "${CMAKE_CURRENT_BINARY_DIR}/rtlsdr/rtlsdrConfig.cmake"
+  COPYONLY
+  )
 
 set(ConfigPackageLocation lib/cmake/rtlsdr)
 install(EXPORT RTLSDR-export
@@ -214,9 +224,10 @@ install(
   DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/rtlsdr/
   COMPONENT Devel
   )
+endif(RTLSDR_INSTALL)
 
 ########################################################################
 # Print Summary
 ########################################################################
-#MESSAGE(STATUS "Building for version: ${VERSION} / ${LIBVER}")
-#MESSAGE(STATUS "Using install prefix: ${CMAKE_INSTALL_PREFIX}")
+MESSAGE(STATUS "Building for version: ${VERSION} / ${LIBVER}")
+MESSAGE(STATUS "Using install prefix: ${CMAKE_INSTALL_PREFIX}")

@@ -51,7 +51,7 @@
 #include "tuner_fc2580.h"
 #include "tuner_r82xx.h"
 
-/* stream1090 patch: host-provided logging, see rtlsdr_log.h. */
+/* Host-provided logging, see rtlsdr_log.h. */
 static rtlsdr_log_callback_t rtlsdr_log_cb = NULL;
 
 void rtlsdr_set_log_callback(rtlsdr_log_callback_t callback)
@@ -1131,9 +1131,57 @@ int rtlsdr_set_tuner_gain_mode(rtlsdr_dev_t *dev, int mode)
 		rtlsdr_set_i2c_repeater(dev, 1);
 		r = dev->tuner->set_gain_mode((void *)dev, mode);
 		/*rtlsdr_set_i2c_repeater(dev, 0);*/
+		if (!r && (dev->tuner_type == RTLSDR_TUNER_R820T ||
+		           dev->tuner_type == RTLSDR_TUNER_R828D))
+			dev->gain = 0;
 	}
 
 	return r;
+}
+
+static int rtlsdr_is_r82xx(rtlsdr_dev_t *dev)
+{
+	return dev && ((dev->tuner_type == RTLSDR_TUNER_R820T) ||
+		       (dev->tuner_type == RTLSDR_TUNER_R828D));
+}
+
+int rtlsdr_get_tuner_gain_stage_gains(rtlsdr_dev_t *dev, int stage, int *gains)
+{
+	if (!rtlsdr_is_r82xx(dev))
+		return -1;
+
+	return r82xx_get_gain_stage_gains(stage, gains);
+}
+
+int rtlsdr_set_tuner_gain_stage(rtlsdr_dev_t *dev, int stage, int gain)
+{
+	int r, lna, mixer;
+
+	if (!rtlsdr_is_r82xx(dev))
+		return -1;
+
+	rtlsdr_set_i2c_repeater(dev, 1);
+	r = r82xx_set_gain_stage(&dev->r82xx_p, stage, gain);
+	/*rtlsdr_set_i2c_repeater(dev, 0);*/
+	if (r)
+		return r;
+
+	/* Keep rtlsdr_get_tuner_gain() consistent with the range reported by
+	 * rtlsdr_get_tuner_gains(), which is the combined LNA + Mixer gain
+	 * (the VGA is not part of the combined gain table). */
+	lna = r82xx_get_gain_stage(&dev->r82xx_p, R82XX_GAIN_STAGE_LNA);
+	mixer = r82xx_get_gain_stage(&dev->r82xx_p, R82XX_GAIN_STAGE_MIXER);
+	dev->gain = (lna < 0 || mixer < 0) ? 0 : lna + mixer;
+
+	return r;
+}
+
+int rtlsdr_get_tuner_gain_stage(rtlsdr_dev_t *dev, int stage)
+{
+	if (!rtlsdr_is_r82xx(dev))
+		return -1;
+
+	return r82xx_get_gain_stage(&dev->r82xx_p, stage);
 }
 
 int rtlsdr_set_sample_rate(rtlsdr_dev_t *dev, uint32_t samp_rate)
@@ -1745,8 +1793,7 @@ err:
 	return r;
 }
 
-/* One control read: LIBUSB_ERROR_NO_DEVICE means the device is gone.
- * Proposed upstream in rtlsdrblog/rtl-sdr-blog#81 and #83. */
+/* One control read: LIBUSB_ERROR_NO_DEVICE means the device is gone. */
 static int rtlsdr_device_gone(rtlsdr_dev_t *dev)
 {
 	unsigned char probe[2];
@@ -1756,9 +1803,9 @@ static int rtlsdr_device_gone(rtlsdr_dev_t *dev)
 		== LIBUSB_ERROR_NO_DEVICE;
 }
 
-/* stream1090 patch: let a host that detects the loss itself (no samples for a
- * while) tell the library, so rtlsdr_close() takes the dev_lost path and skips
- * the register writes that would fail with LIBUSB_ERROR_NO_DEVICE. */
+/* Let a host that detects the loss itself (no samples for a while) tell the
+ * library, so rtlsdr_close() takes the dev_lost path and skips the register
+ * writes that would fail with LIBUSB_ERROR_NO_DEVICE. */
 void rtlsdr_mark_dev_lost(rtlsdr_dev_t *dev)
 {
 	if (dev)
@@ -1771,8 +1818,9 @@ int rtlsdr_close(rtlsdr_dev_t *dev)
 		return -1;
 
 	/* An unplugged device is not always reported before we get here:
-	 * libusb on macOS keeps the event loop quiet. If it is gone, skip the
-	 * deinit, whose every register write would fail. */
+	 * libusb on macOS keeps the event loop quiet, so dev_lost stays 0.
+	 * Ask the device once; if it is gone, skip the deinit, whose every
+	 * register write would fail with LIBUSB_ERROR_NO_DEVICE. */
 	if (!dev->dev_lost && rtlsdr_device_gone(dev))
 		dev->dev_lost = 1;
 

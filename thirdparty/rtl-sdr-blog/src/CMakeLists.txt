@@ -18,28 +18,25 @@
 ########################################################################
 # Setup shared library variant
 ########################################################################
+if(TARGET PkgConfig::LIBUSB)
+  set(LIBUSB_LINK_LIBRARIES PkgConfig::LIBUSB)
+else()
+  set(LIBUSB_LINK_LIBRARIES ${LIBUSB_LIBRARIES})
+endif()
+
 add_library(rtlsdr SHARED librtlsdr.c
   tuner_e4k.c tuner_fc0012.c tuner_fc0013.c tuner_fc2580.c tuner_r82xx.c)
-target_link_libraries(rtlsdr ${LIBUSB_LIBRARIES} ${THREADS_PTHREADS_LIBRARY})
-# LIBUSB_LIBRARIES from pkg_check_modules() is a bare lib name (e.g.
-# "usb-1.0"), not a full path, so the linker also needs LIBUSB_LIBRARY_DIRS on
-# its search path. PUBLIC so it propagates to anything linking against
-# rtlsdr, not just this target. Linux distros usually keep libusb in a
-# default linker search path so this went unnoticed there, but Homebrew's
-# /opt/homebrew (or /usr/local) is not searched by default, so linking fails
-# on macOS with "library 'usb-1.0' not found".
-target_link_directories(rtlsdr PUBLIC ${LIBUSB_LIBRARY_DIRS})
+target_link_libraries(rtlsdr ${LIBUSB_LINK_LIBRARIES} ${THREADS_PTHREADS_LIBRARY})
 target_include_directories(rtlsdr PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  $<INSTALL_INTERFACE:include>
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>  # <prefix>/include
   ${LIBUSB_INCLUDE_DIRS}
   ${THREADS_PTHREADS_INCLUDE_DIR}
-)
+  )
 set_target_properties(rtlsdr PROPERTIES DEFINE_SYMBOL "rtlsdr_EXPORTS")
 set_target_properties(rtlsdr PROPERTIES OUTPUT_NAME rtlsdr)
-#set_target_properties(rtlsdr PROPERTIES SOVERSION ${MAJOR_VERSION})
-#set_target_properties(rtlsdr PROPERTIES VERSION ${LIBVER})
+set_target_properties(rtlsdr PROPERTIES SOVERSION ${MAJOR_VERSION})
+set_target_properties(rtlsdr PROPERTIES VERSION ${LIBVER})
 generate_export_header(rtlsdr)
 
 ########################################################################
@@ -47,21 +44,13 @@ generate_export_header(rtlsdr)
 ########################################################################
 add_library(rtlsdr_static STATIC librtlsdr.c
   tuner_e4k.c tuner_fc0012.c tuner_fc0013.c tuner_fc2580.c tuner_r82xx.c)
-# rtlsdr_static, not rtlsdr: this line named the shared target, so libusb was
-# attached to it twice ("ld: warning: ignoring duplicate libraries") while the
-# static variant got none at all. Nothing in this tree links rtlsdr_static, so
-# it built anyway, but it is in INSTALL_TARGETS and anyone linking the
-# installed librtlsdr.a would have had to supply libusb themselves.
-target_link_libraries(rtlsdr_static ${LIBUSB_LIBRARIES} ${THREADS_PTHREADS_LIBRARY})
-target_link_directories(rtlsdr_static PUBLIC ${LIBUSB_LIBRARY_DIRS})
+target_link_libraries(rtlsdr_static ${LIBUSB_LINK_LIBRARIES} ${THREADS_PTHREADS_LIBRARY})
 target_include_directories(rtlsdr_static PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
-  $<INSTALL_INTERFACE:include>
+  $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>  # <prefix>/include
   ${LIBUSB_INCLUDE_DIRS}
   ${THREADS_PTHREADS_INCLUDE_DIR}
-)
-
+  )
 set_property(TARGET rtlsdr_static APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 if(NOT WIN32)
 # Force same library filename for static and shared variants of the library
@@ -73,7 +62,7 @@ generate_export_header(rtlsdr_static)
 # Set up Windows DLL resource files
 ########################################################################
 IF(MSVC)
-    include(${CMAKE_SOURCE_DIR}/cmake/Modules/Version.cmake)
+    include(${PROJECT_SOURCE_DIR}/cmake/Modules/Version.cmake)
 
     configure_file(
         ${CMAKE_CURRENT_SOURCE_DIR}/rtlsdr.rc.in
@@ -91,7 +80,7 @@ add_library(convenience_static STATIC
     convenience/convenience.c
 )
 target_include_directories(convenience_static
-  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../include)
+  PRIVATE ${PROJECT_SOURCE_DIR}/include)
 if(WIN32)
 add_library(libgetopt_static STATIC
     getopt/getopt.c
@@ -100,7 +89,6 @@ target_link_libraries(convenience_static
     rtlsdr
 )
 endif()
-
 
 ########################################################################
 # Build utility
@@ -116,35 +104,27 @@ add_executable(rtl_biast rtl_biast.c)
 set(INSTALL_TARGETS rtlsdr rtlsdr_static rtl_sdr rtl_tcp rtl_test rtl_fm rtl_eeprom rtl_adsb rtl_power rtl_biast)
 
 target_link_libraries(rtl_sdr rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 target_link_libraries(rtl_tcp rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 target_link_libraries(rtl_test rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 target_link_libraries(rtl_fm rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 target_link_libraries(rtl_eeprom rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 target_link_libraries(rtl_adsb rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 target_link_libraries(rtl_power rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 target_link_libraries(rtl_biast rtlsdr convenience_static
-    ${LIBUSB_LIBRARIES}
     ${CMAKE_THREAD_LIBS_INIT}
 )
 if(UNIX)
@@ -176,21 +156,20 @@ set_property(TARGET rtl_adsb APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC"
 set_property(TARGET rtl_power APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 set_property(TARGET rtl_biast APPEND PROPERTY COMPILE_DEFINITIONS "rtlsdr_STATIC" )
 endif()
-
-
-endif()
+endif(BUILD_UTILS_RTLSDR)
 ########################################################################
 # Install built library files & utilities
 ########################################################################
+if(RTLSDR_INSTALL)
 install(TARGETS rtlsdr EXPORT RTLSDR-export
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} # .so/.dylib file
   )
 install(TARGETS rtlsdr_static EXPORT RTLSDR-export
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR} # .so/.dylib file
   )
-
 if(BUILD_UTILS_RTLSDR)
 install(TARGETS rtl_sdr rtl_tcp rtl_test rtl_fm rtl_eeprom rtl_adsb rtl_power rtl_biast
   DESTINATION ${CMAKE_INSTALL_BINDIR}
   )
 endif()
+endif(RTLSDR_INSTALL)
