@@ -11,6 +11,7 @@
 #include "Bits128.hpp"
 #include "ModeS.hpp"
 #include "AVRWriter.hpp"
+#include "Counters.hpp"
 #include "ModeSFrame.hpp"
 #include "TcpOutputServer.hpp"
 #include "Metrics.hpp"
@@ -27,6 +28,7 @@ template <typename Sampler> class StdOutMessageHandler {
         : m_writer(std::cout), m_stdoutEnabled(stdoutEnabled), m_tcpServer(tcpServer) {}
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
+        StreamCounters::decodedShort.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         if (m_stdoutEnabled)
             m_writer.write_short_MLAT(MLAT_timeStamp, frame);
@@ -35,6 +37,7 @@ template <typename Sampler> class StdOutMessageHandler {
     }
 
     void handleLong(uint64_t sampleIndex, const Bits128& frame) {
+        StreamCounters::decodedLong.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         if (m_stdoutEnabled)
             m_writer.write_long_MLAT(MLAT_timeStamp, frame);
@@ -64,6 +67,7 @@ template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
         : m_writer(std::cout), rssiProvider(rssi), m_stdoutEnabled(stdoutEnabled), m_tcpServer(tcpServer) {}
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
+        StreamCounters::decodedShort.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSIShort();
         Metrics::registry().rssiRatio.observe(double(rssi) / 255.0, Metrics::RssiRatioBounds);
@@ -74,6 +78,7 @@ template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
     }
 
     void handleLong(uint64_t sampleIndex, const Bits128& frame) {
+        StreamCounters::decodedLong.fetch_add(1, std::memory_order_relaxed);
         const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSILong();
         Metrics::registry().rssiRatio.observe(double(rssi) / 255.0, Metrics::RssiRatioBounds);

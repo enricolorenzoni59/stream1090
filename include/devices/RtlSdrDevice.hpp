@@ -7,6 +7,7 @@
 #pragma once
 
 #include <rtl-sdr.h>
+#include <atomic>
 #include <chrono>
 #include <mutex>
 #include <thread>
@@ -49,6 +50,7 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
 
   private:
     static void callback(unsigned char* buf, uint32_t len, void* ctx);
+    void accumulateGainStats(const unsigned char* buf, uint32_t len);
     void observeSamples(uint32_t len);
     void configureAutoPpm(const AutoPpmConfig& cfg);
     void resetAutoPpmMeasurement();
@@ -56,10 +58,48 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     bool open_with_serial(const std::string& serial);
 
     int nearestGain(int requested);
+    bool applyVgaGain(int value);
+    void recordLinearGain(int gainTenths);
+
+    // -------------------------------
+    // Adaptive gain (ported from the rtlsdr-gain-sweep branch)
+    //
+    // With a linear front end, amplitude ratios are gain-invariant: the only
+    // absolute references are the 8-bit ADC rails. The control variable is
+    // the median noise radius p50 of the raw I/Q bytes, as a floor sigma in
+    // LSB (p50 / 0.6745): immune to strong-burst duty cycles below 50%, and
+    // it tracks the environment one to one. Every 5 s window:
+    //   p50 > 30 twice in a row: step down 3 (hard overload)
+    //   sigma_floor > 5:   step down (headroom to the rails wasted)
+    //   sigma_floor < 2.5: step up while the ADC stays quiet (the digital
+    //                      noise floor eats the signal)
+    //   RMS > 16:          step down (headroom safety)
+    // inside the band it closes on the geometric centre instead of parking
+    // at the edge it crossed. Burst saturation from strong transmitters is
+    // deliberately not chased. With the gain pinned (--gain, --agc, a stage
+    // gain, --no-adaptive-gain) the loop keeps measuring and logging, it
+    // just never actuates.
+    // -------------------------------
+    void startAdaptiveGain();
+    void stopAdaptiveGain();
+    void adaptiveGainLoop();
+
+    std::thread m_adaptiveThread;
+    std::atomic<bool> m_adaptiveRun{false};
+    std::atomic<bool> m_gainPinned{true};
+    // Serialises every tuner access: the adaptive thread, the auto-PPM
+    // maintenance and a reload may all talk to the dongle.
+    mutable std::recursive_mutex m_controlMutex;
+    std::mutex m_histMutex;
+    // byte-value histogram of the raw stream, two I/Q pairs out of eight
+    uint32_t m_hist[256] = {};
+    uint64_t m_histCount = 0;
+    bool m_vgaSupported = false;
 
     struct ShadowState {
         uint32_t frequency = 1090000000;
         float gain_db = 0.0f;
+        bool gain_known = false;
         bool agc = false;
         bool bias_tee = false;
         int ppm = 0;

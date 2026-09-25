@@ -40,6 +40,10 @@ struct DeviceConfig {
     // RTL-SDR
     bool agc = false;
     std::optional<float> gainDb;
+    // Closed-loop tuner gain on the ADC noise floor (see RtlSdrDevice). Off
+    // means the gain is pinned; the loop still measures and logs the floor.
+    bool adaptiveGain = false;
+    bool adaptiveGainSet = false; // --adaptive-gain / --no-adaptive-gain given
     std::optional<uint32_t> tunerBandwidth;
     bool offsetTuning = false;
     AutoPpmConfig autoPpm;
@@ -73,6 +77,14 @@ struct DeviceConfig {
 // for --auto-ppm / --no-auto-ppm.
 inline DeviceConfig applyBackendDefaults(DeviceConfig cfg, InputDeviceType type, SampleRate inputRate) {
     if (type == InputDeviceType::RTLSDR) {
+        // Adaptive gain is the default unless the user fixed the gain in any
+        // way; it starts from the fixed default below and walks down from it.
+        // Decided once: the gain default filled in below must not read as an
+        // explicit --gain on a second pass.
+        if (!cfg.adaptiveGainSet) {
+            cfg.adaptiveGain = !cfg.gainDb && !cfg.agc && !cfg.lnaGain && !cfg.mixerGain && !cfg.vgaGain;
+            cfg.adaptiveGainSet = true;
+        }
         if (!cfg.gainDb)
             cfg.gainDb = 49.6f;
         if (!cfg.tunerBandwidth)

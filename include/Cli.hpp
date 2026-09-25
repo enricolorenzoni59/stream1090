@@ -35,6 +35,8 @@ struct CliArgs {
     std::string frequency = "";
     std::string gain = "";
     bool agc = false;
+    bool adaptiveGain = false;
+    bool adaptiveGainSet = false;
     bool biasTee = false;
     std::string ppm = "";
     std::string tunerBandwidth = "";
@@ -251,6 +253,17 @@ inline bool parse_cli(int argc, char** argv, CliArgs& out) {
         if (arg == "--gain") {
             if (!take(out.gain))
                 return unknown_argument(arg);
+            continue;
+        }
+        if (arg == "--adaptive-gain") {
+            if (!takeBoolean(out.adaptiveGain))
+                return unknown_argument(arg);
+            out.adaptiveGainSet = true;
+            continue;
+        }
+        if (arg == "--no-adaptive-gain") {
+            out.adaptiveGain = false;
+            out.adaptiveGainSet = true;
             continue;
         }
         if (arg == "--agc") {

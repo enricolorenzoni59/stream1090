@@ -206,6 +206,8 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
     if (!args.gain.empty() && !integer(args.gain, cfg.gainDb.emplace(), "gain"))
         return std::nullopt;
     cfg.agc = args.agc;
+    cfg.adaptiveGain = args.adaptiveGain;
+    cfg.adaptiveGainSet = args.adaptiveGainSet;
     cfg.biasTee = args.biasTee;
     if (!args.ppm.empty() && !integer(args.ppm, cfg.ppm.emplace(), "ppm"))
         return std::nullopt;

@@ -86,12 +86,53 @@ int main() {
         check(!cfg.linearityGain, "airspy/manual stage suppresses linearity default");
     }
 
+    // Adaptive gain: the RTL-SDR default, unless the gain was fixed in any way
+    // or it was switched explicitly.
+    {
+        const auto cfg = applyBackendDefaults(DeviceConfig{}, InputDeviceType::RTLSDR, Rate_2_56_Mhz);
+        check(cfg.adaptiveGain, "rtlsdr/adaptive gain by default");
+        check(cfg.gainDb && *cfg.gainDb == 49.6f, "rtlsdr/adaptive starts from 49.6");
+    }
+    {
+        DeviceConfig input;
+        input.gainDb = 30.0f;
+        check(!applyBackendDefaults(input, InputDeviceType::RTLSDR, Rate_2_56_Mhz).adaptiveGain,
+              "rtlsdr/explicit gain pins");
+    }
+    {
+        DeviceConfig input;
+        input.agc = true;
+        check(!applyBackendDefaults(input, InputDeviceType::RTLSDR, Rate_2_56_Mhz).adaptiveGain,
+              "rtlsdr/agc pins");
+    }
+    {
+        DeviceConfig input;
+        input.vgaGain = 10;
+        check(!applyBackendDefaults(input, InputDeviceType::RTLSDR, Rate_2_56_Mhz).adaptiveGain,
+              "rtlsdr/stage gain pins");
+    }
+    {
+        DeviceConfig input;
+        input.adaptiveGainSet = true; // --no-adaptive-gain
+        check(!applyBackendDefaults(input, InputDeviceType::RTLSDR, Rate_2_56_Mhz).adaptiveGain,
+              "rtlsdr/--no-adaptive-gain");
+        input.adaptiveGain = true; // --adaptive-gain together with --gain: start there, then adapt
+        input.gainDb = 30.0f;
+        check(applyBackendDefaults(input, InputDeviceType::RTLSDR, Rate_2_56_Mhz).adaptiveGain,
+              "rtlsdr/--adaptive-gain wins over --gain");
+    }
+    {
+        check(!applyBackendDefaults(DeviceConfig{}, InputDeviceType::AIRSPY, Rate_6_0_Mhz).adaptiveGain,
+              "airspy/no rtl adaptive gain");
+    }
+
     // Applying the defaults twice changes nothing.
     {
         const auto once = applyBackendDefaults(DeviceConfig{}, InputDeviceType::RTLSDR, Rate_3_2_Mhz);
         const auto twice = applyBackendDefaults(once, InputDeviceType::RTLSDR, Rate_3_2_Mhz);
         check(twice.gainDb && *twice.gainDb == 49.6f, "rtlsdr/idempotent gain");
         check(twice.tunerBandwidth && *twice.tunerBandwidth == 2430000u, "rtlsdr/idempotent bandwidth");
+        check(twice.adaptiveGain, "rtlsdr/idempotent adaptive gain");
     }
 
     return failures == 0 ? 0 : 1;
