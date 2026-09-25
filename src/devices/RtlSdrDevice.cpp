@@ -588,12 +588,16 @@ bool RtlSdrDevice::setOffsetTuning(bool enabled) {
 }
 
 bool RtlSdrDevice::setTunerBandwidth(uint32_t bw) {
-    if (m_state.tuner_bandwidth == bw)
+    // m_state.tuner_bandwidth starts at 0, which is also the value that asks
+    // librtlsdr to derive the bandwidth: without the flag a configured "0"
+    // would match the initial state and never reach the driver.
+    if (m_bandwidthApplied && m_state.tuner_bandwidth == bw)
         return true;
 
     if (rtlsdr_set_tuner_bandwidth(m_dev, bw) == 0) {
         Log::info("RtlSdrDevice") << "tuner_bandwidth: " << m_state.tuner_bandwidth << " -> " << bw;
         m_state.tuner_bandwidth = bw;
+        m_bandwidthApplied = true;
         return true;
     }
     return false;
@@ -700,7 +704,10 @@ void RtlSdrDevice::applyConfigPostOpen(const DeviceConfig& cfg) {
     if (!m_initialConfigApplied) {
         m_initialConfigApplied = true;
 
-        if (!cfg.tunerBandwidth && rtlsdr_get_tuner_type(m_dev) == RTLSDR_TUNER_R820T) {
+        // applyBackendDefaults() always engages the optional for RTL-SDR, so
+        // testing it for emptiness never fired. What matters is the effective
+        // value: 0 means librtlsdr picks the filter.
+        if (cfg.tunerBandwidth.value_or(0) == 0 && rtlsdr_get_tuner_type(m_dev) == RTLSDR_TUNER_R820T) {
             Log::warn("RtlSdrDevice") << "No tuner_bandwidth configured for this R820T/R820T2 tuner; "
                                          "automatic IF filter selection depends on the sample rate and "
                                          "librtlsdr implementation. Set it explicitly (for example, "
