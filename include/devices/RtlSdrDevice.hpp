@@ -11,6 +11,8 @@
 #include <chrono>
 #include <mutex>
 #include <thread>
+#include <map>
+#include <set>
 #include <vector>
 #include "devices/InputDeviceBase.hpp"
 #include "devices/DeviceConfig.hpp"
@@ -115,6 +117,16 @@ class RtlSdrDevice : public InputDeviceBase<uint8_t> {
     bool m_bandwidthApplied = false;
     bool m_initialConfigApplied = false;
     bool m_stateReported = false;
+    // Diagnostic history is deliberately separate from the setter/no-op cache.
+    int recordCall(const std::string& key, const std::string& argument, int rc);
+    void reportConfig(const DeviceConfig& cfg, bool startup, bool incomplete);
+    std::map<std::string, std::string> m_callHistory;
+    std::map<std::string, std::string> m_invalidated;
+    std::set<std::string> m_callsThisConfig;
+    std::set<std::string> m_failedCalls;
+    std::string m_usbSerial = "unavailable";
+    std::string m_tunerName = "unknown";
+
     // Set once stop() has begun, so the reader thread can tell a clean
     // shutdown from an unexpected read_async failure.
     std::atomic<bool> m_stopping{false};

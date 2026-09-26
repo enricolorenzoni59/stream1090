@@ -279,6 +279,19 @@ Sensible defaults are applied automatically and can be overridden per flag:
 
 Use `--device stdin`, `--device rtlsdr` or `--device airspy` to be explicit, and `--serial <id>` to bind to one specific unit. A SIGHUP makes stream1090 stop the current run and select the device again, so a newly attached dongle is picked up without restarting the process.
 
+RTL-SDR prints a configuration report on stderr at each device startup (including
+re-selection after SIGHUP), without requiring `-v`. Requests are the resolved
+configuration after defaults, not necessarily explicit command-line options.
+The report separates driver-accepted arguments, cached frequency/sample rate,
+skipped calls and failures. Nominal gain steps are not RF gain measurements;
+effective analog filter bandwidth has no public readback. Digital AGC, tuner
+mode, adaptive gain and auto-PPM are identified separately. Adaptive gain and
+PPM changes update the API history under the existing control lock; a startup
+report is a snapshot, not continuous telemetry. Combined/stage gain calls
+invalidate one another's interpretation as current gain. Driver failures leave
+current state unconfirmed, since a call can fail after partial application.
+The report adds no RF-setting writes and leaves decoder stdout unchanged.
+
 ### Minimal running example
 For a first try we only need the essentials. All messages found by stream1090 are written to stdout, so we suppress them by sending them to `/dev/null`.
 
