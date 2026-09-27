@@ -408,8 +408,6 @@ endfunction()
 if(BUILD_TESTING)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND AND NOT ENABLE_CUSTOM_INPUT)
-        add_test(NAME sdrplay_abba_test COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/SdrplayAbbaTest.py)
         add_test(NAME signed16_replay_test COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/Signed16ReplayTest.py $<TARGET_FILE:stream1090>)
     endif()
@@ -419,6 +417,8 @@ if(BUILD_TESTING)
     stream1090_add_test(input_profiles_test tests/InputProfilesTest.cpp)
     stream1090_add_test(raw_capture_test tests/RawCaptureTest.cpp)
     stream1090_add_test(sdrplay_device_test tests/SdrplayDeviceTest.cpp)
+    target_compile_definitions(sdrplay_device_test PRIVATE STREAM1090_METRICS=1 STATS_ENABLED=1)
+    stream1090_add_test(sdrplay_iq_stats_test tests/SdrplayIqStatsTest.cpp)
     target_sources(sdrplay_device_test PRIVATE src/devices/SdrplayDevice.cpp)
     target_include_directories(sdrplay_device_test BEFORE PRIVATE tests/mock_sdrplay)
 

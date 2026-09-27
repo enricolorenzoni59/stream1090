@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Known CRC-valid DF17 through raw signed-16 -> FIR -> sampler -> decoder."""
-import importlib.util
-import pathlib
 import random
 import struct
 import subprocess
 import sys
 
-spec = importlib.util.spec_from_file_location('lab',pathlib.Path(__file__).parents[1]/'scripts/sdrplay_lab.py')
-lab = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(lab)
+def avr_payload(line):
+    offset = {b'*': 1, b'@': 13, b'<': 15}.get(line[:1])
+    if offset is None or not line.endswith(b';'):
+        return None
+    return line[offset:-1].upper()
+
 frame = b'8D40621D58C382D690C8AC2863A7'
-assert lab.frame_summary([frame])['df17_18_valid_output_crc'] == 1
-assert lab.frame_summary([frame[:-1]+b'6'])['df17_18_valid_output_crc'] == 0
 bits = bin(int(frame,16))[2:].zfill(112)
 rng = random.Random(42)
 iq = bytearray()
@@ -31,7 +30,7 @@ for rate in ('8','12'):
                                 input=iq,capture_output=True,timeout=30)
         if result.returncode:
             raise RuntimeError(result.stderr.decode())
-        decoded = [lab.avr_payload(line) for line in result.stdout.splitlines()]
+        decoded = [avr_payload(line) for line in result.stdout.splitlines()]
         if len(decoded) < 25 or any(p != frame for p in decoded):
             raise RuntimeError((rate,options,decoded))
 bad = subprocess.run([sys.argv[1],'--device','stdin','--input-format','cs16','-s','4'],

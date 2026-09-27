@@ -136,6 +136,21 @@ int main() {
     if (!contains(page, "# HELP stream1090_metrics_snapshot_age_seconds")) return 18;
 
     // ---- applied gain -----------------------------------------------------
+    if (contains(page, "stream1090_sdrplay_iq_level_dbfs")) return 70;
+    reg.sdrplaySampleRate.set(4000000);
+    reg.sdrplayIqValid.set(1);
+    reg.sdrplayIqRms.set(-30);
+    reg.sdrplayIqPeak.set(-6);
+    reg.sdrplayIqScalars.set(125000);
+    reg.sdrplayOverloadActive.set(-1);
+    const auto pageSdrplay = Metrics::render(reg);
+    if (!contains(pageSdrplay, "stream1090_sdrplay_iq_level_dbfs{statistic=\"rms\"} -30")) return 71;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_iq_sampled_headroom_db 6")) return 72;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_iq_window_valid 1")) return 73;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_iq_window_age_seconds -1")) return 74;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_overload_active -1")) return 75;
+    reg.sdrplaySampleRate.set(0);
+
     if (!contains(page, "stream1090_device_gain{stage=\"overall\",unit=\"index\"} 21")) return 38;
     if (!contains(page, "stream1090_device_gain{stage=\"lna\",unit=\"index\"} 14")) return 39;
     if (!contains(page, "stream1090_device_gain{stage=\"vga\",unit=\"index\"} 13")) return 40;

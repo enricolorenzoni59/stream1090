@@ -67,6 +67,12 @@ bool SdrplayDevice::open() {
 bool SdrplayDevice::start() {
     if (!selected_ || initialized_) return false;
     haveSequence_ = false;
+    iqStats_.reset();
+    invalidateTelemetry();
+    if constexpr (Metrics::Enabled) {
+        Metrics::registry().sdrplayIqLastSteady.set(0);
+        Metrics::registry().sdrplayOverloadActive.set(-1);
+    }
     sdrplay_api_CallbackFnsT callbacks{};
     callbacks.StreamACbFn = streamCallback;
     callbacks.EventCbFn = eventCallback;
@@ -102,6 +108,8 @@ void SdrplayDevice::streamCallback(short* i, short* q, sdrplay_api_StreamCbParam
         if (!count) return;
         if (!i || !q || !p) { self.fail("invalid_callback"); return; }
         if (self.haveSequence_ && p->firstSampleNum != self.nextSample_) {
+            self.iqStats_.reset();
+            self.invalidateTelemetry();
             self.gaps_.fetch_add(1);
             if constexpr (Metrics::Enabled) Metrics::registry().sdrplayGaps.inc();
             const uint32_t missing = p->firstSampleNum - self.nextSample_;
@@ -115,6 +123,11 @@ void SdrplayDevice::streamCallback(short* i, short* q, sdrplay_api_StreamCbParam
         }
         self.haveSequence_ = true;
         self.nextSample_ = uint32_t(p->firstSampleNum + count);
+        if constexpr (Metrics::Enabled) {
+            if (Metrics::registry().signalQualityCollection())
+                self.iqStats_.observe(i, q, count, self.getSampleRate(),
+                    [&self](const SdrplayIqStats::Window& window) { self.publishTelemetry(window); });
+        }
         for (size_t base = 0; base < count && self.m_running.load(); base += 4096) {
             const size_t n = std::min<size_t>(4096, count - base);
             for (size_t k = 0; k < n; ++k) {
@@ -137,6 +150,13 @@ void SdrplayDevice::eventCallback(sdrplay_api_EventT event, sdrplay_api_TunerSel
                 self.overloads_.fetch_add(1);
                 if constexpr (Metrics::Enabled) Metrics::registry().sdrplayOverloads.inc();
             }
+            if constexpr (Metrics::Enabled) {
+                if (params) {
+                    const auto change = params->powerOverloadParams.powerOverloadChangeType;
+                    if (change == sdrplay_api_Overload_Detected) Metrics::registry().sdrplayOverloadActive.set(1);
+                    else if (change == sdrplay_api_Overload_Corrected) Metrics::registry().sdrplayOverloadActive.set(0);
+                }
+            }
             if (sdrplay_api_Update(self.device_.dev, tuner, sdrplay_api_Update_Ctrl_OverloadMsgAck,
                                    sdrplay_api_Update_Ext1_None) != sdrplay_api_Success) self.fail("overload_ack_failed");
         } else if (event == sdrplay_api_DeviceRemoved) self.fail("device_removed");
@@ -150,6 +170,31 @@ void SdrplayDevice::stop() {
     if (initialized_) {
         check(sdrplay_api_Uninit(device_.dev), "Uninit");
         initialized_ = false;
+    }
+    invalidateTelemetry();
+    if constexpr (Metrics::Enabled) Metrics::registry().sdrplayOverloadActive.set(-1);
+}
+
+void SdrplayDevice::invalidateTelemetry() noexcept {
+    if constexpr (Metrics::Enabled) Metrics::registry().sdrplayIqValid.set(0);
+}
+
+void SdrplayDevice::publishTelemetry(const SdrplayIqStats::Window& w) noexcept {
+    if constexpr (Metrics::Enabled) {
+        auto& reg = Metrics::registry();
+        reg.sdrplayIqValid.set(0);
+        reg.sdrplayIqScalars.set(w.scalars);
+        reg.sdrplayIqRms.set(w.rmsDbfs);
+        reg.sdrplayIqMedian.set(w.medianDbfs);
+        reg.sdrplayIqP999.set(w.p999Dbfs);
+        reg.sdrplayIqPeak.set(w.peakDbfs);
+        reg.sdrplayIqNoiseSigma.set(w.noiseSigmaDbfs);
+        reg.sdrplayIqRails.set(w.railFraction);
+        reg.sdrplayIqNearFull.set(w.nearFullFraction);
+        reg.sdrplayIqCenter.set(w.centerFraction);
+        reg.sdrplayIqWindows.inc();
+        reg.sdrplayIqLastSteady.set(Metrics::Registry::steadySeconds());
+        reg.sdrplayIqValid.set(m_running.load() ? 1 : 0);
     }
 }
 

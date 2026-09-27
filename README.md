@@ -5,10 +5,10 @@
 > merged upstream.
 
 The `feature/sdrplay-rsp1b` branch adds an experimental native RSP1B backend,
-explicit signed-16 replay, raw capture with metadata, and FIR/gain/rate experiment
-tools. See [RSP1B setup, recording and validation](docs/sdrplay-rsp1b.md), including
-the distinction between API sample format and ADC resolution, and Prometheus
-scrape configuration. SDRplay support is enabled by default on this branch and
+explicit signed-16 replay, raw capture with metadata, and IQ level telemetry.
+See the [Raspberry Pi setup guide](docs/sdrplay-pi-quickstart.md) and
+[Prometheus IQ telemetry](docs/sdrplay-telemetry.md).
+SDRplay support is enabled by default on this branch and
 requires the separately installed vendor SDK. To build without it, configure
 with `-DENABLE_SDRPLAY=OFF`. Existing CMake build directories keep their cached
 setting.

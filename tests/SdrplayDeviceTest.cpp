@@ -1,14 +1,16 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "devices/SdrplayDevice.hpp"
+#include "Metrics.hpp"
 #include <vector>
 #include <stdexcept>
 #define CHECK(x) do { if (!(x)) throw std::runtime_error(#x); } while(0)
 struct Writer : IAsyncWriter<int16_t> {
     std::vector<int16_t> values;
     bool segments = false;
+    bool discard = false;
     uint64_t missing = 0;
     bool discontinuity(uint64_t n) override { missing += n; return segments; }
-    size_t write(const int16_t* p, size_t n) override { values.insert(values.end(),p,p+n); return n; }
+    size_t write(const int16_t* p, size_t n) override { if (!discard) values.insert(values.end(),p,p+n); return n; }
     void shutdown() override { probe_writer_shutdown=true; }
 };
 int main() {
@@ -79,5 +81,33 @@ int main() {
         probe_callbacks.StreamACbFn(i,q,&p,2,0,probe_context);
         CHECK(d.streamFailed()); CHECK(w.values.size()==12);
     }
-    CHECK(probe_release==7); CHECK(probe_uninit==5);
+    {
+        auto& reg = Metrics::registry();
+        Writer w; w.segments=true; w.discard=true;
+        SdrplayDevice d(Rate_4_0_Mhz,w); CHECK(d.open()); CHECK(d.start());
+        CHECK(reg.sdrplayIqValid.get()==0 && reg.sdrplayOverloadActive.get()==-1);
+        std::vector<short> i(4000000,1024),q(4000000,-1024);
+        sdrplay_api_StreamCbParamsT p{};
+        probe_callbacks.StreamACbFn(i.data(),q.data(),&p,4000000,0,probe_context);
+        CHECK(reg.sdrplayIqWindows.get()==0); // exporter collection disabled
+        reg.setSignalQualityCollection(true);
+        p.firstSampleNum=4000000;
+        probe_callbacks.StreamACbFn(i.data(),q.data(),&p,4000000,0,probe_context);
+        CHECK(reg.sdrplayIqWindows.get()==1 && reg.sdrplayIqValid.get()==1);
+        CHECK(reg.sdrplayIqScalars.get()==125000 && reg.sdrplayIqRails.get()==0);
+        CHECK(std::fabs(reg.sdrplayIqRms.get()-20*std::log10(1.0/32))<1e-9);
+        p.firstSampleNum=8000100;
+        probe_callbacks.StreamACbFn(i.data(),q.data(),&p,100,0,probe_context);
+        CHECK(reg.sdrplayIqValid.get()==0 && reg.sdrplayIqWindows.get()==1);
+        sdrplay_api_EventParamsT event{};
+        probe_callbacks.EventCbFn(sdrplay_api_PowerOverloadChange,1,&event,probe_context);
+        CHECK(reg.sdrplayOverloadActive.get()==1);
+        event.powerOverloadParams.powerOverloadChangeType=sdrplay_api_Overload_Corrected;
+        probe_callbacks.EventCbFn(sdrplay_api_PowerOverloadChange,1,&event,probe_context);
+        CHECK(reg.sdrplayOverloadActive.get()==0);
+        CHECK(d.captureMetadata().at("overload_events")=="1");
+        d.close(); CHECK(reg.sdrplayIqValid.get()==0 && reg.sdrplayOverloadActive.get()==-1);
+        reg.setSignalQualityCollection(false);
+    }
+    CHECK(probe_release==8); CHECK(probe_uninit==6);
 }

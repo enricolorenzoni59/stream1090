@@ -120,8 +120,8 @@ Ctrl-C stops stream1090; readsb can stay running while waiting for it.
 
 4→8 MS/s and GR25/LNA2 are our site's tested starting settings. Gain depends
 on antenna and RF environment. If overloads occur, increase IF gain reduction
-(for example, from 25 to 40). Larger reduction means less gain. Other inputs
-and settings are described in the [full RSP1B guide](sdrplay-rsp1b.md).
+(for example, from 25 to 40). Larger reduction means less gain. Use the
+[IQ telemetry](sdrplay-telemetry.md) to observe levels and SDK overload state.
 
 ## 6. Check reception and monitoring
 

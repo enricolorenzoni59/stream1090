@@ -14,6 +14,7 @@ constexpr int sdrplay_api_Update_Rsp1a_BiasTControl=3, sdrplay_api_Update_Ext1_N
 using sdrplay_api_Bw_MHzT = int;
 using sdrplay_api_AdsbModeT = int;
 constexpr int sdrplay_api_Update_Ctrl_OverloadMsgAck=9, sdrplay_api_Overload_Detected=0;
+constexpr int sdrplay_api_Overload_Corrected=1;
 constexpr int sdrplay_api_BW_5_000=5000, sdrplay_api_IF_Zero=0, sdrplay_api_AGC_DISABLE=0;
 constexpr int sdrplay_api_ISOCH=0, sdrplay_api_BULK=1;
 constexpr int sdrplay_api_ADSB_NO_DECIMATION_BANDPASS_2MHZ=2;
