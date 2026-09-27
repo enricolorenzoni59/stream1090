@@ -143,12 +143,21 @@ int main() {
     reg.sdrplayIqPeak.set(-6);
     reg.sdrplayIqScalars.set(125000);
     reg.sdrplayOverloadActive.set(-1);
+    reg.sdrplayMissingSamples.inc(4000);
+    reg.sdrplaySequenceErrors.inc();
+    reg.sdrplayGapDuration.observe(0.001, Metrics::SdrplayGapBounds);
+    reg.sdrplayLargestGap.set(0.001);
     const auto pageSdrplay = Metrics::render(reg);
     if (!contains(pageSdrplay, "stream1090_sdrplay_iq_level_dbfs{statistic=\"rms\"} -30")) return 71;
     if (!contains(pageSdrplay, "stream1090_sdrplay_iq_sampled_headroom_db 6")) return 72;
     if (!contains(pageSdrplay, "stream1090_sdrplay_iq_window_valid 1")) return 73;
     if (!contains(pageSdrplay, "stream1090_sdrplay_iq_window_age_seconds -1")) return 74;
     if (!contains(pageSdrplay, "stream1090_sdrplay_overload_active -1")) return 75;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_missing_samples_total 4000")) return 76;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_sequence_errors_total 1")) return 77;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_gap_duration_seconds_count 1")) return 78;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_gap_duration_seconds_sum 0.001")) return 79;
+    if (!contains(pageSdrplay, "stream1090_sdrplay_largest_gap_seconds 0.001")) return 80;
     reg.sdrplaySampleRate.set(0);
 
     if (!contains(page, "stream1090_device_gain{stage=\"overall\",unit=\"index\"} 21")) return 38;

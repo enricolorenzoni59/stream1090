@@ -52,3 +52,33 @@ A gap followed by less than one continuous second intentionally leaves the
 window invalid. Compare the gauges with IF GR/LNA settings and SDK overloads;
 do not interpret a gain change from message counts alone. This is observation
 for a future gain controller; SDRplay AGC remains disabled.
+
+## Gap sizes and missing IQ
+
+`stream1090_sdrplay_events_total{event="gap"}` counts all SDK sample-sequence
+discontinuities. The generic `sample_drop_*` metrics are not the SDRplay gap
+counters: they may stay zero while the SDRplay gap counter increases.
+
+The additional metrics distinguish frequency from severity:
+
+- `stream1090_sdrplay_missing_samples_total`: known missing **complex IQ pairs**.
+- `stream1090_sdrplay_gap_duration_seconds`: histogram of forward gap lengths
+  (`_bucket`, `_sum`, `_count`), calculated using the configured input rate.
+- `stream1090_sdrplay_largest_gap_seconds`: largest forward gap since process start.
+- `stream1090_sdrplay_sequence_errors_total`: backward/ambiguous jumps requiring
+  recovery; their size is unknown and excluded from the metrics above.
+
+Ordinary 32-bit counter rollover is not a gap. A forward gap crossing rollover
+is counted by its modular size. All counters and the maximum survive device
+recovery within the same process, but reset on process restart.
+
+Missing IQ time as a fraction of wall time over five minutes:
+
+```promql
+rate(stream1090_sdrplay_gap_duration_seconds_sum[5m])
+```
+
+Multiply by 100 for percent. This describes missing API samples, **not the
+fraction of lost ADS-B messages**: discarding partial DSP blocks, filter/decoder
+restart transients and device recovery can lose additional useful data. A gap
+counter alone cannot quantify the effect on decoding or validate MLAT.

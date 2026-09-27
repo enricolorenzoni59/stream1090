@@ -107,6 +107,10 @@ template <size_t NumBuckets> struct Histogram {
     }
 };
 
+inline constexpr std::array<double, 10> SdrplayGapBounds {
+    0.00001, 0.00005, 0.0001, 0.00025, 0.0005, 0.001, 0.005, 0.02, 0.1, 1.0
+};
+
 inline constexpr std::array<double, 8> RssiRatioBounds { 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0 };
 inline constexpr std::array<double, 25> DbfsBounds {
     -72.0, -69.0, -66.0, -63.0, -60.0, -57.0, -54.0, -51.0, -48.0, -45.0, -42.0, -39.0, -36.0,
@@ -141,6 +145,10 @@ class Registry {
     Counter sdrplayCallbacks;
     Counter sdrplayResets;
     Counter sdrplayGaps;
+    Counter sdrplayMissingSamples;
+    Counter sdrplaySequenceErrors;
+    Histogram<SdrplayGapBounds.size()> sdrplayGapDuration;
+    Gauge sdrplayLargestGap;
     Counter sdrplayOverloads;
     Gauge sdrplayOverloadActive; // -1 unknown, 0 corrected, 1 detected
     Gauge sdrplayIqValid;
@@ -697,6 +705,14 @@ inline std::string render(Registry& reg) {
         sample(out, "sdrplay_events_total", labels({{"event", "reset"}}), double(reg.sdrplayResets.get()));
         sample(out, "sdrplay_events_total", labels({{"event", "gap"}}), double(reg.sdrplayGaps.get()));
         sample(out, "sdrplay_events_total", labels({{"event", "overload"}}), double(reg.sdrplayOverloads.get()));
+        head(out, "sdrplay_missing_samples_total", "Known missing complex IQ samples from forward SDK sequence gaps, across sessions.", "counter");
+        sample(out, "sdrplay_missing_samples_total", "", double(reg.sdrplayMissingSamples.get()));
+        head(out, "sdrplay_sequence_errors_total", "Backward or ambiguous SDK sequence jumps; excluded from missing-sample and duration metrics.", "counter");
+        sample(out, "sdrplay_sequence_errors_total", "", double(reg.sdrplaySequenceErrors.get()));
+        histogram(out, "sdrplay_gap_duration_seconds", "Forward SDK gap duration at configured sample rate; excludes discarded DSP tails and recovery downtime.",
+                  reg.sdrplayGapDuration, SdrplayGapBounds);
+        head(out, "sdrplay_largest_gap_seconds", "Largest known forward SDK gap since process start.", "gauge");
+        sample(out, "sdrplay_largest_gap_seconds", "", reg.sdrplayLargestGap.get());
         head(out, "sdrplay_overload_active", "Last SDK overload state: 1 detected, 0 corrected, -1 unknown or stopped.", "gauge");
         sample(out, "sdrplay_overload_active", "", reg.sdrplayOverloadActive.get());
         head(out, "sdrplay_iq_window_valid", "1 after a complete contiguous IQ window; 0 at startup, gap, failure or stop. Also check age and device_up.", "gauge");

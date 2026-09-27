@@ -168,6 +168,16 @@ void SdrplayDevice::streamCallback(short* i, short* q, sdrplay_api_StreamCbParam
             if constexpr (Metrics::Enabled) Metrics::registry().sdrplayGaps.inc();
             const uint32_t missing = p->firstSampleNum - self.nextSample_;
             self.missing_.fetch_add(missing);
+            if constexpr (Metrics::Enabled) {
+                auto& reg = Metrics::registry();
+                if (missing < 0x80000000u) {
+                    const double seconds = double(missing) / double(self.getSampleRate());
+                    reg.sdrplayMissingSamples.inc(missing);
+                    reg.sdrplayGapDuration.observe(seconds, Metrics::SdrplayGapBounds);
+                    // One selected stream owns these updates; registry survives recovery.
+                    reg.sdrplayLargestGap.set(std::max(reg.sdrplayLargestGap.get(), seconds));
+                } else reg.sdrplaySequenceErrors.inc();
+            }
             // A forward modular delta below half the counter range retains
             // the sample clock. Backward/ambiguous jumps require recovery.
             // Raw capture writers deliberately decline segmentation.

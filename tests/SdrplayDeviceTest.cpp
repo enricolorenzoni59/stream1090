@@ -66,6 +66,11 @@ int main() {
         CHECK(d.captureMetadata().at("usb_transfer_mode")=="bulk");
     }
     {
+        auto& reg=Metrics::registry();
+        const auto beforeMissing=reg.sdrplayMissingSamples.get();
+        const auto beforeErrors=reg.sdrplaySequenceErrors.get();
+        const auto beforeCount=reg.sdrplayGapDuration.count.load();
+        const auto beforeDuration=reg.sdrplayGapDuration.sum.load();
         Writer w; w.segments=true; SdrplayDevice d(Rate_4_0_Mhz,w);
         CHECK(d.open()); CHECK(d.start());
         short i[]={1,2}, q[]={3,4}; sdrplay_api_StreamCbParamsT p{100};
@@ -73,6 +78,10 @@ int main() {
         p.firstSampleNum=110;
         probe_callbacks.StreamACbFn(i,q,&p,2,0,probe_context);
         CHECK(!d.streamFailed()); CHECK(w.missing==16); CHECK(w.values.size()==8);
+        CHECK(reg.sdrplayMissingSamples.get()==beforeMissing+8);
+        CHECK(reg.sdrplayGapDuration.count.load()==beforeCount+1);
+        CHECK(std::abs(reg.sdrplayGapDuration.sum.load()-beforeDuration-0.000002)<1e-12);
+        CHECK(reg.sdrplayLargestGap.get()>=0.000002);
         CHECK(d.captureMetadata().at("gap_events")=="1");
         p.firstSampleNum=112;
         probe_callbacks.StreamACbFn(i,q,&p,2,0,probe_context);
@@ -81,6 +90,9 @@ int main() {
         p.firstSampleNum=100;
         probe_callbacks.StreamACbFn(i,q,&p,2,0,probe_context);
         CHECK(d.streamFailed()); CHECK(w.values.size()==12);
+        CHECK(reg.sdrplayMissingSamples.get()==beforeMissing+8);
+        CHECK(reg.sdrplaySequenceErrors.get()==beforeErrors+1);
+        CHECK(reg.sdrplayGapDuration.count.load()==beforeCount+1);
     }
     {
         auto& reg = Metrics::registry();
@@ -189,6 +201,30 @@ int main() {
         CHECK(!SdrplayModel::available(probe_device));
         Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); CHECK(!d.open());
     }
+    {
+        probe_device={};
+        auto& reg=Metrics::registry();
+        const auto missing=reg.sdrplayMissingSamples.get();
+        const auto errors=reg.sdrplaySequenceErrors.get();
+        const auto count=reg.sdrplayGapDuration.count.load();
+        Writer w; w.segments=true; SdrplayDevice d(Rate_4_0_Mhz,w);
+        CHECK(d.open()); CHECK(d.start());
+        short i[]={1,2,3,4},q[]={0,0,0,0};
+        sdrplay_api_StreamCbParamsT p{0xfffffff8u};
+        probe_callbacks.StreamACbFn(i,q,&p,4,0,probe_context); // next = fffffffc
+        p.firstSampleNum=2; // six missing pairs across rollover
+        probe_callbacks.StreamACbFn(i,q,&p,4,0,probe_context);
+        CHECK(!d.streamFailed()); CHECK(w.missing==12);
+        CHECK(reg.sdrplayMissingSamples.get()==missing+6);
+        CHECK(reg.sdrplayGapDuration.count.load()==count+1);
+        p.firstSampleNum=6u+0x80000000u; // exactly half-range: ambiguous
+        probe_callbacks.StreamACbFn(i,q,&p,4,0,probe_context);
+        CHECK(d.streamFailed()); CHECK(w.values.size()==16);
+        CHECK(reg.sdrplayMissingSamples.get()==missing+6);
+        CHECK(reg.sdrplaySequenceErrors.get()==errors+1);
+        CHECK(reg.sdrplayGapDuration.count.load()==count+1);
+    }
+
     probe_device={};
 
 }
