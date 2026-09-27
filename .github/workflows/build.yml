@@ -2,8 +2,12 @@ name: build
 
 on:
   push:
-    branches: [main, enrico-dev]
+    branches: [main, enrico-dev, feature/sdrplay-rsp1b]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   CXXFLAGS: -Werror
@@ -37,6 +41,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DBUILD_TESTING=ON
+          -DENABLE_SDRPLAY=OFF
           -DENABLE_RTLSDR_BLOG=OFF
 
       - name: Build
@@ -67,6 +72,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DBUILD_TESTING=ON
+          -DENABLE_SDRPLAY=OFF
           -DENABLE_RTLSDR_BLOG=ON
 
       - name: Build
@@ -95,6 +101,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DBUILD_TESTING=ON
+          -DENABLE_SDRPLAY=OFF
           -DENABLE_RTLSDR_BLOG=OFF
 
       - name: Build
@@ -119,6 +126,7 @@ jobs:
           cmake -S . -B build
           -DCMAKE_BUILD_TYPE=Release
           -DBUILD_TESTING=ON
+          -DENABLE_SDRPLAY=OFF
           -DENABLE_RTLSDR_BLOG=ON
 
       - name: Build
@@ -126,3 +134,76 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  # Compile and link the actual backend against the vendor SDK on both CPU
+  # architectures. Hardware-free CTest still uses mocks for device events;
+  # the main executable uses the real headers and library.
+  build-sdrplay:
+    name: SDRplay / ${{ matrix.runner }} / ${{ matrix.compiler }} / metrics=${{ matrix.metrics }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        compiler: [gcc, clang]
+        metrics: ['ON', 'OFF']
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang lld cmake pkg-config curl ca-certificates \
+            libusb-1.0-0 libudev1
+
+      # Download directly from SDRplay; never publish/cache the proprietary SDK.
+      # Version 3.15 (Linux installer v2). The checksum intentionally fails if
+      # the vendor replaces the download: review the new SDK before updating it.
+      # Extract build inputs only; no hardware daemon or udev rules are needed.
+      - name: Prepare official SDRplay API 3.15
+        shell: bash
+        run: |
+          sdk="$RUNNER_TEMP/sdrplay-api"
+          archive="$RUNNER_TEMP/sdrplay-api.run"
+          curl --fail --location --retry 3 --connect-timeout 15 --max-time 120 \
+            'https://sdrplay.com/download/hardware-api-linux/?wpdmdl=1906' \
+            --output "$archive"
+          echo "3a97ca764263bbe76fb0f2220e6408942357e8864c19e1408a6d6987af382fe3  $archive" | sha256sum --check --strict
+          sh "$archive" --noexec --target "$sdk"
+          arch="$(dpkg --print-architecture)"
+          test -f "$sdk/$arch/libsdrplay_api.so.3.15"
+          ln -s libsdrplay_api.so.3.15 "$sdk/$arch/libsdrplay_api.so.3"
+          ln -s libsdrplay_api.so.3 "$sdk/$arch/libsdrplay_api.so"
+          echo "SDRPLAY_INCLUDE_DIR=$sdk/inc" >> "$GITHUB_ENV"
+          echo "SDRPLAY_LIBRARY=$sdk/$arch/libsdrplay_api.so" >> "$GITHUB_ENV"
+
+      - name: Configure with real SDK and warnings as errors
+        env:
+          CC: ${{ matrix.compiler == 'gcc' && 'gcc' || 'clang' }}
+          CXX: ${{ matrix.compiler == 'gcc' && 'g++' || 'clang++' }}
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_FLAGS=-Werror
+          -DBUILD_TESTING=ON
+          -DENABLE_SDRPLAY=ON
+          -DENABLE_RTLSDR_BLOG=OFF
+          -DENABLE_METRICS=${{ matrix.metrics }}
+          -DSDRPLAY_INCLUDE_DIR="$SDRPLAY_INCLUDE_DIR"
+          -DSDRPLAY_LIBRARY="$SDRPLAY_LIBRARY"
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Verify real SDK linkage and executable startup
+        shell: bash
+        run: |
+          ldd build/stream1090 | tee build/linked-libraries.txt
+          grep -F 'libsdrplay_api.so.3 =>' build/linked-libraries.txt
+          if grep -F 'not found' build/linked-libraries.txt; then exit 1; fi
+          build/stream1090 --help
+
+      - name: Test without radio hardware
+        run: ctest --test-dir build --output-on-failure --no-tests=error

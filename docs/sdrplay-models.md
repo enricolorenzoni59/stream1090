@@ -87,3 +87,21 @@ The [vendor single-tuner example](https://github.com/SDRplay/examples/blob/maste
 selects the appropriate A/B parameter block but receives single-tuner samples
 through Stream A; Stream B is reserved for dual-tuner operation. The backend
 rejects an unexpected second stream instead of mixing it into the selected IQ.
+
+## Continuous integration
+
+The `build` GitHub Actions workflow runs on pushes to `feature/sdrplay-rsp1b`,
+`enrico-dev` and `main`, on pull requests, and by manual dispatch. Its SDRplay
+matrix builds the complete executable with **`-Werror`**, GCC and Clang, on
+Linux x86-64 and ARM64, with metrics both enabled and disabled.
+
+These jobs download the official Linux API 3.15 installer (v2) from SDRplay,
+verify a pinned SHA-256, and extract the real headers and shared library into
+the temporary runner directory. They verify dynamic linkage and executable
+startup, then run CTest. The SDK is not committed, cached or uploaded as an
+artifact; its vendor licence applies. A changed vendor download deliberately
+fails checksum verification and requires review before updating the pin.
+
+Other jobs explicitly disable SDRplay and retain the hardware-free backend
+mock tests. Neither those tests nor real-SDK compilation validate reception,
+USB behaviour or model-specific hardware: RSPduo/RSPdx still need live tests.
