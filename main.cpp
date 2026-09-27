@@ -24,7 +24,9 @@ void print_help() {
         "  --device sdrplay --serial <serial>\n"
         "  --input-format cs16|cu8|airspy-u12-real  Explicit stdin format (little endian)\n"
         "  --sdrplay-if-gr <20..59>      IF gain reduction dB (default 40)\n"
-        "  --sdrplay-lna-state <0..8>    RF attenuation index (default 2)\n"
+        "  --sdrplay-lna-state <index>   RSP1B/duo: 0..8; RSPdx: 0..18 (default 2)\n"
+        "  --sdrplay-tuner <1|2>        RSPduo single tuner (default 1)\n"
+        "  --sdrplay-antenna <A|B>      RSPdx antenna (default A)\n"
         "  --sdrplay-bandwidth <kHz>     200/300/600/1536/5000/6000/7000/8000 (default 5000)\n"
         "  --sdrplay-adsb-mode <0..3>    Vendor DSP mode (default 1, ZIF lowpass)\n"
         "  --sdrplay-usb-mode <mode>    isoch (default) or bulk\n"
@@ -51,7 +53,7 @@ void print_help() {
         }
     }
 
-    if (GlobalOptions::NativeSdrplaySupport) std::cout << " SDRplay RSP1B";
+    if (GlobalOptions::NativeSdrplaySupport) std::cout << " SDRplay RSP1B/RSPduo/RSPdx";
 
     if (!GlobalOptions::NativeRtlSdrSupport && !GlobalOptions::NativeAirspySupport && !GlobalOptions::NativeSdrplaySupport) {
         std::cout << " none";

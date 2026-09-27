@@ -20,6 +20,7 @@
 
 #ifdef STREAM1090_HAVE_SDRPLAY
 #include <sdrplay_api.h>
+#include "devices/SdrplayModel.hpp"
 #endif
 
 std::vector<DeviceDescriptor> enumerateDevices() {
@@ -55,7 +56,7 @@ std::vector<DeviceDescriptor> enumerateDevices() {
             unsigned count = 0;
             if (sdrplay_api_GetDevices(rsp, &count, SDRPLAY_MAX_DEVICES) == sdrplay_api_Success)
                 for (unsigned i = 0; i < count; ++i)
-                    if (rsp[i].hwVer == SDRPLAY_RSP1B_ID && rsp[i].valid)
+                    if (SdrplayModel::available(rsp[i]))
                         devices.push_back({InputDeviceType::SDRPLAY, rsp[i].SerNo, int(i)});
             sdrplay_api_UnlockDeviceApi();
         }

@@ -23,7 +23,7 @@ struct CliArgs {
     std::string capturePath;
     std::string captureSeconds;
     bool captureOnly = false;
-    std::string sdrplayIfGr, sdrplayLnaState, sdrplayBandwidth, sdrplayAdsbMode, sdrplayUsbMode;
+    std::string sdrplayIfGr, sdrplayLnaState, sdrplayBandwidth, sdrplayAdsbMode, sdrplayUsbMode, sdrplayTuner, sdrplayAntenna;
     bool sdrplayRfNotch = false, sdrplayDabNotch = false;
     std::string sampleRate = "";
     std::string upsampleRate = "";
@@ -255,6 +255,8 @@ inline bool parse_cli(int argc, char** argv, CliArgs& out) {
         if (arg == "--capture") { if (!take(out.capturePath)) return unknown_argument(arg); continue; }
         if (arg == "--capture-seconds") { if (!take(out.captureSeconds)) return unknown_argument(arg); continue; }
         if (arg == "--capture-only") { out.captureOnly = true; continue; }
+        if (arg == "--sdrplay-tuner") { if (!take(out.sdrplayTuner)) return unknown_argument(arg); continue; }
+        if (arg == "--sdrplay-antenna") { if (!take(out.sdrplayAntenna)) return unknown_argument(arg); continue; }
         if (arg == "--sdrplay-if-gr") { if (!take(out.sdrplayIfGr)) return unknown_argument(arg); continue; }
         if (arg == "--sdrplay-lna-state") { if (!take(out.sdrplayLnaState)) return unknown_argument(arg); continue; }
         if (arg == "--sdrplay-bandwidth") { if (!take(out.sdrplayBandwidth)) return unknown_argument(arg); continue; }

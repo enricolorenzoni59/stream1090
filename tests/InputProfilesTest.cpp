@@ -29,4 +29,24 @@ int main() {
     CHECK(parse_number("1090000000",n) && n==1090000000);
     for(int invalid:{19,60}) { auto cfg=SdrplaySettings{}; cfg.gainReduction=invalid;
         bool rejected=false; try{cfg.validate(4000000,1090000000);}catch(...){rejected=true;} CHECK(rejected); }
+    for (int invalid : {-1, 19}) {
+        auto cfg=SdrplaySettings{}; cfg.lnaState=invalid;
+        bool rejected=false; try { cfg.validate(4000000,1090000000); } catch (const std::invalid_argument&) { rejected=true; }
+        CHECK(rejected);
+    }
+    {
+        auto cfg=SdrplaySettings{}; cfg.antenna="C";
+        bool rejected=false; try { cfg.validate(4000000,1090000000); } catch (const std::invalid_argument&) { rejected=true; }
+        CHECK(rejected);
+    }
+    {
+        CliArgs args;
+        char executable[]="stream1090", option[]="--sdrplay-tuner", value[]="2";
+        char antennaOption[]="--sdrplay-antenna", antenna[]="B";
+        char* argv[]={executable,option,value,antennaOption,antenna};
+        CHECK(parse_cli(5,argv,args));
+        CHECK(args.sdrplayTuner=="2" && args.sdrplayAntenna=="B");
+        CliArgs missing; CHECK(!parse_cli(2,argv,missing));
+    }
+
 }

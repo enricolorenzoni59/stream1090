@@ -5,6 +5,9 @@ These instructions target a fresh system, a Pi 3 or newer, and an RSP1B with
 a 1090 MHz antenna. The branch is experimental. The reference Pi 3 showed
 undervoltage events, so use a suitable power supply and cable.
 
+For RSPduo or RSPdx, also follow the [model-specific options](sdrplay-models.md).
+Those models are experimental and still require community hardware validation.
+
 The signal path is:
 
 ```text

@@ -684,7 +684,7 @@ inline std::string render(Registry& reg) {
     head(out, "device_up", "1 when the input device is running.", "gauge");
     sample(out, "device_up", "", reg.deviceUp.get());
     if (reg.sdrplaySampleRate.get() > 0) {
-        head(out, "sdrplay_sample_rate_hz", "RSP1B complex sample rate.", "gauge");
+        head(out, "sdrplay_sample_rate_hz", "SDRplay complex sample rate.", "gauge");
         sample(out, "sdrplay_sample_rate_hz", "", reg.sdrplaySampleRate.get());
         head(out, "sdrplay_nominal_adc_bits", "Nominal ADC resolution from the sample-rate regime; API output remains signed-16.", "gauge");
         sample(out, "sdrplay_nominal_adc_bits", "", reg.sdrplayAdcBits.get());

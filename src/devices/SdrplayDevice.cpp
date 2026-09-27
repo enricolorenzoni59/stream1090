@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "devices/SdrplayDevice.hpp"
+#include "devices/SdrplayModel.hpp"
 #include "Logger.hpp"
 #include "Metrics.hpp"
 #include <cmath>
@@ -25,26 +26,71 @@ bool SdrplayDevice::open() {
     unsigned count = 0;
     if (check(sdrplay_api_GetDevices(devices, &count, SDRPLAY_MAX_DEVICES), "GetDevices")) {
         for (unsigned n = 0; n < count; ++n) {
-            if (devices[n].hwVer != SDRPLAY_RSP1B_ID || !devices[n].valid) continue;
+            if (!SdrplayModel::available(devices[n])) continue;
             if (config_.serial && *config_.serial != devices[n].SerNo) continue;
+            const auto model = SdrplayModel::lookup(devices[n].hwVer);
+            const bool duo = devices[n].hwVer == SDRPLAY_RSPduo_ID;
+            const bool dx = devices[n].hwVer == SDRPLAY_RSPdx_ID;
+            if (config_.sdrplay.lnaState > model.maxLnaState) {
+                Log::error("SDRplay") << model.name << " LNA state must be 0.." << model.maxLnaState << " at 1090 MHz";
+                continue;
+            }
+            if ((config_.sdrplay.tuner && !duo) || (!config_.sdrplay.antenna.empty() && !dx)) {
+                Log::error("SDRplay", "--sdrplay-tuner requires RSPduo; --sdrplay-antenna requires RSPdx");
+                continue;
+            }
+            if (config_.biasTee && ((duo && config_.sdrplay.tuner != 2) ||
+                                   (dx && config_.sdrplay.antenna != "B"))) {
+                Log::error("SDRplay", "Bias-T requires RSPduo tuner 2 or RSPdx antenna B");
+                continue;
+            }
             device_ = devices[n];
+            if (duo) {
+                const auto tuner = config_.sdrplay.tuner == 2 ? sdrplay_api_Tuner_B : sdrplay_api_Tuner_A;
+                if (!(device_.tuner & tuner)) continue;
+                device_.tuner = tuner;
+                device_.rspDuoMode = sdrplay_api_RspDuoMode_Single_Tuner;
+                device_.rspDuoSampleFreq = 0; // Only used in dual/master/slave modes.
+            }
             if (check(sdrplay_api_SelectDevice(&device_), "SelectDevice")) { selected_ = true; break; }
         }
     }
     const bool unlocked = check(sdrplay_api_UnlockDeviceApi(), "UnlockDeviceApi");
     if (!selected_ || !unlocked) {
-        Log::error("SDRplay", "No selectable RSP1B matching the requested serial");
+        Log::error("SDRplay", "No available RSP1B/RSPduo (single tuner)/RSPdx matching serial and settings");
         release(); return false;
     }
     if (!check(sdrplay_api_GetDeviceParams(device_.dev, &params_), "GetDeviceParams") ||
-        !params_ || !params_->devParams || !params_->rxChannelA) { release(); return false; }
+        !params_ || !params_->devParams) { release(); return false; }
+    auto* channel = device_.tuner == sdrplay_api_Tuner_B ? params_->rxChannelB : params_->rxChannelA;
+    if (!channel) { Log::error("SDRplay", "Selected tuner has no parameter block"); release(); return false; }
     auto& dev = *params_->devParams;
-    auto& rx = *params_->rxChannelA;
+    auto& rx = *channel;
     dev.fsFreq.fsHz = getSampleRate();
     dev.mode = config_.sdrplay.usbBulk ? sdrplay_api_BULK : sdrplay_api_ISOCH;
     dev.ppm = config_.ppm.value_or(0);
-    dev.rsp1aParams.rfNotchEnable = config_.sdrplay.rfNotch;
-    dev.rsp1aParams.rfDabNotchEnable = config_.sdrplay.dabNotch;
+    switch (device_.hwVer) {
+    case SDRPLAY_RSP1B_ID:
+        dev.rsp1aParams.rfNotchEnable = config_.sdrplay.rfNotch;
+        dev.rsp1aParams.rfDabNotchEnable = config_.sdrplay.dabNotch;
+        rx.rsp1aTunerParams.biasTEnable = config_.biasTee;
+        break;
+    case SDRPLAY_RSPduo_ID:
+        rx.rspDuoTunerParams.rfNotchEnable = config_.sdrplay.rfNotch;
+        rx.rspDuoTunerParams.rfDabNotchEnable = config_.sdrplay.dabNotch;
+        rx.rspDuoTunerParams.tuner1AmPortSel = sdrplay_api_RspDuo_AMPORT_2; // 50 ohm
+        rx.rspDuoTunerParams.tuner1AmNotchEnable = 0;
+        rx.rspDuoTunerParams.biasTEnable = config_.biasTee;
+        break;
+    case SDRPLAY_RSPdx_ID:
+        dev.rspDxParams.rfNotchEnable = config_.sdrplay.rfNotch;
+        dev.rspDxParams.rfDabNotchEnable = config_.sdrplay.dabNotch;
+        dev.rspDxParams.biasTEnable = config_.biasTee;
+        dev.rspDxParams.hdrEnable = 0;
+        dev.rspDxParams.antennaSel = config_.sdrplay.antenna == "B" ?
+            sdrplay_api_RspDx_ANTENNA_B : sdrplay_api_RspDx_ANTENNA_A;
+        break;
+    }
     rx.tunerParams.rfFreq.rfHz = config_.frequencyHz;
     rx.tunerParams.bwType = static_cast<sdrplay_api_Bw_MHzT>(config_.sdrplay.bandwidthKhz);
     rx.tunerParams.ifType = sdrplay_api_IF_Zero;
@@ -55,8 +101,10 @@ bool SdrplayDevice::open() {
     rx.ctrlParams.dcOffset.DCenable = 1;
     rx.ctrlParams.dcOffset.IQenable = 1;
     rx.ctrlParams.adsbMode = static_cast<sdrplay_api_AdsbModeT>(config_.sdrplay.adsbMode);
-    rx.rsp1aTunerParams.biasTEnable = config_.biasTee;
-    Log::msg("SDRplay") << "RSP1B " << device_.SerNo << ", API " << apiVersion_
+    Log::msg("SDRplay") << SdrplayModel::lookup(device_.hwVer).name << " " << device_.SerNo
+        << ", tuner " << (device_.tuner == sdrplay_api_Tuner_B ? 2 : 1)
+        << ", antenna " << (device_.hwVer == SDRPLAY_RSPdx_ID ?
+            (config_.sdrplay.antenna == "B" ? "B" : "A") : "50ohm") << ", API " << apiVersion_
         << ", " << getSampleRate() << " complex samples/s, nominal ADC "
         << SdrplaySettings::nominalAdcBits(getSampleRate()) << " bits, API signed-16, IF GR "
         << config_.sdrplay.gainReduction << " dB, LNA state " << config_.sdrplay.lnaState
@@ -74,7 +122,13 @@ bool SdrplayDevice::start() {
         Metrics::registry().sdrplayOverloadActive.set(-1);
     }
     sdrplay_api_CallbackFnsT callbacks{};
+    // API single-tuner mode delivers the selected tuner through stream A,
+    // including RSPduo tuner 2 (see the vendor API example).
     callbacks.StreamACbFn = streamCallback;
+    callbacks.StreamBCbFn = [](short*, short*, sdrplay_api_StreamCbParamsT*, unsigned, unsigned, void* ctx) noexcept {
+        auto& self = *static_cast<SdrplayDevice*>(ctx);
+        if (self.m_running.load()) self.fail("unexpected_second_stream");
+    };
     callbacks.EventCbFn = eventCallback;
     m_running.store(true);
     if (!check(sdrplay_api_Init(device_.dev, &callbacks, this), "Init")) {
@@ -217,7 +271,10 @@ void SdrplayDevice::close() {
 }
 
 std::map<std::string, std::string> SdrplayDevice::captureMetadata() const {
-    return {{"device", "RSP1B"}, {"serial", device_.SerNo}, {"api_version", std::to_string(apiVersion_)},
+    return {{"device", SdrplayModel::lookup(device_.hwVer).name ? SdrplayModel::lookup(device_.hwVer).name : "unknown"}, {"serial", device_.SerNo}, {"api_version", std::to_string(apiVersion_)},
+        {"tuner", device_.tuner == sdrplay_api_Tuner_B ? "2" : "1"},
+        {"antenna", device_.hwVer == SDRPLAY_RSPdx_ID ? (config_.sdrplay.antenna == "B" ? "B" : "A") : "50ohm"},
+        {"duo_mode", device_.hwVer == SDRPLAY_RSPduo_ID ? "single_tuner" : "not_applicable"},
         {"nominal_adc_bits", std::to_string(SdrplaySettings::nominalAdcBits(getSampleRate()))},
         {"if_gain_reduction_db", std::to_string(config_.sdrplay.gainReduction)},
         {"lna_state", std::to_string(config_.sdrplay.lnaState)},

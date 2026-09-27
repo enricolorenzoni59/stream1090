@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 #include "devices/SdrplayDevice.hpp"
 #include "Metrics.hpp"
+#include "devices/SdrplayModel.hpp"
 #include <vector>
 #include <stdexcept>
 #define CHECK(x) do { if (!(x)) throw std::runtime_error(#x); } while(0)
@@ -110,4 +111,84 @@ int main() {
         reg.setSignalQualityCollection(false);
     }
     CHECK(probe_release==8); CHECK(probe_uninit==6);
+    // New models share the IQ path, but must configure their own API blocks.
+    for (int tuner : {1, 2}) {
+        probe_device = {}; probe_device.hwVer=SDRPLAY_RSPduo_ID; probe_device.tuner=3;
+        Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); DeviceConfig cfg;
+        cfg.sdrplay.tuner=tuner; cfg.sdrplay.rfNotch=true; cfg.sdrplay.dabNotch=true;
+        cfg.sdrplay.lnaState=8; cfg.biasTee=tuner==2;
+        d.applyConfigPreOpen(cfg); CHECK(d.open()); CHECK(d.start());
+        CHECK(probe_selected.rspDuoMode==sdrplay_api_RspDuoMode_Single_Tuner);
+        CHECK(probe_selected.tuner==tuner && probe_selected.rspDuoSampleFreq==0);
+        const auto& active=tuner==1 ? probe_rx_a : probe_rx_b;
+        const auto& inactive=tuner==1 ? probe_rx_b : probe_rx_a;
+        CHECK(active.tunerParams.rfFreq.rfHz==1090000000);
+        CHECK(active.tunerParams.gain.LNAstate==8);
+        CHECK(inactive.tunerParams.rfFreq.rfHz==0);
+        CHECK(active.rspDuoTunerParams.rfNotchEnable && active.rspDuoTunerParams.rfDabNotchEnable);
+        CHECK(active.rspDuoTunerParams.biasTEnable==(tuner==2));
+        CHECK(active.rspDuoTunerParams.tuner1AmPortSel==sdrplay_api_RspDuo_AMPORT_2);
+        CHECK(!active.rsp1aTunerParams.biasTEnable && !probe_dev_params.rsp1aParams.rfNotchEnable);
+        // The API single-tuner stream uses callback A, also for tuner B.
+        short i[]={12}, q[]={-34}; sdrplay_api_StreamCbParamsT params{};
+        probe_callbacks.StreamACbFn(i,q,&params,1,1,probe_context);
+        CHECK(w.values==std::vector<int16_t>({12,-34})); CHECK(!d.streamFailed());
+        CHECK(d.captureMetadata().at("device")=="RSPduo");
+        CHECK(d.captureMetadata().at("tuner")==std::to_string(tuner));
+        probe_callbacks.StreamBCbFn(i,q,&params,1,0,probe_context);
+        CHECK(d.streamFailed()); CHECK(w.values.size()==2);
+        CHECK(d.captureMetadata().at("failure_reason")=="unexpected_second_stream");
+    }
+    for (const std::string antenna : {"", "A", "B"}) {
+        probe_device={}; probe_device.hwVer=SDRPLAY_RSPdx_ID;
+        Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); DeviceConfig cfg;
+        cfg.sdrplay.antenna=antenna; cfg.sdrplay.lnaState=18;
+        cfg.sdrplay.rfNotch=true; cfg.sdrplay.dabNotch=true; cfg.biasTee=antenna=="B";
+        d.applyConfigPreOpen(cfg); CHECK(d.open()); CHECK(d.start());
+        CHECK(probe_dev_params.rspDxParams.antennaSel==(antenna=="B" ? sdrplay_api_RspDx_ANTENNA_B : sdrplay_api_RspDx_ANTENNA_A));
+        CHECK(probe_dev_params.rspDxParams.biasTEnable==(antenna=="B"));
+        CHECK(!probe_dev_params.rspDxParams.hdrEnable);
+        CHECK(probe_dev_params.rspDxParams.rfNotchEnable && probe_dev_params.rspDxParams.rfDabNotchEnable);
+        CHECK(!probe_dev_params.rsp1aParams.rfNotchEnable && !probe_rx_a.rsp1aTunerParams.biasTEnable);
+        CHECK(probe_rx_a.tunerParams.gain.LNAstate==18);
+        CHECK(d.captureMetadata().at("device")=="RSPdx");
+        CHECK(d.captureMetadata().at("antenna")== (antenna=="B" ? "B" : "A"));
+    }
+    auto reject = [](int model, DeviceConfig cfg) {
+        probe_device={}; probe_device.hwVer=model; probe_device.tuner=3;
+        const int before=probe_selects;
+        Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); d.applyConfigPreOpen(cfg);
+        CHECK(!d.open()); CHECK(probe_selects==before);
+    };
+    DeviceConfig invalid;
+    invalid.sdrplay.lnaState=9; reject(SDRPLAY_RSP1B_ID,invalid); reject(SDRPLAY_RSPduo_ID,invalid);
+    invalid={}; invalid.sdrplay.tuner=2; reject(SDRPLAY_RSP1B_ID,invalid); reject(SDRPLAY_RSPdx_ID,invalid);
+    invalid={}; invalid.sdrplay.antenna="B"; reject(SDRPLAY_RSP1B_ID,invalid); reject(SDRPLAY_RSPduo_ID,invalid);
+    invalid={}; invalid.biasTee=true; reject(SDRPLAY_RSPduo_ID,invalid); reject(SDRPLAY_RSPdx_ID,invalid);
+    reject(255,{}); // RSP1A is not implicitly enabled by this extension.
+    for (int mode : {0, sdrplay_api_RspDuoMode_Slave}) {
+        probe_device={}; probe_device.hwVer=SDRPLAY_RSPduo_ID; probe_device.rspDuoMode=mode;
+        CHECK(!SdrplayModel::available(probe_device));
+        const int before=probe_selects;
+        Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); CHECK(!d.open()); CHECK(probe_selects==before);
+    }
+    {
+        probe_device={}; probe_device.hwVer=SDRPLAY_RSPduo_ID; probe_device.tuner=1;
+        Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); DeviceConfig cfg; cfg.sdrplay.tuner=2;
+        d.applyConfigPreOpen(cfg); CHECK(!d.open()); // requested tuner unavailable
+    }
+    {
+        probe_device={}; probe_device.hwVer=SDRPLAY_RSPduo_ID; probe_device.tuner=3; probe_null_b=true;
+        const int before=probe_release;
+        Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); DeviceConfig cfg; cfg.sdrplay.tuner=2;
+        d.applyConfigPreOpen(cfg); CHECK(!d.open()); CHECK(probe_release==before+1);
+        probe_null_b=false;
+    }
+    {
+        probe_device={}; probe_device.valid=false;
+        CHECK(!SdrplayModel::available(probe_device));
+        Writer w; SdrplayDevice d(Rate_4_0_Mhz,w); CHECK(!d.open());
+    }
+    probe_device={};
+
 }

@@ -4,8 +4,10 @@
 > feedback; individual features may still be revised before being proposed or
 > merged upstream.
 
-The `feature/sdrplay-rsp1b` branch adds an experimental native RSP1B backend,
+The `feature/sdrplay-rsp1b` branch adds an experimental native SDRplay backend (RSP1B, RSPduo single tuner, RSPdx),
 explicit signed-16 replay, raw capture with metadata, and IQ level telemetry.
+RSPduo and RSPdx support awaits community hardware validation; see the
+[model options and test instructions](docs/sdrplay-models.md).
 See the [Raspberry Pi setup guide](docs/sdrplay-pi-quickstart.md) and
 [Prometheus IQ telemetry](docs/sdrplay-telemetry.md).
 SDRplay support is enabled by default on this branch and

@@ -136,7 +136,7 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args, bool quiet
         }
         if (choice.serials.empty()) {
             if (!quiet)
-                Log::error("Stream1090") << "No " << (type == InputDeviceType::SDRPLAY ? "SDRplay RSP1B" : type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
+                Log::error("Stream1090") << "No " << (type == InputDeviceType::SDRPLAY ? "supported SDRplay receiver" : type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
                                          << " device found. Use --device stdin to read IQ from standard input.";
             return std::nullopt;
         }
@@ -262,6 +262,11 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
             !integer(args.sdrplayLnaState, cfg.sdrplay.lnaState, "SDRplay LNA state") ||
             !integer(args.sdrplayBandwidth, cfg.sdrplay.bandwidthKhz, "SDRplay bandwidth") ||
             !integer(args.sdrplayAdsbMode, cfg.sdrplay.adsbMode, "SDRplay ADSB mode")) return std::nullopt;
+        if (!integer(args.sdrplayTuner, cfg.sdrplay.tuner, "SDRplay tuner")) return std::nullopt;
+        if (!args.sdrplayTuner.empty() && cfg.sdrplay.tuner != 1 && cfg.sdrplay.tuner != 2) {
+            Log::error("SDRplay", "--sdrplay-tuner must be 1 or 2"); return std::nullopt;
+        }
+        cfg.sdrplay.antenna = args.sdrplayAntenna;
         cfg.sdrplay.rfNotch = args.sdrplayRfNotch;
         cfg.sdrplay.dabNotch = args.sdrplayDabNotch;
         if (!args.sdrplayUsbMode.empty() && args.sdrplayUsbMode != "isoch" && args.sdrplayUsbMode != "bulk") {
@@ -271,6 +276,7 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
         try { cfg.sdrplay.validate(inputRate, cfg.frequencyHz); }
         catch (const std::exception& e) { Log::error("SDRplay") << e.what(); return std::nullopt; }
     } else if (!args.sdrplayIfGr.empty() || !args.sdrplayLnaState.empty() || !args.sdrplayBandwidth.empty() ||
+               !args.sdrplayTuner.empty() || !args.sdrplayAntenna.empty() ||
                !args.sdrplayAdsbMode.empty() || !args.sdrplayUsbMode.empty() || args.sdrplayRfNotch || args.sdrplayDabNotch) {
         Log::error("Stream1090", "SDRplay settings require --device sdrplay"); return std::nullopt;
     }
@@ -281,7 +287,7 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
 }
 
 inline void print_backend_banner(InputDeviceType type) {
-    if (type == InputDeviceType::SDRPLAY) { Log::msg("Stream1090", "SDRplay RSP1B backend"); return; }
+    if (type == InputDeviceType::SDRPLAY) { Log::msg("Stream1090", "SDRplay backend"); return; }
     if (type == InputDeviceType::AIRSPY) {
         Log::msg("Stream1090") << "Airspy backend";
         return;

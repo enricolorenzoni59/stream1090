@@ -37,8 +37,8 @@ class SdrplayDevice final : public InputDeviceBase<int16_t> {
     std::atomic<bool> failed_{false};
     std::atomic<const char*> failureReason_{"none"};
     std::atomic<uint64_t> callbacks_{0}, resets_{0}, gaps_{0}, missing_{0}, overloads_{0};
-    bool haveSequence_ = false; // Stream A callback thread only
+    bool haveSequence_ = false; // Single selected stream callback thread only
     uint32_t nextSample_ = 0;
-    SdrplayIqStats iqStats_; // Stream A callback ownership, reset before Init
+    SdrplayIqStats iqStats_; // Selected stream callback ownership, reset before Init
     std::array<int16_t, 8192> interleaved_{};
 };

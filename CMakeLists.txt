@@ -256,7 +256,7 @@ set(DEVICE_LIBS "")
 set(DEVICE_INCLUDE_DIRS "")
 set(DEVICE_DEFINITIONS "")
 
-option(ENABLE_SDRPLAY "Build native RSP1B support (requires separately installed SDRplay API >=3.15)" ON)
+option(ENABLE_SDRPLAY "Build native SDRplay RSP1B/RSPduo/RSPdx support (requires separately installed SDRplay API >=3.15)" ON)
 if(ENABLE_SDRPLAY)
     find_path(SDRPLAY_INCLUDE_DIR sdrplay_api.h)
     find_library(SDRPLAY_LIBRARY NAMES sdrplay_api)
