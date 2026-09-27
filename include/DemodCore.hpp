@@ -33,6 +33,10 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
 
     ~DemodCore() {
 #if defined(STATS_ENABLED) && STATS_ENABLED
+#if defined(STREAM1090_METRICS) && STREAM1090_METRICS
+        // Include the final partial second before the decoder is replaced.
+        Metrics::registry().publishDemod(m_statsLog.cumulative(), m_lastMetricsCounters);
+#endif
 #if defined(STATS_END_ONLY) && STATS_END_ONLY
         Stats::printStatsOnExit(m_statsLog, std::cerr);
 #endif
@@ -141,7 +145,9 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
         if (now - m_lastMetricsPublish >= MetricsPublishInterval) {
             m_lastMetricsPublish = now;
             auto& reg = Metrics::registry();
-            reg.publishDemod(m_statsLog.cumulative());
+            const auto counters = m_statsLog.cumulative();
+            reg.publishDemod(counters, m_lastMetricsCounters);
+            m_lastMetricsCounters = counters;
             reg.aircraftTracked.set(double(m_cache.aliveCount()));
             reg.aircraftTrusted.set(double(m_cache.trustedCount()));
         }
@@ -917,6 +923,7 @@ template <int NumStreams, MessageHandler Handler> class DemodCore {
     // Roughly one second of bit periods, matching the stderr table cadence.
     static constexpr uint64_t MetricsPublishInterval = 1000000;
     [[maybe_unused]] uint64_t m_lastMetricsPublish = 0;
+    [[maybe_unused]] Stats::Counters m_lastMetricsCounters{};
 
     static constexpr uint64_t samplesPerSecond() {
         return NumStreams * 1000000;

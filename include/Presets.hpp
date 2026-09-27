@@ -18,7 +18,7 @@
 #include "IQPipeline.hpp"
 #include "LowPassFilter.hpp"
 
-enum class IQPipelineOptions { NONE, IQ_FIR, IQ_FIR_FILE, IQ_FIR_RTL_SDR, IQ_FIR_RTL_SDR_FILE };
+enum class IQPipelineOptions { NONE, IQ_FIR, IQ_FIR_FILE, IQ_FIR_RTL_SDR, IQ_FIR_RTL_SDR_FILE, BASEBAND_FIR, BASEBAND_FIR_FILE };
 
 template <typename RawFormat, typename Sampler, IQPipelineOptions Opt> struct Preset {
     using RawFormatType = RawFormat;
@@ -109,9 +109,54 @@ constexpr auto airspyPresets = std::make_tuple(
 #endif
 );
 
+// Complex signed-16 profiles are usable by native SDRplay and offline replay.
+constexpr auto signed16LowPresets = std::make_tuple(
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(2000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(2000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(2000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(2400000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(2400000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(2400000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(3000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(3000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(3000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(4000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(4000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(4000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{}
+);
+constexpr auto signed16MidPresets = std::make_tuple(
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(4000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(4000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(4000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(6000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(6000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(6000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(6000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(6000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(6000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(7000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(7000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(7000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{}
+);
+constexpr auto signed16HighPresets = std::make_tuple(
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(8000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(8000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(8000000), static_cast<SampleRate>(8000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(8000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(8000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(8000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(9000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(9000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(9000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(10000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::NONE>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(10000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR>{},
+    Preset<IQ_INT16_FULL_SCALE, SamplerBase<static_cast<SampleRate>(10000000), static_cast<SampleRate>(12000000)>, IQPipelineOptions::BASEBAND_FIR_FILE>{}
+);
+constexpr auto signed16Presets = std::tuple_cat(signed16LowPresets, signed16MidPresets, signed16HighPresets);
+
 // Combined tuple, used only for rate-pair scanning (constexpr metadata, no
 // code instantiation). Dispatch goes through the per-backend tuples above.
-constexpr auto presets = std::tuple_cat(rtlSdrPresets, airspyPresets);
+constexpr auto presets = std::tuple_cat(rtlSdrPresets, airspyPresets, signed16Presets);
 
 #endif
 
@@ -201,4 +246,14 @@ template <SampleRate In, SampleRate Out> struct IQPipelineSelector<In, Out, IQPi
     static auto make(const std::vector<float>& taps) {
         return make_pipeline(IQLowPassDynamic(taps));
     }
+};
+
+// Baseline complex-baseband FIR, deliberately independent of RTL/Airspy taps.
+// Experimental windowed-sinc profiles; tune with identical recorded samples.
+#include "BasebandTaps.hpp"
+template<SampleRate In, SampleRate Out> struct IQPipelineSelector<In, Out, IQPipelineOptions::BASEBAND_FIR> {
+    static auto make(const std::vector<float>&) { return make_pipeline(IQLowPassDynamic(basebandTaps(In))); }
+};
+template<SampleRate In, SampleRate Out> struct IQPipelineSelector<In, Out, IQPipelineOptions::BASEBAND_FIR_FILE> {
+    static auto make(const std::vector<float>& taps) { return make_pipeline(IQLowPassDynamic(taps)); }
 };

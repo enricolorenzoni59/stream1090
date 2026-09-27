@@ -53,6 +53,7 @@ struct DeviceChoice {
 // Airspy default is the highest rate the device reports that stream1090 also
 // has a preset for (10 Msps on an R2, 6 on a Mini).
 inline std::optional<SampleRate> default_input_rate(InputDeviceType type, const std::vector<std::string>& serials) {
+    if (type == InputDeviceType::SDRPLAY) return Rate_4_0_Mhz;
     if (type == InputDeviceType::RTLSDR)
         return Rate_2_56_Mhz;
     if (type == InputDeviceType::AIRSPY) {
@@ -87,18 +88,18 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args, bool quiet
             choice.type = InputDeviceType::STREAM;
             return choice;
         }
-    } else if (kind != "airspy" && kind != "rtlsdr") {
+    } else if (kind != "airspy" && kind != "rtlsdr" && kind != "sdrplay") {
         if (!quiet)
             Log::error("Stream1090") << "Unknown --device value: " << kind
-                                     << " (expected stdin, auto, airspy or rtlsdr)";
+                                     << " (expected stdin, auto, airspy, rtlsdr or sdrplay)";
         return std::nullopt;
     }
 
     const auto devices = enumerateDevices();
 
     InputDeviceType type = InputDeviceType::NONE;
-    if (kind == "airspy" || kind == "rtlsdr") {
-        type = (kind == "airspy") ? InputDeviceType::AIRSPY : InputDeviceType::RTLSDR;
+    if (kind == "airspy" || kind == "rtlsdr" || kind == "sdrplay") {
+        type = kind == "sdrplay" ? InputDeviceType::SDRPLAY : (kind == "airspy") ? InputDeviceType::AIRSPY : InputDeviceType::RTLSDR;
     } else if (!devices.empty()) {
         type = devices.front().type;
     }
@@ -121,6 +122,11 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args, bool quiet
         return std::nullopt;
     }
 
+    if (type == InputDeviceType::SDRPLAY && !GlobalOptions::NativeSdrplaySupport) {
+        if (!quiet) Log::error("Stream1090", "This build has no SDRplay support; configure ENABLE_SDRPLAY=ON with the vendor SDK");
+        return std::nullopt;
+    }
+
     if (!args.serial.empty()) {
         choice.serials.push_back(args.serial);
     } else {
@@ -130,7 +136,7 @@ inline std::optional<DeviceChoice> choose_device(const CliArgs& args, bool quiet
         }
         if (choice.serials.empty()) {
             if (!quiet)
-                Log::error("Stream1090") << "No " << (type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
+                Log::error("Stream1090") << "No " << (type == InputDeviceType::SDRPLAY ? "SDRplay RSP1B" : type == InputDeviceType::AIRSPY ? "Airspy" : "RTL-SDR")
                                          << " device found. Use --device stdin to read IQ from standard input.";
             return std::nullopt;
         }
@@ -158,19 +164,10 @@ inline std::optional<SampleRate> resolve_input_rate(const CliArgs& args, InputDe
         rate = parse_sample_rate(args.sampleRate);
     }
 
-    const bool airspyRate = is_airspy_rate(rate);
-    if (type == InputDeviceType::RTLSDR && airspyRate) {
-        Log::error("Stream1090") << "-s " << rate_mhz(rate)
-                                 << " is not supported by RTL-SDR; use 2.4, 2.56 or 3.2 MHz.";
-        return std::nullopt;
-    }
-    if (type == InputDeviceType::AIRSPY && !airspyRate) {
-        Log::error("Stream1090") << "-s " << rate_mhz(rate) << " is not supported by Airspy; use 6 or 10 MHz.";
-        return std::nullopt;
-    }
-    if (!has_input_rate(rate)) {
-        Log::error("Stream1090") << "Unsupported input rate: " << rate_mhz(rate) << " MHz";
-        print_rate_pairs();
+    const auto format = type == InputDeviceType::SDRPLAY ? InputFormatType::IQ_INT16_FULL_SCALE
+        : type == InputDeviceType::AIRSPY ? InputFormatType::IQ_UINT16_RAW_AIRSPY : InputFormatType::IQ_UINT8_RTL_SDR;
+    if (!has_input_rate(rate, format)) {
+        Log::error("Stream1090") << "Input rate " << rate_mhz(rate) << " is not supported by this backend";
         return std::nullopt;
     }
     return rate;
@@ -254,6 +251,29 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
     if (!integer(args.autoPpmLimit, cfg.autoPpm.limit, "auto ppm limit"))
         return std::nullopt;
 
+    if (type == InputDeviceType::SDRPLAY) {
+        if (!args.gain.empty() || args.agc || args.adaptiveGain || args.lnaGain.size() || args.mixerGain.size() ||
+            args.vgaGain.size() || args.linearityGain.size() || args.sensitivityGain.size() ||
+            !args.tunerBandwidth.empty() || args.offsetTuning || args.autoPpmEnabled) {
+            Log::error("SDRplay", "Use --sdrplay-if-gr/--sdrplay-lna-state/--sdrplay-bandwidth; AGC and auto-PPM are not supported");
+            return std::nullopt;
+        }
+        if (!integer(args.sdrplayIfGr, cfg.sdrplay.gainReduction, "SDRplay IF GR") ||
+            !integer(args.sdrplayLnaState, cfg.sdrplay.lnaState, "SDRplay LNA state") ||
+            !integer(args.sdrplayBandwidth, cfg.sdrplay.bandwidthKhz, "SDRplay bandwidth") ||
+            !integer(args.sdrplayAdsbMode, cfg.sdrplay.adsbMode, "SDRplay ADSB mode")) return std::nullopt;
+        cfg.sdrplay.rfNotch = args.sdrplayRfNotch;
+        cfg.sdrplay.dabNotch = args.sdrplayDabNotch;
+        if (!args.sdrplayUsbMode.empty() && args.sdrplayUsbMode != "isoch" && args.sdrplayUsbMode != "bulk") {
+            Log::error("SDRplay", "--sdrplay-usb-mode must be isoch or bulk"); return std::nullopt;
+        }
+        cfg.sdrplay.usbBulk = args.sdrplayUsbMode == "bulk";
+        try { cfg.sdrplay.validate(inputRate, cfg.frequencyHz); }
+        catch (const std::exception& e) { Log::error("SDRplay") << e.what(); return std::nullopt; }
+    } else if (!args.sdrplayIfGr.empty() || !args.sdrplayLnaState.empty() || !args.sdrplayBandwidth.empty() ||
+               !args.sdrplayAdsbMode.empty() || !args.sdrplayUsbMode.empty() || args.sdrplayRfNotch || args.sdrplayDabNotch) {
+        Log::error("Stream1090", "SDRplay settings require --device sdrplay"); return std::nullopt;
+    }
     cfg = applyBackendDefaults(cfg, type, inputRate);
     if (args.autoPpmSet)
         cfg.autoPpm.enabled = args.autoPpmEnabled;
@@ -261,6 +281,7 @@ inline std::optional<DeviceConfig> build_device_config(const CliArgs& args, Inpu
 }
 
 inline void print_backend_banner(InputDeviceType type) {
+    if (type == InputDeviceType::SDRPLAY) { Log::msg("Stream1090", "SDRplay RSP1B backend"); return; }
     if (type == InputDeviceType::AIRSPY) {
         Log::msg("Stream1090") << "Airspy backend";
         return;

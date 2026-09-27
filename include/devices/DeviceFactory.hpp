@@ -10,6 +10,9 @@
 
 #include "devices/DeviceConfig.hpp"
 #include "devices/InputDeviceBase.hpp"
+#ifdef STREAM1090_HAVE_SDRPLAY
+#include "devices/SdrplayDevice.hpp"
+#endif
 
 #ifdef STREAM1090_HAVE_AIRSPY
 #include "devices/AirspyDevice.hpp"
@@ -69,4 +72,14 @@ DeviceFactory<uint8_t>::create(InputDeviceType inputType, SampleRate inputSample
     default:
         return nullptr;
     }
+}
+
+template <> inline DeviceFactory<int16_t>::BasePtr
+DeviceFactory<int16_t>::create(InputDeviceType type, SampleRate rate, IAsyncWriter<int16_t>& writer) {
+#ifdef STREAM1090_HAVE_SDRPLAY
+    if (type == InputDeviceType::SDRPLAY) return std::make_unique<SdrplayDevice>(rate, writer);
+#else
+    (void)type; (void)rate; (void)writer;
+#endif
+    return nullptr;
 }

@@ -4,6 +4,18 @@
 > feedback; individual features may still be revised before being proposed or
 > merged upstream.
 
+The `feature/sdrplay-rsp1b` branch adds an experimental native RSP1B backend,
+explicit signed-16 replay, raw capture with metadata, and FIR/gain/rate experiment
+tools. See [RSP1B setup, recording and validation](docs/sdrplay-rsp1b.md), including
+the distinction between API sample format and ADC resolution, and Prometheus
+scrape configuration. SDRplay support is enabled by default on this branch and
+requires the separately installed vendor SDK. To build without it, configure
+with `-DENABLE_SDRPLAY=OFF`. Existing CMake build directories keep their cached
+setting.
+
+Starting with a fresh Raspberry Pi? Follow the
+[RSP1B + stream1090 + readsb quickstart](docs/sdrplay-pi-quickstart.md).
+
 ## Changes compared with upstream `main`
 
 ### Device configuration and selection

@@ -134,6 +134,14 @@ class Registry {
 
     // ---- device -----------------------------------------------------------
     Gauge deviceUp;
+    Gauge sdrplaySampleRate;
+    Gauge sdrplayAdcBits;
+    Gauge sdrplayIfGr;
+    Gauge sdrplayLnaState;
+    Counter sdrplayCallbacks;
+    Counter sdrplayResets;
+    Counter sdrplayGaps;
+    Counter sdrplayOverloads;
     Gauge deviceLastSampleAge;
     Gauge settingPpm;
     Gauge settingFrequencyHz;
@@ -268,22 +276,22 @@ class Registry {
     std::array<std::atomic<uint64_t>, Stats::NUM_TC_GROUPS> demodTypeCodeGroups {};
     std::array<std::atomic<uint64_t>, Stats::NumControlFields> demodControlFields {};
 
-    /// Copies one cumulative counter snapshot in. Called by the demodulation
-    /// thread on its own tick, roughly once a second.
-    void publishDemod(const Stats::Counters& counters) {
+    /// Adds the delta since this decoder's previous snapshot. A new decoder
+    /// starts with an empty baseline, preserving process totals across recovery.
+    void publishDemod(const Stats::Counters& counters, const Stats::Counters& previous = {}) {
         if constexpr (!Enabled)
             return;
 
         for (size_t i = 0; i < counters.events.size(); i++)
-            demodEvents[i].store(counters.events[i], std::memory_order_relaxed);
+            demodEvents[i].fetch_add(counters.events[i] - previous.events[i], std::memory_order_relaxed);
         for (size_t i = 0; i < Stats::NumDF; i++) {
-            demodSent[i].store(counters.sent[i], std::memory_order_relaxed);
-            demodDups[i].store(counters.dups[i], std::memory_order_relaxed);
+            demodSent[i].fetch_add(counters.sent[i] - previous.sent[i], std::memory_order_relaxed);
+            demodDups[i].fetch_add(counters.dups[i] - previous.dups[i], std::memory_order_relaxed);
         }
         for (size_t i = 0; i < Stats::NUM_TC_GROUPS; i++)
-            demodTypeCodeGroups[i].store(counters.typeCodeGroups[i], std::memory_order_relaxed);
+            demodTypeCodeGroups[i].fetch_add(counters.typeCodeGroups[i] - previous.typeCodeGroups[i], std::memory_order_relaxed);
         for (size_t i = 0; i < Stats::NumControlFields; i++)
-            demodControlFields[i].store(counters.controlFields[i], std::memory_order_relaxed);
+            demodControlFields[i].fetch_add(counters.controlFields[i] - previous.controlFields[i], std::memory_order_relaxed);
         m_publishSteady.store(steadySeconds(), std::memory_order_relaxed);
     }
 
@@ -662,6 +670,21 @@ inline std::string render(Registry& reg) {
     // ---- device and ingest ------------------------------------------------
     head(out, "device_up", "1 when the input device is running.", "gauge");
     sample(out, "device_up", "", reg.deviceUp.get());
+    if (reg.sdrplaySampleRate.get() > 0) {
+        head(out, "sdrplay_sample_rate_hz", "RSP1B complex sample rate.", "gauge");
+        sample(out, "sdrplay_sample_rate_hz", "", reg.sdrplaySampleRate.get());
+        head(out, "sdrplay_nominal_adc_bits", "Nominal ADC resolution from the sample-rate regime; API output remains signed-16.", "gauge");
+        sample(out, "sdrplay_nominal_adc_bits", "", reg.sdrplayAdcBits.get());
+        head(out, "sdrplay_if_gain_reduction_db", "Configured IF gain reduction.", "gauge");
+        sample(out, "sdrplay_if_gain_reduction_db", "", reg.sdrplayIfGr.get());
+        head(out, "sdrplay_lna_state", "RF attenuation index (not dB).", "gauge");
+        sample(out, "sdrplay_lna_state", "", reg.sdrplayLnaState.get());
+        head(out, "sdrplay_events_total", "SDRplay callback and event counts across sessions.", "counter");
+        sample(out, "sdrplay_events_total", labels({{"event", "callback"}}), double(reg.sdrplayCallbacks.get()));
+        sample(out, "sdrplay_events_total", labels({{"event", "reset"}}), double(reg.sdrplayResets.get()));
+        sample(out, "sdrplay_events_total", labels({{"event", "gap"}}), double(reg.sdrplayGaps.get()));
+        sample(out, "sdrplay_events_total", labels({{"event", "overload"}}), double(reg.sdrplayOverloads.get()));
+    }
     head(out, "device_last_sample_age_seconds", "Age of the last batch of samples the device delivered.", "gauge");
     sample(out, "device_last_sample_age_seconds", "", reg.deviceLastSampleAge.get());
     head(out, "device_setting", "Device configuration currently applied.", "gauge");
@@ -744,7 +767,7 @@ inline std::string render(Registry& reg) {
     head(out, "sample_drop_worst_deficit_pairs", "Worst single drop gap observed this run.", "gauge");
     sample(out, "sample_drop_worst_deficit_pairs", "", reg.sampleDropWorst.get());
 
-    head(out, "device_lost_total", "Devices lost (no samples for over a second) detected by the watchdog.", "counter");
+    head(out, "device_lost_total", "Device sessions lost to a watchdog timeout or reported stream failure.", "counter");
     sample(out, "device_lost_total", "", double(reg.deviceLost.get()));
     head(out, "device_recovery_attempts_total", "Device re-selection attempts after a loss.", "counter");
     sample(out, "device_recovery_attempts_total", "", double(reg.deviceRecoveryAttempts.get()));

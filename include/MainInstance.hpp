@@ -17,6 +17,7 @@
 #include "LowPassFilter.hpp"
 #include "devices/DeviceConfig.hpp"
 #include "devices/DeviceFactory.hpp"
+#include "devices/DeviceSession.hpp"
 #include "TcpOutputServer.hpp"
 #include "Metrics.hpp"
 #include "MetricsServer.hpp"
@@ -46,6 +47,9 @@ struct CompileTimeVars {
 };
 
 struct RuntimeVars {
+    std::string capturePath;
+    uint64_t captureSamples = 0;
+    bool captureOnly = false;
     InputDeviceType deviceType = InputDeviceType::STREAM;
     DeviceConfig deviceConfig;
     // Ordered serial candidates for the selected backend. The device is opened
@@ -77,7 +81,10 @@ template <typename preset> class MainInstance {
 
     // with all the compile time information available we continue now with what we need
     using DevicePtr = std::unique_ptr<InputDeviceBase<RawType>>;
-    using RingBuffer = RingBufferAsync<RawType, SamplerType::InputBufferSize * 2>;
+    // RSP callbacks are small and frequent. Give the consumer scheduling slack:
+    // about 100 ms even at 10 MS/s, without allocating in the callback.
+    static constexpr size_t AsyncBufferBlocks = std::is_same_v<RawFormatType, IQ_INT16_FULL_SCALE> ? 256 : 8;
+    using RingBuffer = RingBufferAsync<RawType, SamplerType::InputBufferSize * 2, AsyncBufferBlocks>;
     using Writer = typename RingBuffer::Writer;
 
     static const char* deviceName(InputDeviceType type) {
@@ -86,6 +93,8 @@ template <typename preset> class MainInstance {
             return "airspy";
         case InputDeviceType::RTLSDR:
             return "rtlsdr";
+        case InputDeviceType::SDRPLAY:
+            return "sdrplay";
         default:
             return "stream";
         }
@@ -175,8 +184,16 @@ template <typename preset> class MainInstance {
                 Log::info("TCP") << "Beast server listening on " << m_runtimeVars.tcpOutput.bindAddress << ':'
                                  << tcpServer.beastPort();
         }
-        RingBuffer ringBuffer;
+        // The signed-16 ring is about 4 MiB; keep it off the thread stack.
+        auto ringStorage = std::make_unique<RingBuffer>();
+        auto& ringBuffer = *ringStorage;
         Writer writer(ringBuffer);
+        writer.enableSegments(m_runtimeVars.capturePath.empty());
+        // Recorder outlives the session so device callbacks are quiesced even
+        // when disk I/O throws; its destructor then marks the file aborted.
+        std::unique_ptr<RawCapture> capture;
+        bool intendedShutdown = true; // outlives the watchdog, including exception unwinding
+        DeviceSession session(m_device, writer);
 
         m_device = DeviceFactory<RawType>::create(m_runtimeVars.deviceType, inputRate, writer);
         if (!m_device) {
@@ -190,6 +207,14 @@ template <typename preset> class MainInstance {
             return false;
         }
         Log::info("Stream1090", "Device successfully configured.");
+
+        if (!m_runtimeVars.capturePath.empty()) {
+            auto metadata = m_device->captureMetadata();
+            metadata["git_commit"] = STREAM1090_GIT_COMMIT;
+            metadata["frequency_hz"] = std::to_string(m_runtimeVars.deviceConfig.frequencyHz);
+            capture = std::make_unique<RawCapture>(m_runtimeVars.capturePath, inputRate,
+                                                 m_runtimeVars.captureSamples, std::move(metadata));
+        }
 
         if (!m_device->start()) {
             Log::error("Stream1090", "Device refuses to start. Aborting.");
@@ -209,12 +234,10 @@ template <typename preset> class MainInstance {
 
         // flag that indicates if the shutdown was intended
         // or the watchhdog killed the device
-        bool intendedShutdown = true;
-
         // -------------------------------
         // WATCHDOG THREAD
         // -------------------------------
-        std::thread watchdog([this, &intendedShutdown, tcp] {
+        session.watchdog = std::jthread([this, &intendedShutdown, tcp](std::stop_token stop) {
             using namespace std::chrono_literals;
             Log::info("Watchdog", "Started.");
 
@@ -242,16 +265,18 @@ template <typename preset> class MainInstance {
             uint64_t seenDropEvents = 0;
             std::deque<std::chrono::steady_clock::time_point> recentDrops;
 
-            while (!ProcessSignals::shutdownRequested()) {
+            while (!stop.stop_requested() && !ProcessSignals::shutdownRequested()) {
                 if (m_device) {
                     m_device->periodicMaintenance();
                     const auto lastSign = m_device->lastSignOfLife();
                     Metrics::registry().deviceLastSampleAge.set(double(lastSign.count()) / 1000.0);
-                    if (lastSign > 1000ms) {
+                    if (lastSign > 1000ms || m_device->streamFailed()) {
                         // 1) Device health check. Is the device still alive?
                         Metrics::registry().watchdogLost.inc();
                         Metrics::registry().deviceUp.set(0.0);
-                        Log::error("Watchdog") << "No samples for more than 1000ms. Device lost? Initiating shutdown.";
+                        Log::error("Watchdog") << (m_device->streamFailed()
+                            ? "Device reported a stream failure. Initiating shutdown."
+                            : "No samples for more than 1000ms. Device lost? Initiating shutdown.");
                         // Only wake the pipeline here, and leave the device to the
                         // shutdown path below, which closes it in every case.
                         // Closing from this thread as well means two threads run
@@ -262,7 +287,7 @@ template <typename preset> class MainInstance {
                         ProcessSignals::handle_sigint(0);
                         // Ask the supervisor to try to recover instead of
                         // exiting, and count the loss for the metrics.
-                        ProcessSignals::requestDeviceRecovery();
+                        if (m_runtimeVars.capturePath.empty()) ProcessSignals::requestDeviceRecovery();
                         Metrics::registry().deviceLost.inc();
                         // mark that the shutdown was not intended
                         intendedShutdown = false;
@@ -321,6 +346,8 @@ template <typename preset> class MainInstance {
                 Log::warn("Watchdog") << "Sample drops during this run: " << seenDropEvents << " event(s), worst gap ~"
                                       << m_device->maxDropDeficit() << " IQ pairs.";
             Log::info("Watchdog", "Watchdog is done.");
+            // A signal must also wake a consumer waiting for its first block.
+            m_device->shutdownWriter();
         });
 
         // -------------------------------
@@ -330,13 +357,21 @@ template <typename preset> class MainInstance {
 
         if (m_device->isRunning()) {
             Log::info("Stream1090", "Device is running, starting stream.");
-            InputBufferReader<RawFormatType, SamplerType::InputBufferSize * 2, 8, decltype(iqPipeline)> inputReader(
-                iqPipeline, ringBuffer);
+            InputBufferReader<RawFormatType, SamplerType::InputBufferSize * 2, AsyncBufferBlocks, decltype(iqPipeline)> inputReader(
+                iqPipeline, ringBuffer, capture.get());
 
-            SampleStream<SamplerType> sampleStream;
-            auto messageHandler = constructMessageHandler(sampleStream, tcp);
-
-            sampleStream.read(inputReader, messageHandler);
+            // Keep the acquisition session and TCP server alive while replacing
+            // every stateful DSP component at a published segment boundary.
+            const auto initialPipeline = iqPipeline;
+            while (inputReader.beginSegment()) {
+                iqPipeline = initialPipeline;
+                SampleStream<SamplerType> sampleStream;
+                auto messageHandler = constructMessageHandler(sampleStream, tcp);
+                messageHandler.setInputSampleOffset(inputReader.firstComplexSample());
+                if (m_runtimeVars.captureOnly) {
+                    while (!inputReader.eof()) inputReader.readRaw();
+                } else sampleStream.read(inputReader, messageHandler);
+            }
         }
 
         // -------------------------------
@@ -344,16 +379,22 @@ template <typename preset> class MainInstance {
         // -------------------------------
         Log::info("Stream1090", "Shutting down device.");
         Metrics::registry().deviceUp.set(0.0);
-        m_device->close();
+        session.stop();
+        if (m_device->streamFailed()) {
+            // A callback can wake the consumer before the watchdog observes it.
+            if (intendedShutdown) Metrics::registry().deviceLost.inc();
+            intendedShutdown = false;
+            if (!capture) ProcessSignals::requestDeviceRecovery();
+        }
+        if (capture) {
+            capture->update(m_device->captureMetadata());
+            intendedShutdown = capture->finishSession(intendedShutdown);
+            Log::msg("Capture") << capture->samples() << " complex samples written to " << m_runtimeVars.capturePath;
+        }
         Log::info("Stream1090", "Device closed down.");
 
         auto end_wct = std::chrono::steady_clock::now();
         auto dur_wct_secs = std::chrono::duration_cast<std::chrono::milliseconds>(end_wct - start_wct).count();
-        if (watchdog.joinable()) {
-            Log::info("Stream1090", "Watchdog joining.");
-            watchdog.join();
-            Log::info("Stream1090", "Watchdog joined.");
-        }
         Log::info("Stream1090", "Shutdown completed.");
         tcpServer.stop();
         if (tcp) {
@@ -426,18 +467,6 @@ template <typename preset> class MainInstance {
                          STREAM1090_GIT_COMMIT);
         reg.setDeviceName(deviceName(m_runtimeVars.deviceType));
 
-        MetricsServer metricsServer;
-        if (!m_runtimeVars.metricsBind.empty()) {
-            if constexpr (Metrics::Enabled) {
-                if (metricsServer.start(m_runtimeVars.metricsBind))
-                    reg.setSignalQualityCollection(true);
-                else
-                    Log::warn("Metrics", "Continuing without the metrics endpoint.");
-            } else {
-                Log::warn("Metrics", "This build has metrics compiled out, ignoring --metrics.");
-            }
-        }
-
         // for sync read from std in we take a short cut
         bool outcome;
         if (m_runtimeVars.deviceType == InputDeviceType::STREAM) {
@@ -448,8 +477,6 @@ template <typename preset> class MainInstance {
             outcome = run_async_device(iqPipeline);
         }
 
-        reg.setSignalQualityCollection(false);
-        metricsServer.stop();
         return outcome;
     }
 

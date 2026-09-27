@@ -18,6 +18,10 @@
 #include <airspy.h>
 #endif
 
+#ifdef STREAM1090_HAVE_SDRPLAY
+#include <sdrplay_api.h>
+#endif
+
 std::vector<DeviceDescriptor> enumerateDevices() {
     std::vector<DeviceDescriptor> devices;
 
@@ -44,6 +48,20 @@ std::vector<DeviceDescriptor> enumerateDevices() {
     }
 #endif
 
+#ifdef STREAM1090_HAVE_SDRPLAY
+    if (sdrplay_api_Open() == sdrplay_api_Success) {
+        if (sdrplay_api_LockDeviceApi() == sdrplay_api_Success) {
+            sdrplay_api_DeviceT rsp[SDRPLAY_MAX_DEVICES]{};
+            unsigned count = 0;
+            if (sdrplay_api_GetDevices(rsp, &count, SDRPLAY_MAX_DEVICES) == sdrplay_api_Success)
+                for (unsigned i = 0; i < count; ++i)
+                    if (rsp[i].hwVer == SDRPLAY_RSP1B_ID && rsp[i].valid)
+                        devices.push_back({InputDeviceType::SDRPLAY, rsp[i].SerNo, int(i)});
+            sdrplay_api_UnlockDeviceApi();
+        }
+        sdrplay_api_Close();
+    }
+#endif
     return orderDevices(std::move(devices));
 }
 

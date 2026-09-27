@@ -20,6 +20,19 @@
 #include "RateUtils.hpp"
 
 void print_help() {
+    std::cout << "SDRplay / recording options:\n"
+        "  --device sdrplay --serial <serial>\n"
+        "  --input-format cs16|cu8|airspy-u12-real  Explicit stdin format (little endian)\n"
+        "  --sdrplay-if-gr <20..59>      IF gain reduction dB (default 40)\n"
+        "  --sdrplay-lna-state <0..8>    RF attenuation index (default 2)\n"
+        "  --sdrplay-bandwidth <kHz>     200/300/600/1536/5000/6000/7000/8000 (default 5000)\n"
+        "  --sdrplay-adsb-mode <0..3>    Vendor DSP mode (default 1, ZIF lowpass)\n"
+        "  --sdrplay-usb-mode <mode>    isoch (default) or bulk\n"
+        "  --sdrplay-rf-notch / --sdrplay-dab-notch  Enable vendor notch filters\n"
+        "  --capture <file.cs16>        Exclusive raw API IQ recording + JSON metadata\n"
+        "  --capture-seconds <seconds>  Stop after this many samples (required)\n"
+        "  --capture-only              Record without host DSP (native SDRplay only)\n\n";
+
     std::cout << "Stream1090 build " << STREAM1090_VERSION << "\n";
     if (GlobalOptions::CustomInputMode) {
         std::cout << "(custom input mode)\n";
@@ -38,7 +51,9 @@ void print_help() {
         }
     }
 
-    if (!GlobalOptions::NativeRtlSdrSupport && !GlobalOptions::NativeAirspySupport) {
+    if (GlobalOptions::NativeSdrplaySupport) std::cout << " SDRplay RSP1B";
+
+    if (!GlobalOptions::NativeRtlSdrSupport && !GlobalOptions::NativeAirspySupport && !GlobalOptions::NativeSdrplaySupport) {
         std::cout << " none";
     }
 
@@ -64,9 +79,9 @@ void print_help() {
                  "                                 so a public interface is a deliberate choice\n"
                  "  -h, --help           Show this help message\n\n"
                  "Device options:\n"
-                 "  --device <kind>      stdin, auto, airspy or rtlsdr. When omitted, a\n"
-                 "                       piped stdin is used and an empty /dev/null otherwise\n"
-                 "                       triggers auto detection (Airspy first, then RTL-SDR).\n"
+                 "  --device <kind>      stdin, auto, airspy, rtlsdr or sdrplay. If omitted,\n"
+                 "                       piped stdin is used; an empty /dev/null otherwise\n"
+                 "                       triggers detection: Airspy, RTL-SDR, then SDRplay.\n"
                  "  --serial <id>        Select one unit; otherwise the first free one\n"
                  "  --freq <hz>          Center frequency (default: 1090000000)\n"
                  "  --gain <db>          RTL-SDR tuner gain; pins it and turns adaptive gain off\n"
@@ -138,6 +153,8 @@ std::optional<bool> runInstanceFromPresets(const CompileTimeVars& c_vars, const 
 #else
     if (auto o = runRtlSdrPresets(c_vars, r_vars))
         return o;
+    if (auto o = runSigned16Presets(c_vars, r_vars))
+        return o;
     if (auto o = runAirspyPresets(c_vars, r_vars))
         return o;
     return std::nullopt;
@@ -160,6 +177,8 @@ RunOutcome run_once(const CliArgs& args, bool quiet) {
     r_vars.tcpOutput.enableBeast = args.netBeastPort != 0;
     r_vars.metricsBind = args.metricsBind;
     r_vars.verbose = args.verbose;
+    r_vars.capturePath = args.capturePath;
+    r_vars.captureOnly = args.captureOnly;
 
     // ------------------------
     // Device selection
@@ -189,7 +208,7 @@ RunOutcome run_once(const CliArgs& args, bool quiet) {
         // represented is reported as the user wrote it.
         try {
             FirDetail::requireTapsFitAccumulator(r_vars.filterTaps, args.tapsFile.c_str());
-        } catch (const std::invalid_argument& error) {
+        } catch (const std::exception& error) {
             Log::error("Stream1090") << error.what();
             return RunOutcome::Failed;
         }
@@ -199,7 +218,7 @@ RunOutcome run_once(const CliArgs& args, bool quiet) {
     // Sample speed
     // ------------------------
     const bool nativeDevice = r_vars.deviceType == InputDeviceType::AIRSPY ||
-                              r_vars.deviceType == InputDeviceType::RTLSDR;
+                              r_vars.deviceType == InputDeviceType::RTLSDR || r_vars.deviceType == InputDeviceType::SDRPLAY;
 
     if (nativeDevice) {
         const auto rate = resolve_input_rate(args, r_vars.deviceType, r_vars.deviceSerials);
@@ -228,18 +247,66 @@ RunOutcome run_once(const CliArgs& args, bool quiet) {
         }
     }
 
+    // ------------------------
+    // Format and pipeline
+    // ------------------------
+    if (GlobalOptions::CustomInputMode) {
+        c_vars.rawFormat = InputFormatType::IQ_FLOAT32;
+        c_vars.pipelineOption = IQPipelineOptions::NONE;
+    } else {
+        // The backend decides the raw format; for stdin it is implied by the
+        // requested rate, exactly as it always was.
+        if (r_vars.deviceType == InputDeviceType::AIRSPY)
+            c_vars.rawFormat = InputFormatType::IQ_UINT16_RAW_AIRSPY;
+        else if (r_vars.deviceType == InputDeviceType::RTLSDR)
+            c_vars.rawFormat = InputFormatType::IQ_UINT8_RTL_SDR;
+        else if (r_vars.deviceType == InputDeviceType::SDRPLAY)
+            c_vars.rawFormat = InputFormatType::IQ_INT16_FULL_SCALE;
+        else
+            c_vars.rawFormat = (c_vars.inputRate < Rate_6_0_Mhz) ? InputFormatType::IQ_UINT8_RTL_SDR
+                                                                 : InputFormatType::IQ_UINT16_RAW_AIRSPY;
+
+        if (!args.inputFormat.empty()) {
+            if (r_vars.deviceType != InputDeviceType::STREAM) {
+                Log::error("Stream1090", "--input-format is only for stdin"); return RunOutcome::Failed;
+            }
+            if (args.inputFormat == "cs16") c_vars.rawFormat = InputFormatType::IQ_INT16_FULL_SCALE;
+            else if (args.inputFormat == "cu8") c_vars.rawFormat = InputFormatType::IQ_UINT8_RTL_SDR;
+            else if (args.inputFormat == "airspy-u12-real") c_vars.rawFormat = InputFormatType::IQ_UINT16_RAW_AIRSPY;
+            else { Log::error("Stream1090", "Unknown input format"); return RunOutcome::Failed; }
+        }
+        c_vars.pipelineOption = IQPipelineOptions::NONE;
+        if (!r_vars.filterTaps.empty()) {
+            if (c_vars.rawFormat == InputFormatType::IQ_INT16_FULL_SCALE) {
+                c_vars.pipelineOption = IQPipelineOptions::BASEBAND_FIR_FILE;
+            } else if (c_vars.rawFormat == InputFormatType::IQ_UINT8_RTL_SDR) {
+                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_RTL_SDR_FILE;
+            } else {
+                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_FILE;
+            }
+        } else if (args.iq_filter) {
+            if (c_vars.rawFormat == InputFormatType::IQ_INT16_FULL_SCALE) {
+                c_vars.pipelineOption = IQPipelineOptions::BASEBAND_FIR;
+            } else if (c_vars.rawFormat == InputFormatType::IQ_UINT8_RTL_SDR) {
+                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_RTL_SDR;
+            } else {
+                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR;
+            }
+        }
+    }
+
     // Output rate: explicit, or the highest upsample available for the input.
     if (!args.upsampleRate.empty()) {
         c_vars.outputRate = parse_sample_rate(args.upsampleRate);
 
-        if (!is_valid_rate_pair(c_vars.inputRate, c_vars.outputRate)) {
+        if (!is_valid_rate_pair(c_vars.inputRate, c_vars.outputRate, c_vars.rawFormat)) {
             Log::error("Stream1090") << "Unsupported rate combination: " << rate_mhz(c_vars.inputRate) << " -> "
                                      << rate_mhz(c_vars.outputRate);
             print_rate_pairs();
             return RunOutcome::Failed;
         }
     } else {
-        auto def = find_default_output_rate(c_vars.inputRate);
+        auto def = find_default_output_rate(c_vars.inputRate, c_vars.rawFormat);
         if (!def) {
             Log::error("Stream1090") << "No valid output rate for input rate: " << rate_mhz(c_vars.inputRate);
             print_rate_pairs();
@@ -259,37 +326,16 @@ RunOutcome run_once(const CliArgs& args, bool quiet) {
         r_vars.deviceConfig = *config;
     }
 
-    // ------------------------
-    // Format and pipeline
-    // ------------------------
-    if (GlobalOptions::CustomInputMode) {
-        c_vars.rawFormat = InputFormatType::IQ_FLOAT32;
-        c_vars.pipelineOption = IQPipelineOptions::NONE;
-    } else {
-        // The backend decides the raw format; for stdin it is implied by the
-        // requested rate, exactly as it always was.
-        if (r_vars.deviceType == InputDeviceType::AIRSPY)
-            c_vars.rawFormat = InputFormatType::IQ_UINT16_RAW_AIRSPY;
-        else if (r_vars.deviceType == InputDeviceType::RTLSDR)
-            c_vars.rawFormat = InputFormatType::IQ_UINT8_RTL_SDR;
-        else
-            c_vars.rawFormat = (c_vars.inputRate < Rate_6_0_Mhz) ? InputFormatType::IQ_UINT8_RTL_SDR
-                                                                 : InputFormatType::IQ_UINT16_RAW_AIRSPY;
-
-        c_vars.pipelineOption = IQPipelineOptions::NONE;
-        if (!r_vars.filterTaps.empty()) {
-            if (c_vars.rawFormat == InputFormatType::IQ_UINT8_RTL_SDR) {
-                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_RTL_SDR_FILE;
-            } else {
-                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_FILE;
-            }
-        } else if (args.iq_filter) {
-            if (c_vars.rawFormat == InputFormatType::IQ_UINT8_RTL_SDR) {
-                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_RTL_SDR;
-            } else {
-                c_vars.pipelineOption = IQPipelineOptions::IQ_FIR;
-            }
+    if (!args.capturePath.empty() || args.captureOnly || !args.captureSeconds.empty()) {
+        if (r_vars.deviceType != InputDeviceType::SDRPLAY || args.capturePath.empty()) {
+            Log::error("Capture", "--capture requires native SDRplay and a new output file"); return RunOutcome::Failed;
         }
+        double seconds = 0;
+        if (!parse_number(args.captureSeconds, seconds) || !(seconds > 0 && seconds <= 3600)) {
+            Log::error("Capture", "--capture-seconds must be >0 and <=3600"); return RunOutcome::Failed;
+        }
+        r_vars.captureSamples = uint64_t(seconds * double(c_vars.inputRate));
+        if (!r_vars.captureSamples) { Log::error("Capture", "Duration is shorter than one sample"); return RunOutcome::Failed; }
     }
 
     // ------------------------
@@ -302,7 +348,7 @@ RunOutcome run_once(const CliArgs& args, bool quiet) {
     std::optional<bool> outcome;
     try {
         outcome = runInstanceFromPresets(c_vars, r_vars);
-    } catch (const std::invalid_argument& error) {
+    } catch (const std::exception& error) {
         Log::error("Stream1090") << error.what();
         return RunOutcome::Failed;
     }
@@ -328,7 +374,7 @@ int main(int argc, char** argv) {
 
     CliArgs args;
     if (!parse_cli(argc, argv, args)) {
-        std::cerr << "Usage: stream1090 [--device stdin|auto|airspy|rtlsdr] [-s <rate>] [-u <rate>] "
+        std::cerr << "Usage: stream1090 [--device stdin|auto|airspy|rtlsdr|sdrplay] [-s <rate>] [-u <rate>] "
                      "[-f <taps file>] [-q] [--verbose] [--debug] [-h]\n";
         return 1;
     }
@@ -341,7 +387,7 @@ int main(int argc, char** argv) {
         std::cerr << "AVR and Beast TCP ports must be different.\n";
         return 1;
     }
-    if (!args.stdoutEnabled && args.netAvrPort == 0 && args.netBeastPort == 0) {
+    if (!args.stdoutEnabled && args.netAvrPort == 0 && args.netBeastPort == 0 && !args.captureOnly) {
         std::cerr << "--no-stdout requires --net-avr-port and/or --net-beast-port.\n";
         return 1;
     }
@@ -355,6 +401,15 @@ int main(int argc, char** argv) {
     // lost and never falls back to the default action.
     ProcessSignals::install();
 
+    // Keep monitoring alive through device teardown, re-selection and retries.
+    MetricsServer metricsServer;
+    if (!args.metricsBind.empty()) {
+        if constexpr (Metrics::Enabled) {
+            if (metricsServer.start(args.metricsBind)) Metrics::registry().setSignalQualityCollection(true);
+            else Log::warn("Metrics", "Continuing without the metrics endpoint.");
+        } else Log::warn("Metrics", "This build has metrics compiled out, ignoring --metrics.");
+    }
+
     // A lost device is retried a bounded number of times, one second apart, so
     // a re-enumerating USB device has a chance to come back. One attempt
     // budget is shared per loss event and reset when a fresh loss is seen.
@@ -364,6 +419,7 @@ int main(int argc, char** argv) {
     int recoveryAttempts = 0;
 
     for (;;) {
+        if (ProcessSignals::processExitRequested()) return 0;
         if (ProcessSignals::reselectRequested()) {
             ProcessSignals::clearReselect();
             ProcessSignals::clearShutdown();
@@ -374,6 +430,7 @@ int main(int argc, char** argv) {
         }
 
         const RunOutcome runOutcome = run_once(args, recovering);
+        if (ProcessSignals::processExitRequested()) return runOutcome == RunOutcome::Failed ? 1 : 0;
 
         // A SIGHUP during the run is handled at the top of the next iteration.
         if (ProcessSignals::reselectRequested())

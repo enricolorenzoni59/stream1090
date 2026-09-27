@@ -48,11 +48,17 @@ int main() {
     check(!ProcessSignals::shutdownRequested(), "clearShutdown");
 
     // SIGINT is a plain shutdown: no re-selection.
+    ProcessSignals::handle_sigint(0);
+    check(!ProcessSignals::processExitRequested(), "internal shutdown permits recovery");
+    ProcessSignals::clearShutdown();
     std::raise(SIGINT);
     check(ProcessSignals::shutdownRequested(), "sigint stops the run");
     check(!ProcessSignals::reselectRequested(), "sigint does not reselect");
     check(probeShutdownRequested(), "sigint shutdown visible in another TU");
     check(!probeReselectRequested(), "sigint does not reselect in another TU");
+    ProcessSignals::clearShutdown(); // Simulate recovery racing with SIGINT.
+    check(ProcessSignals::processExitRequested(), "external stop survives recovery clear");
+    check(probeShutdownRequested(), "external stop still wakes every pipeline TU");
 
     // The watchdog asks for recovery through its own flag, which the
     // supervisor in main() reads in yet another translation unit.

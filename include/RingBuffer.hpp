@@ -8,6 +8,8 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
+#include <array>
 #include <mutex>
 #include <condition_variable>
 #include <algorithm>
@@ -81,6 +83,11 @@ class RingBufferAsync : public RingBufferBase<T, _BlockSize, _NumBlocks> {
     static constexpr auto BlockSize = _BlockSize;
     static constexpr auto NumBlocks = _NumBlocks;
 
+    // Single producer writes metadata before publishing a full block; the
+    // consumer reads it only while owning that published block.
+    struct Segment { uint64_t epoch = 0, scalarOffset = 0; };
+    std::array<Segment, NumBlocks> segments{};
+
     RingBufferAsync() : m_numFullBlocks(0), m_shutdown(false) {}
 
     // signals that there are numNewBlocksWritten new full blocks of data available
@@ -149,6 +156,11 @@ class RingBufferAsync : public RingBufferBase<T, _BlockSize, _NumBlocks> {
         return m_numFullBlocks;
     }
 
+    bool isShutdown() const noexcept {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_shutdown;
+    }
+
   private:
     // number of unread full blocks
     size_t m_numFullBlocks;
@@ -181,7 +193,9 @@ template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncR
         return m_numFullBlocks == 0;
     }
 
-    template <typename ProcessingFunc> void process(ProcessingFunc processingFunc) noexcept {
+    auto segment() const noexcept { return m_ring.segments[m_readBlockIndex]; }
+
+    template <typename ProcessingFunc> void process(ProcessingFunc processingFunc) {
         if (m_numFullBlocks > 0) {
             processingFunc(m_ring.begin(m_readBlockIndex));
             m_readBlockIndex = (m_readBlockIndex + 1) % NumBlocks;
@@ -197,8 +211,11 @@ template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncR
 
 template <typename T> class IAsyncWriter {
   public:
+    virtual ~IAsyncWriter() = default;
     virtual size_t write(const T* newData, size_t n) = 0;
     virtual void shutdown() = 0;
+    // Unsupported writers fail closed. Units are scalar elements, not IQ pairs.
+    virtual bool discontinuity(uint64_t /*missingScalars*/) { return false; }
 };
 
 template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncWriter : public IAsyncWriter<T> {
@@ -207,11 +224,24 @@ template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncW
 
     RingBufferAsyncWriter(RingBufferType& ring) : m_ring(ring), m_writePos(0), m_numFullBlocks(0) {}
 
+    void enableSegments(bool enabled) { m_segmentsEnabled = enabled; }
+
+    bool discontinuity(uint64_t missingScalars) override {
+        if (!m_segmentsEnabled || m_ring.isShutdown()) return false;
+        // Only unpublished data is discarded. Never alter a block owned by
+        // the consumer, including when the queue is full.
+        m_writePos -= m_writePos % BlockSize;
+        m_scalarOffset += missingScalars;
+        ++m_epoch;
+        return true;
+    }
+
     size_t write(const T* newData, size_t n) override {
         constexpr size_t bufferSize = BlockSize * NumBlocks;
         size_t remaining = n;
 
         while (remaining > 0) {
+            if (m_ring.isShutdown()) break;
 
             // Compute used/free based on local state
             size_t usedElems = (m_numFullBlocks * BlockSize) + (m_writePos % BlockSize);
@@ -225,7 +255,7 @@ template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncW
                 if (new_numFullBlocks == NumBlocks) {
                     // there are no new free blocks, the buffer is shutting down
                     // we bail out too
-                    remaining = 0;
+                    break;
                 } else {
                     m_numFullBlocks = new_numFullBlocks;
                 }
@@ -237,6 +267,14 @@ template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncW
 
             const size_t writeBlockOffset = m_writePos % BlockSize;
             const size_t numNewFullBlocks = (writeBlockOffset + numToWrite) / BlockSize;
+
+            // Tag each newly started block before commit publishes its data.
+            for (size_t offset = writeBlockOffset ? BlockSize - writeBlockOffset : 0;
+                 offset < numToWrite; offset += BlockSize) {
+                const auto block = ((m_writePos + offset) / BlockSize) % NumBlocks;
+                m_ring.segments[block] = {m_epoch, m_scalarOffset + offset};
+            }
+            m_scalarOffset += numToWrite;
 
             // Perform the write
             m_ring.write(m_writePos, newData, numToWrite);
@@ -251,7 +289,7 @@ template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncW
             remaining -= numToWrite;
         }
 
-        return n;
+        return n - remaining;
     }
 
     size_t finishLastBlock(const T& paddingValue = T{}) {
@@ -273,6 +311,8 @@ template <typename T, size_t BlockSize, size_t NumBlocks> class RingBufferAsyncW
 
   private:
     RingBufferType& m_ring;
+    bool m_segmentsEnabled = false;
+    uint64_t m_epoch = 0, m_scalarOffset = 0;
     size_t m_writePos;      // element index in [0, NumBlocks*BlockSize)
     size_t m_numFullBlocks; // local copy of full blocks
 };

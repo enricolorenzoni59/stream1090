@@ -14,6 +14,8 @@
 #include <istream>
 #include <memory>
 #include <unistd.h>
+#include <bit>
+#include <stdexcept>
 
 #include "InputReaderBase.hpp"
 template <typename RawFormat, size_t InputBufferSize, typename Pipeline>
@@ -45,7 +47,7 @@ class InputStdStreamReader : public InputReaderBase<RawFormat, InputBufferSize, 
                 if (n < 0) {
                     if (errno == EINTR)
                         continue;
-                    break;
+                    throw std::runtime_error("Input read failed");
                 }
                 if (n == 0)
                     break;
@@ -58,8 +60,15 @@ class InputStdStreamReader : public InputReaderBase<RawFormat, InputBufferSize, 
         }
 
         if (bytesRead < std::streamsize(NumBytesToRead)) {
+            if (bytesRead % (2 * sizeof(RawType)) != 0)
+                throw std::runtime_error("Input ends in the middle of a sample pair");
             std::memset(reinterpret_cast<char*>(m_buffer.get()) + bytesRead, 0, NumBytesToRead - bytesRead);
             m_eof = true;
+        }
+
+        if constexpr (sizeof(RawType) == 2 && std::endian::native == std::endian::big) {
+            auto* bytes = reinterpret_cast<unsigned char*>(m_buffer.get());
+            for (size_t i = 0; i < NumBytesToRead; i += 2) std::swap(bytes[i], bytes[i+1]);
         }
 
         this->processBlock(m_buffer.get(), out);

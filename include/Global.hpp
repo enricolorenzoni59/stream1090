@@ -19,6 +19,11 @@
 #endif
 
 struct GlobalOptions {
+#ifdef STREAM1090_HAVE_SDRPLAY
+    static constexpr bool NativeSdrplaySupport = true;
+#else
+    static constexpr bool NativeSdrplaySupport = false;
+#endif
 #ifdef STATS_ENABLED
     static constexpr bool StatsEnabled = (STATS_ENABLED != 0);
 #else
@@ -70,14 +75,20 @@ namespace ProcessSignals {
 // give every TU its own copy, so a delivered SIGINT would set one copy and the
 // reader would wait forever on another.
 inline std::atomic<bool> g_shutdownRequested{false};
+// An external stop is irrevocable. Recovery may clear a session shutdown, but
+// must never erase SIGINT/SIGTERM arriving during teardown or retry.
+inline std::atomic<bool> g_processExitRequested{false};
 inline std::atomic<bool> g_reselectRequested{false};
 // Set by the watchdog when the device stops delivering samples. The supervisor
 // in main() treats it as "try to recover the device" rather than "exit".
 inline std::atomic<bool> g_deviceLostRequested{false};
 
 inline bool shutdownRequested() {
-    return g_shutdownRequested.load(std::memory_order_relaxed);
+    return g_shutdownRequested.load(std::memory_order_relaxed) ||
+           g_processExitRequested.load(std::memory_order_relaxed);
 }
+
+inline bool processExitRequested() { return g_processExitRequested.load(std::memory_order_relaxed); }
 
 inline bool reselectRequested() {
     return g_reselectRequested.load(std::memory_order_relaxed);
@@ -103,7 +114,8 @@ inline void clearShutdown() {
     g_shutdownRequested.store(false, std::memory_order_relaxed);
 }
 
-inline void handle_sigint(int) {
+inline void handle_sigint(int signal) {
+    if (signal != 0) g_processExitRequested.store(true, std::memory_order_relaxed);
     g_shutdownRequested.store(true, std::memory_order_relaxed);
 }
 

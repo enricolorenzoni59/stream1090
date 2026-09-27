@@ -26,7 +26,7 @@ struct DeviceDescriptor {
 inline std::vector<DeviceDescriptor> orderDevices(std::vector<DeviceDescriptor> devices) {
     std::stable_sort(devices.begin(), devices.end(), [](const DeviceDescriptor& a, const DeviceDescriptor& b) {
         if (a.type != b.type)
-            return a.type == InputDeviceType::AIRSPY;
+            return static_cast<int>(a.type) < static_cast<int>(b.type);
         return a.serial < b.serial;
     });
     return devices;

@@ -14,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <map>
 
 template <typename T> class InputDeviceBase {
   public:
@@ -53,6 +54,9 @@ template <typename T> class InputDeviceBase {
     // it is shut down. Backends can use this to tell their driver the device
     // is gone, so a later close() does not touch a device that is not there.
     virtual void markDeviceLost() {}
+    virtual bool streamFailed() const { return false; }
+    virtual bool usesExactSampleCounter() const { return false; }
+    virtual std::map<std::string, std::string> captureMetadata() const { return {}; }
 
     // Called by device callback threads
     void markAsAlive() {
@@ -72,6 +76,11 @@ template <typename T> class InputDeviceBase {
     // count without paying the quantization of the USB transfer queue
     // (one 256 KB transfer = 131072 IQ pairs = ~55 ms at 2.4 Msps).
     void writeDataToBuffer(const T* data, size_t n) {
+        if (usesExactSampleCounter()) {
+            m_iqPairsDelivered.fetch_add(n / 2, std::memory_order_relaxed);
+            m_bufferWriter.write(data, n);
+            return;
+        }
         const auto now = std::chrono::steady_clock::now();
         const uint64_t pairs = m_iqPairsDelivered.fetch_add(n / 2, std::memory_order_relaxed) + n / 2;
 

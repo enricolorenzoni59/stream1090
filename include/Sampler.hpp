@@ -20,6 +20,8 @@ enum SampleRate {
     Rate_3_2_Mhz = 3200000,
     Rate_4_0_Mhz = 4000000,
     Rate_6_0_Mhz = 6000000,
+    Rate_7_0_Mhz = 7000000,
+    Rate_9_0_Mhz = 9000000,
     Rate_8_0_Mhz = 8000000,
     Rate_10_0_Mhz = 10000000,
     Rate_12_0_Mhz = 12000000,

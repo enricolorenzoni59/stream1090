@@ -45,5 +45,6 @@ std::optional<bool> runPresetGroup(const Tuple& groupPresets,
 
 #if !defined(STREAM1090_CUSTOM_INPUT) || !STREAM1090_CUSTOM_INPUT
 std::optional<bool> runRtlSdrPresets(const CompileTimeVars&, const RuntimeVars&);
+std::optional<bool> runSigned16Presets(const CompileTimeVars&, const RuntimeVars&);
 std::optional<bool> runAirspyPresets(const CompileTimeVars&, const RuntimeVars&);
 #endif

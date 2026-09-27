@@ -23,29 +23,33 @@
 struct RatePair {
     SampleRate in;
     SampleRate out;
+    InputFormatType format;
 };
 
-inline std::vector<RatePair> collect_rate_pairs() {
+inline std::vector<RatePair> collect_rate_pairs(std::optional<InputFormatType> format = std::nullopt) {
     std::vector<RatePair> pairs;
-    std::apply([&](auto... p) { ((pairs.push_back({decltype(p)::inputRate, decltype(p)::outputRate})), ...); },
+    std::apply([&](auto... p) { ((pairs.push_back({decltype(p)::inputRate, decltype(p)::outputRate, decltype(p)::RawFormatType::id})), ...); },
                presets);
+
+    if (format) std::erase_if(pairs, [&](const auto& p) { return p.format != *format; });
 
     std::sort(pairs.begin(), pairs.end(), [](auto& a, auto& b) {
         if (a.in != b.in)
             return (int)a.in < (int)b.in;
-        return (int)a.out < (int)b.out;
+        if (a.out != b.out) return (int)a.out < (int)b.out;
+        return a.format < b.format;
     });
 
     pairs.erase(
-        std::unique(pairs.begin(), pairs.end(), [](auto& a, auto& b) { return a.in == b.in && a.out == b.out; }),
+        std::unique(pairs.begin(), pairs.end(), [](auto& a, auto& b) { return a.in == b.in && a.out == b.out && a.format == b.format; }),
         pairs.end());
 
     return pairs;
 }
 
 // The highest upsample offered for an input rate.
-inline std::optional<SampleRate> find_default_output_rate(SampleRate input) {
-    auto pairs = collect_rate_pairs();
+inline std::optional<SampleRate> find_default_output_rate(SampleRate input, std::optional<InputFormatType> format = std::nullopt) {
+    auto pairs = collect_rate_pairs(format);
     std::optional<SampleRate> best;
     for (auto& p : pairs) {
         if (p.in == input && (!best || (int)p.out > (int)*best))
@@ -54,8 +58,8 @@ inline std::optional<SampleRate> find_default_output_rate(SampleRate input) {
     return best;
 }
 
-inline bool is_valid_rate_pair(SampleRate in, SampleRate out) {
-    auto pairs = collect_rate_pairs();
+inline bool is_valid_rate_pair(SampleRate in, SampleRate out, std::optional<InputFormatType> format = std::nullopt) {
+    auto pairs = collect_rate_pairs(format);
     for (auto& p : pairs) {
         if (p.in == in && p.out == out)
             return true;
@@ -63,8 +67,8 @@ inline bool is_valid_rate_pair(SampleRate in, SampleRate out) {
     return false;
 }
 
-inline bool has_input_rate(SampleRate in) {
-    auto pairs = collect_rate_pairs();
+inline bool has_input_rate(SampleRate in, std::optional<InputFormatType> format = std::nullopt) {
+    auto pairs = collect_rate_pairs(format);
     for (auto& p : pairs) {
         if (p.in == in)
             return true;
@@ -89,6 +93,8 @@ inline bool match_sample_rate(int hz, SampleRate& out) {
     case Rate_3_0_Mhz:
     case Rate_3_2_Mhz:
     case Rate_4_0_Mhz:
+    case Rate_7_0_Mhz:
+    case Rate_9_0_Mhz:
     case Rate_6_0_Mhz:
     case Rate_8_0_Mhz:
     case Rate_10_0_Mhz:
@@ -121,7 +127,7 @@ inline void print_rate_pairs() {
 #if defined(STREAM1090_CUSTOM_INPUT) && STREAM1090_CUSTOM_INPUT
         std::string fmt = "float32 IQ";
 #else
-        std::string fmt = (p.in < 6'000'000) ? "uint8 IQ" : "uint16 IQ";
+        std::string fmt = inputFormatName(p.format);
 #endif
         std::cout << "  " << (float(p.in) / 1'000'000.0f) << "  →  " << (float(p.out) / 1'000'000.0f) << " (" << fmt
                   << ")\n";
@@ -138,7 +144,11 @@ inline SampleRate parse_sample_rate(const std::string& raw) {
 
     float mhz = 0.0f;
     try {
-        mhz = std::stof(s);
+        if (s.empty() || s.find_first_not_of("0123456789+-.eE") != std::string::npos)
+            throw std::invalid_argument("rate");
+        size_t consumed = 0;
+        mhz = std::stof(s, &consumed);
+        if (consumed != s.size() || !(mhz > 0 && mhz <= 100)) throw std::invalid_argument("rate");
     } catch (...) {
         Log::error("Stream1090") << "Invalid sample rate: " << raw;
         std::exit(1);

@@ -7,6 +7,7 @@
 #pragma once
 
 #include "Sampler.hpp"
+#include "devices/SdrplaySettings.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -14,7 +15,7 @@
 
 // The native input backends. STREAM is not a device but stdin, NONE is only a
 // placeholder for the "no backend compiled" default.
-enum class InputDeviceType { STREAM, AIRSPY, RTLSDR, NONE };
+enum class InputDeviceType { STREAM, AIRSPY, RTLSDR, SDRPLAY, NONE };
 
 // Closed-loop crystal calibration. Only the RTL-SDR backend uses it today, and
 // it is off unless explicitly requested.
@@ -33,6 +34,7 @@ struct AutoPpmConfig {
 // distinguishable from "explicitly set to the default value" and the defaults
 // below can fill only the holes. Precedence is: defaults < command line.
 struct DeviceConfig {
+    SdrplaySettings sdrplay;
     uint32_t frequencyHz = 1090000000;
     bool biasTee = false;
     std::optional<std::string> serial;

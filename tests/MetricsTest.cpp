@@ -232,5 +232,17 @@ int main() {
     server.stop();
     server.stop(); // idempotent
 
+    // Same decoder, then a fresh decoder after recovery: totals never decrease
+    // and publishing an unchanged snapshot must not count its frames twice.
+    auto previous = counters;
+    counters.sent[17] += 2;
+    reg.publishDemod(counters, previous);
+    reg.publishDemod(counters, counters);
+    if (reg.demodSent[17].load() != 7) return 70;
+    Stats::Counters newSession{};
+    newSession.sent[17] = 3;
+    reg.publishDemod(newSession);
+    if (reg.demodSent[17].load() != 10) return 71;
+
     return 0;
 }

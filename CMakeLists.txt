@@ -33,8 +33,8 @@ option(ENABLE_UNROLL      "Ask the compiler to unroll the DSP loops" ON)
 set(ENABLE_PGO "off" CACHE STRING "Profile guided optimization: off, generate or use")
 set_property(CACHE ENABLE_PGO PROPERTY STRINGS off generate use)
 
-# Explicit CPU to tune for. Only used when ENABLE_NATIVE_ARCH cannot be applied
-# (cross compiling, or a compiler that does not understand -mcpu=native).
+# Explicit CPU to tune for. Takes precedence over native host tuning, including
+# when building on another machine with the same architecture.
 # Useful values on ARM: cortex-a76 (Pi 5), cortex-a72 (Pi 4), cortex-a53 (Pi 3 / Zero 2 W)
 set(STREAM1090_CPU "" CACHE STRING "Explicit CPU for -mcpu=/-mtune= (e.g. cortex-a76)")
 
@@ -99,7 +99,7 @@ endfunction()
 
 set(CPU_FLAG_APPLIED FALSE)
 
-if(ENABLE_NATIVE_ARCH AND NOT CMAKE_CROSSCOMPILING)
+if(ENABLE_NATIVE_ARCH AND NOT CMAKE_CROSSCOMPILING AND NOT STREAM1090_CPU)
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm)")
         stream1090_try_flag(-mcpu=native CPU_FLAG_APPLIED)
     else()
@@ -256,6 +256,29 @@ set(DEVICE_LIBS "")
 set(DEVICE_INCLUDE_DIRS "")
 set(DEVICE_DEFINITIONS "")
 
+option(ENABLE_SDRPLAY "Build native RSP1B support (requires separately installed SDRplay API >=3.15)" ON)
+if(ENABLE_SDRPLAY)
+    find_path(SDRPLAY_INCLUDE_DIR sdrplay_api.h)
+    find_library(SDRPLAY_LIBRARY NAMES sdrplay_api)
+    if(NOT SDRPLAY_INCLUDE_DIR OR NOT SDRPLAY_LIBRARY)
+        message(FATAL_ERROR "ENABLE_SDRPLAY requires vendor API headers and library; set SDRPLAY_INCLUDE_DIR and SDRPLAY_LIBRARY, or configure -DENABLE_SDRPLAY=OFF to build without SDRplay")
+    endif()
+    include(CheckCXXSourceCompiles)
+    set(CMAKE_REQUIRED_INCLUDES ${SDRPLAY_INCLUDE_DIR})
+    check_cxx_source_compiles("#include <sdrplay_api.h>
+static_assert(SDRPLAY_API_VERSION >= 3.15f);
+int main() { return SDRPLAY_RSP1B_ID == 0; }" SDRPLAY_HAS_RSP1B)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    if(NOT SDRPLAY_HAS_RSP1B)
+        message(FATAL_ERROR "SDRplay API headers must support RSP1B (3.15 or newer)")
+    endif()
+    list(APPEND DEVICE_SOURCES src/devices/SdrplayDevice.cpp)
+    list(APPEND DEVICE_LIBS ${SDRPLAY_LIBRARY})
+    list(APPEND DEVICE_INCLUDE_DIRS ${SDRPLAY_INCLUDE_DIR})
+    list(APPEND DEVICE_DEFINITIONS STREAM1090_HAVE_SDRPLAY=1)
+endif()
+
+
 # --- Airspy --------------------------------------------------
 pkg_check_modules(AIRSPY QUIET libairspy)
 if(AIRSPY_FOUND)
@@ -383,10 +406,29 @@ function(stream1090_add_test target source)
 endfunction()
 
 if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND AND NOT ENABLE_CUSTOM_INPUT)
+        add_test(NAME sdrplay_abba_test COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/SdrplayAbbaTest.py)
+        add_test(NAME signed16_replay_test COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/Signed16ReplayTest.py $<TARGET_FILE:stream1090>)
+    endif()
+    stream1090_add_test(device_session_test tests/DeviceSessionTest.cpp)
+    target_link_libraries(device_session_test PRIVATE Threads::Threads)
+    set_tests_properties(device_session_test PROPERTIES TIMEOUT 10)
+    stream1090_add_test(input_profiles_test tests/InputProfilesTest.cpp)
+    stream1090_add_test(raw_capture_test tests/RawCaptureTest.cpp)
+    stream1090_add_test(sdrplay_device_test tests/SdrplayDeviceTest.cpp)
+    target_sources(sdrplay_device_test PRIVATE src/devices/SdrplayDevice.cpp)
+    target_include_directories(sdrplay_device_test BEFORE PRIVATE tests/mock_sdrplay)
+
     stream1090_add_test(crc_error_table_test tests/CRCErrorTableTest.cpp)
     stream1090_add_test(icao_cache_test tests/ICAOCacheTest.cpp)
     stream1090_add_test(df11_interrogator_test tests/DF11InterrogatorTest.cpp)
     stream1090_add_test(ring_buffer_test tests/RingBufferTest.cpp)
+    stream1090_add_test(input_segments_test tests/InputSegmentsTest.cpp)
+    target_link_libraries(input_segments_test PRIVATE Threads::Threads)
+    set_tests_properties(ring_buffer_test input_segments_test PROPERTIES TIMEOUT 20)
     stream1090_add_test(erasure_repair_test tests/ErasureRepairTest.cpp)
     stream1090_add_test(low_pass_filter_test tests/LowPassFilterTest.cpp)
     stream1090_add_test(sampler_test tests/SamplerTest.cpp)

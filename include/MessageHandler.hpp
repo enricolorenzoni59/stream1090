@@ -29,7 +29,7 @@ template <typename Sampler> class StdOutMessageHandler {
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
         StreamCounters::decodedShort.fetch_add(1, std::memory_order_relaxed);
-        const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
+        const uint64_t MLAT_timeStamp = m_timestampOffset + MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         if (m_stdoutEnabled)
             m_writer.write_short_MLAT(MLAT_timeStamp, frame);
         if (m_tcpServer)
@@ -38,11 +38,18 @@ template <typename Sampler> class StdOutMessageHandler {
 
     void handleLong(uint64_t sampleIndex, const Bits128& frame) {
         StreamCounters::decodedLong.fetch_add(1, std::memory_order_relaxed);
-        const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
+        const uint64_t MLAT_timeStamp = m_timestampOffset + MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         if (m_stdoutEnabled)
             m_writer.write_long_MLAT(MLAT_timeStamp, frame);
         if (m_tcpServer)
             m_tcpServer->tryPublish(ModeSFrame::longFrame(MLAT_timeStamp, frame, 0, false));
+    }
+
+    void setInputSampleOffset(uint64_t samples) {
+        // Avoid overflow for long-running receivers. Rounding is less than
+        // one 12 MHz tick, including input rates that do not divide 12 MHz.
+        m_timestampOffset = (samples / Sampler::InputSampleRate) * 12000000ULL
+            + (samples % Sampler::InputSampleRate) * 12000000ULL / Sampler::InputSampleRate;
     }
 
     void flush() {
@@ -50,6 +57,7 @@ template <typename Sampler> class StdOutMessageHandler {
             m_writer.flush();
     }
 
+    uint64_t m_timestampOffset = 0;
     AVRWriter m_writer;
     bool m_stdoutEnabled;
     TcpOutputServer* m_tcpServer;
@@ -68,7 +76,7 @@ template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
 
     void handleShort(uint64_t sampleIndex, const uint64_t frame) {
         StreamCounters::decodedShort.fetch_add(1, std::memory_order_relaxed);
-        const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
+        const uint64_t MLAT_timeStamp = m_timestampOffset + MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSIShort();
         Metrics::registry().rssiRatio.observe(double(rssi) / 255.0, Metrics::RssiRatioBounds);
         if (m_stdoutEnabled)
@@ -79,7 +87,7 @@ template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
 
     void handleLong(uint64_t sampleIndex, const Bits128& frame) {
         StreamCounters::decodedLong.fetch_add(1, std::memory_order_relaxed);
-        const uint64_t MLAT_timeStamp = MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
+        const uint64_t MLAT_timeStamp = m_timestampOffset + MLAT::sampleIndexToMlatTime<Sampler::NumStreams>(sampleIndex);
         const uint8_t rssi = rssiProvider.getRSSILong();
         Metrics::registry().rssiRatio.observe(double(rssi) / 255.0, Metrics::RssiRatioBounds);
         if (m_stdoutEnabled)
@@ -88,12 +96,20 @@ template <typename Sampler, RssiProvider R> class RssiStdOutMessageHandler {
             m_tcpServer->tryPublish(ModeSFrame::longFrame(MLAT_timeStamp, frame, rssi, true));
     }
 
+    void setInputSampleOffset(uint64_t samples) {
+        // Avoid overflow for long-running receivers. Rounding is less than
+        // one 12 MHz tick, including input rates that do not divide 12 MHz.
+        m_timestampOffset = (samples / Sampler::InputSampleRate) * 12000000ULL
+            + (samples % Sampler::InputSampleRate) * 12000000ULL / Sampler::InputSampleRate;
+    }
+
     void flush() {
         if (m_stdoutEnabled)
             m_writer.flush();
     }
 
   private:
+    uint64_t m_timestampOffset = 0;
     AVRWriter m_writer;
     const R& rssiProvider;
     bool m_stdoutEnabled;

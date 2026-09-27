@@ -23,6 +23,7 @@ enum class InputFormatType {
     IQ_UINT8_RTL_SDR,     // 8 bit
     IQ_UINT16_RAW_AIRSPY, // 12 bit
     IQ_INT16_ANTSDR,      // 12 bit
+    IQ_INT16_FULL_SCALE, // complex signed-16, full scale 32768
     IQ_FLOAT32            // float
 };
 
@@ -81,6 +82,24 @@ struct IQ_INT16_ANTSDR {
         return int16_t(int32_t(v) * (SampleOne / 2048));
     }
 };
+
+struct IQ_INT16_FULL_SCALE {
+    using RawType = int16_t;
+    static constexpr InputFormatType id = InputFormatType::IQ_INT16_FULL_SCALE;
+    static inline float convertScalar(int16_t v) noexcept { return float(v) / 32768.0f; }
+    static inline int16_t convertFixed(int16_t v) noexcept { return int16_t(v / 2); }
+};
+
+inline const char* inputFormatName(InputFormatType format) {
+    switch (format) {
+    case InputFormatType::IQ_UINT8_RTL_SDR: return "cu8";
+    case InputFormatType::IQ_UINT16_RAW_AIRSPY: return "airspy-u12-real";
+    case InputFormatType::IQ_INT16_ANTSDR: return "cs12";
+    case InputFormatType::IQ_INT16_FULL_SCALE: return "cs16";
+    case InputFormatType::IQ_FLOAT32: return "cf32";
+    }
+    return "unknown";
+}
 
 struct IQ_FLOAT32 {
     using RawType = float;

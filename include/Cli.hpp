@@ -11,11 +11,20 @@
 #include <iostream>
 #include <string>
 #include <type_traits>
+#include <limits>
+#include <cmath>
+#include <bit>
 
 // Everything the command line can set. Numeric device fields stay as strings
 // here and are validated when the DeviceConfig is built, so a typo is reported
 // against the exact flag the user typed.
 struct CliArgs {
+    std::string inputFormat;
+    std::string capturePath;
+    std::string captureSeconds;
+    bool captureOnly = false;
+    std::string sdrplayIfGr, sdrplayLnaState, sdrplayBandwidth, sdrplayAdsbMode, sdrplayUsbMode;
+    bool sdrplayRfNotch = false, sdrplayDabNotch = false;
     std::string sampleRate = "";
     std::string upsampleRate = "";
     std::string tapsFile = "";
@@ -98,10 +107,17 @@ template <typename T> bool parse_number(const std::string& value, T& out) {
             const long long parsed = std::stoll(value, &pos, 0);
             if (pos != value.size())
                 return false;
+            if constexpr (std::is_unsigned_v<T>) {
+                if (parsed < 0 || static_cast<unsigned long long>(parsed) > std::numeric_limits<T>::max()) return false;
+            } else if (parsed < std::numeric_limits<T>::min() || parsed > std::numeric_limits<T>::max()) return false;
             out = static_cast<T>(parsed);
         } else {
+            // Reject non-decimal spellings before forming a float: fast-math
+            // can optimize away even bit tests on a value assumed finite.
+            if (value.empty() || value.find_first_not_of("0123456789+-.eE") != std::string::npos) return false;
             const float parsed = std::stof(value, &pos);
-            if (pos != value.size())
+            // Bit test stays correct even with the DSP build's -ffast-math.
+            if (pos != value.size() || (std::bit_cast<uint32_t>(parsed) & 0x7f800000u) == 0x7f800000u)
                 return false;
             out = static_cast<T>(parsed);
         }
@@ -235,6 +251,17 @@ inline bool parse_cli(int argc, char** argv, CliArgs& out) {
         }
 
         // ---- device selection and configuration ----
+        if (arg == "--input-format") { if (!take(out.inputFormat)) return unknown_argument(arg); continue; }
+        if (arg == "--capture") { if (!take(out.capturePath)) return unknown_argument(arg); continue; }
+        if (arg == "--capture-seconds") { if (!take(out.captureSeconds)) return unknown_argument(arg); continue; }
+        if (arg == "--capture-only") { out.captureOnly = true; continue; }
+        if (arg == "--sdrplay-if-gr") { if (!take(out.sdrplayIfGr)) return unknown_argument(arg); continue; }
+        if (arg == "--sdrplay-lna-state") { if (!take(out.sdrplayLnaState)) return unknown_argument(arg); continue; }
+        if (arg == "--sdrplay-bandwidth") { if (!take(out.sdrplayBandwidth)) return unknown_argument(arg); continue; }
+        if (arg == "--sdrplay-adsb-mode") { if (!take(out.sdrplayAdsbMode)) return unknown_argument(arg); continue; }
+        if (arg == "--sdrplay-usb-mode") { if (!take(out.sdrplayUsbMode)) return unknown_argument(arg); continue; }
+        if (arg == "--sdrplay-rf-notch") { if (!takeBoolean(out.sdrplayRfNotch)) return unknown_argument(arg); continue; }
+        if (arg == "--sdrplay-dab-notch") { if (!takeBoolean(out.sdrplayDabNotch)) return unknown_argument(arg); continue; }
         if (arg == "--device") {
             if (!take(out.device))
                 return unknown_argument(arg);
