@@ -44,7 +44,53 @@ This functionality is still present in stream1090 and will not be deprecated for
     ```
     **Important:** We use here ```-t 4``` which tells ```airspy_rx``` to output a single U16_REAL sample at 12Msps. Stream1090 works usually on an IQ pair basis. So an input sample rate of ```-s 6``` means, it is expecting pairs not single values. That is why we use ```-a 12000000```, because 2 x 6 Msps = 12 Msps. You also want to replace the gain setting with your own.  
 
-TODO: insert socat example
+3. The libiio way (AntSDR / PlutoSDR):
+    Devices running on the `libiio` framework bring an agile RF frontend capable of setting almost any arbitrary sampling rate. However, `stream1090` requires its sample rates and upsample rates to be **known at compile time** to maintain its hyper-optimized DSP performance loops.
+
+    Using the `stdin` pipeline allows us to program the remote hardware over network URIs while keeping the processing host-side. The following wrapper script programs the remote registers, sets the optional filter flag (default is off), and forwards the decoded stream via `socat`:
+
+    ```bash
+    #!/bin/bash
+
+    # Check if a sampling speed argument was provided
+    if [ -z "$1" ] || [ -z "$3" ]; then
+        echo "Usage: ./start_with.sh <sampling_rate_in_mhz> <upsampling_factor> <hardware_gain_db> [enable_filter=0/1]"
+        echo "Example: ./start_with.sh 4 1 60"
+        exit 1
+    fi
+
+    SPEED_MHZ=$1
+    SPEED_UP=$2
+    GAIN_DB=$3
+
+    # Optional filter flag configuration (Default: off)
+    ENABLE_FILTER=${4:-0}
+    FILTER_FLAG=""
+    if [ "$ENABLE_FILTER" -eq 1 ]; then
+        FILTER_FLAG="-q"
+    fi
+
+    SPEED_HZ=$((SPEED_MHZ * 1000000))
+    ANT_IP="192.168.178.35"
+    PI_IP="raspberrypi"
+
+    echo "[Local Wrapper] Configuring AntSDR ($ANT_IP) to ${SPEED_MHZ} MHz..."
+
+    # Remotely program the AD9361 registers over network URI
+    iio_attr -u "ip:$ANT_IP" -i -c ad9361-phy voltage0 sampling_frequency $SPEED_HZ
+    iio_attr -u "ip:$ANT_IP" -o -c ad9361-phy altvoltage0 frequency 1090000000
+    iio_attr -u "ip:$ANT_IP" -i -c ad9361-phy voltage0 gain_control_mode manual
+    iio_attr -u "ip:$ANT_IP" -i -c ad9361-phy voltage0 hardwaregain $GAIN_DB
+
+    echo "[Local Wrapper] Starting streaming pipeline to local stream1090..."
+
+    # Pull remote network bytes -> parse on local host -> socket out via socat to Pi
+    iio_readdev -u "ip:$ANT_IP" -b 8388608 cf-ad9361-lpc voltage0 voltage1 | \
+      ./build/stream1090 -v -s $SPEED_MHZ -u $SPEED_UP $FILTER_FLAG | \
+      socat -u - TCP4:$PI_IP:30001
+    ```
+
+    **Important:** Because your sample rates and upsample rates are locked down at compile time, passing a `-s` parameter that does not match what your binary was compiled for will fail to process properly. The wrapper script ensures that your agile hardware is always locked into your exact binary specifications before processing begins.
 
 ## Prometheus Metrics
 stream1090 can expose a scrape endpoint for Prometheus. It is compiled in by
@@ -138,7 +184,7 @@ encoding is currently treated as unavailable. Gillham values are checked
 against an altitude already established by Q=1 replies and cannot replace that
 reference value.
 
-DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interrogator code. Stream1090 accepts these replies for known aircraft. A new ICAO address is added to the cache only after two matching DF11 replies separated in time, so phase duplicates or a single low CRC syndrome cannot seed the cache.
+DF11 all-call replies may overlay the CRC parity with a non-zero II/SI interrogator code. Stream1090 accepts these replies for known aircraft. A first clean DF11 or DF17 sighting enters the cache as untrusted; the address becomes trusted only after a matching sighting between 100 microseconds and 30 seconds later. Interrogator-overlaid DF11 replies require two sightings of the same address between 100 microseconds and two seconds apart; the II/SI codes may differ, and an existing untrusted cache entry does not bypass confirmation. ICAO address `000000` is always discarded.
 
 The first CRC-clean DF17/18/19 sighting of an unknown ICAO address is retained
 only as internal confirmation evidence. A later clean sighting makes the
@@ -146,6 +192,20 @@ aircraft trusted and is emitted at its current RF timestamp; the retained first
 sighting is never emitted retroactively, so output timestamps remain ordered.
 
 For DF0/4/5/16/20/21 address-parity replies, altitude and squawk checks normally reject implausible values. A rejected frame from an already active ICAO address is nevertheless accepted after the identical complete frame is received again between 100 microseconds and two seconds later. The first observation is withheld, short and long frames cannot confirm each other, and cache collisions can only discard a candidate. Corroborated Gillham or unsupported metric altitude replies do not update the stored altitude reference.
+
+### Plausibility regressions (covered)
+
+The following three CTest targets pin down three previously-open bugs around DF17/18/19/11 trust and address plausibility. Each is now fixed in production code; the tests exercise the fix end to end together with a positive control proving the surrounding, unrelated behavior still works.
+
+Build with `-DBUILD_TESTING=ON` as usual, then run just these three:
+
+```
+ctest -R "df18_fine_tisb_regression_test|df19_repair_trust_regression_test|df11_pi_icao_bypass_regression_test" --output-on-failure
+```
+
+- `df18_fine_tisb_regression_test`: `Plausibility::checkDF17()` used to be applied to every extended squitter reaching the first-sighting insert, DF18 included. On DF18 the same bit position holds CF (Control Field), not DF17's CA (transponder capability); CF=2 ("Fine TIS-B Message", a genuine ICAO address, see readsb's `mode_s.c`, `decodeExtendedSquitter()`) falls in the range `checkDF17()` rejects for CA. `handleExtSquitterLongMessage()` now applies `checkDF17()` only to native DF17 at this insertion point (converted DF19 frames are emitted or rejected earlier -- see below); a DF18 CF=2 report goes through `checkICAO()` alone and can earn trust like before. Residual limitation, not addressed by this fix: DF18 CF=1 and CF=5 reports, and CF=2/3 with IMF=1, carry non-ICAO addresses (anonymous, or a 12-bit Mode-A code plus track-file number) rather than a 24-bit ICAO address; stream1090's cache is keyed on ICAO addresses and does not distinguish these cases from an ordinary ICAO-addressed report. This was true before this fix and remains true after it.
+- `df19_repair_trust_regression_test`: the DF19-to-DF17 promotion (flip bit 108, adjust the CRC, treat a crc==0 result as a clean squitter) used to reach the same "not known" trust door a genuinely clean DF17 uses, with nothing distinguishing a guessed repair from an actual clean reception. `handleExtSquitterLongMessage()` now records whether a frame arrived as DF19 before the promotion overwrites `downlinkFormat`, and a frame that only reaches crc==0 by way of that guess no longer seeds or confirms trust for an address that is not already trusted (case A: a repeated, structurally-plausible DF19-shaped signal for a brand-new address emits nothing and leaves no trust-candidate behind for a later clean reception to complete). Recovery for an address already trusted through clean DF17 sightings is unaffected and still emits the corrected, original DF17 frame (case B).
+- `df11_pi_icao_bypass_regression_test`: specific to this branch (not upstream). Every other insertion point (DF17's own first-sighting insert, DF11's own crc==0 first-sighting and confirmed-second-sighting inserts, and the shared helper the crc==0 path funnels through) calls `Plausibility::checkICAO()` before inserting. The DF11 `crc<80` (PI-overlaid) path's confirming second sighting used to insert and trust the address directly instead, skipping that call entirely for that one path. It now calls `checkICAO()` before a fresh insert, matching the other three insertion points; promotion of an already-known-but-untrusted entry is unaffected, since that entry was already screened at its own insertion.
 
 Important: If you want to see the statistics for the whole file and not every 5 seconds. You can enable the a summary at the end by rebuilding stream with after the following cmake call in the build directory
 ```

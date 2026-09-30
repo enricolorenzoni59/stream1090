@@ -293,6 +293,9 @@ template <SampleRate inputRate, SampleRate outputRate> class IQLowPass {
 
     /// Filters a whole block in place. This is the path the input reader takes.
     void applyBlock(int16_t* __restrict I, int16_t* __restrict Q, size_t n) noexcept {
+        if (isIdentityFallback)
+            return;
+
         alignas(32) int16_t workI[WorkSize];
         alignas(32) int16_t workQ[WorkSize];
 
@@ -331,6 +334,7 @@ template <SampleRate inputRate, SampleRate outputRate> class IQLowPass {
     static constexpr auto bufferSize = std::bit_ceil(numTaps);
     static constexpr bool areTapsOdd = LowPassTaps::areCustomTapsOdd<inputRate, outputRate>();
     static constexpr bool areTapsSymmetric = LowPassTaps::areCustomTapsSymmetric<inputRate, outputRate>();
+    static constexpr bool isIdentityFallback = LowPassTaps::isIdentityFallback<inputRate, outputRate>();
 
     static constexpr size_t numPaddedTaps = FirDetail::padTapCount(numTaps);
 

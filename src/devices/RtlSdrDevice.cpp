@@ -525,6 +525,12 @@ bool RtlSdrDevice::setAgc(bool enabled) {
     if (recordCall("agc", enabled ? "on (digital AGC)" : "off (digital AGC)",
                    rtlsdr_set_agc_mode(m_dev, enabled ? 1 : 0)) == 0) {
         Log::info("RtlSdrDevice") << "agc: " << (m_state.agc ? "on" : "off") << " -> " << (enabled ? "on" : "off");
+        if (enabled) {
+            Log::warn("RtlSdrDevice")
+                << "agc=true enables the RTL2832U digital AGC, not the tuner AGC. "
+                   "It lifts the noise floor between pulses and usually lowers the "
+                   "Mode-S message rate; prefer agc=false with an explicit gain.";
+        }
         m_state.agc = enabled;
         return true;
     }

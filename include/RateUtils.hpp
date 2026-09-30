@@ -81,6 +81,20 @@ inline bool is_airspy_rate(SampleRate in) {
 // Non-exiting conversion from Hz to the rate enum, for integers the device
 // reports (airspy_get_samplerates returns Hz).
 inline bool match_sample_rate(int hz, SampleRate& out) {
+#if defined(STREAM1090_CUSTOM_INPUT) && STREAM1090_CUSTOM_INPUT
+    const auto candidate = static_cast<SampleRate>(hz);
+    if (has_input_rate(candidate)) {
+        out = candidate;
+        return true;
+    }
+    for (const auto& pair : collect_rate_pairs()) {
+        if (pair.out == candidate) {
+            out = candidate;
+            return true;
+        }
+    }
+    return false;
+#else
     switch (hz) {
     case Rate_1_0_Mhz:
     case Rate_2_0_Mhz:
@@ -89,8 +103,11 @@ inline bool match_sample_rate(int hz, SampleRate& out) {
     case Rate_3_0_Mhz:
     case Rate_3_2_Mhz:
     case Rate_4_0_Mhz:
+    case Rate_5_0_Mhz:
     case Rate_6_0_Mhz:
+    case Rate_7_0_Mhz:
     case Rate_8_0_Mhz:
+    case Rate_9_0_Mhz:
     case Rate_10_0_Mhz:
     case Rate_12_0_Mhz:
     case Rate_16_0_Mhz:
@@ -105,6 +122,7 @@ inline bool match_sample_rate(int hz, SampleRate& out) {
     default:
         return false;
     }
+#endif
 }
 
 inline std::string rate_mhz(SampleRate rate) {
@@ -119,7 +137,7 @@ inline void print_rate_pairs() {
     std::cout << "Supported sample rate combinations:\n";
     for (auto& p : pairs) {
 #if defined(STREAM1090_CUSTOM_INPUT) && STREAM1090_CUSTOM_INPUT
-        std::string fmt = "float32 IQ";
+        std::string fmt = "custom";
 #else
         std::string fmt = (p.in < 6'000'000) ? "uint8 IQ" : "uint16 IQ";
 #endif

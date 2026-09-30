@@ -263,8 +263,15 @@ RunOutcome run_once(const CliArgs& args, bool quiet) {
     // Format and pipeline
     // ------------------------
     if (GlobalOptions::CustomInputMode) {
-        c_vars.rawFormat = InputFormatType::IQ_FLOAT32;
-        c_vars.pipelineOption = IQPipelineOptions::NONE;
+        // this needs fixing!!!
+        c_vars.rawFormat = InputFormatType::IQ_INT16_ANTSDR;
+        if (!r_vars.filterTaps.empty()) {
+            c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_RTL_SDR_FILE;
+        } else if (args.iq_filter) {
+            c_vars.pipelineOption = IQPipelineOptions::IQ_FIR_RTL_SDR;
+        } else {
+            c_vars.pipelineOption = IQPipelineOptions::NONE;
+        }
     } else {
         // The backend decides the raw format; for stdin it is implied by the
         // requested rate, exactly as it always was.

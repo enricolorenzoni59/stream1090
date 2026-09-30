@@ -425,6 +425,12 @@ stream1090_add_test(position_repair_test tests/PositionRepairTest.cpp)
     stream1090_add_test(tcp_output_server_test tests/TcpOutputServerTest.cpp)
     target_sources(tcp_output_server_test PRIVATE src/TcpOutputServer.cpp)
     target_link_libraries(tcp_output_server_test PRIVATE Threads::Threads)
+    stream1090_add_test(trust_gate_test tests/TrustGateTest.cpp)
+    stream1090_add_test(trust_separation_test tests/TrustSeparationTest.cpp)
+    # Regressions covering DF18/DF19/DF11-PI plausibility fixes. See README_ADV.md.
+    stream1090_add_test(df18_fine_tisb_regression_test tests/Df18FineTisbRegressionTest.cpp)
+    stream1090_add_test(df19_repair_trust_regression_test tests/Df19RepairTrustRegressionTest.cpp)
+    stream1090_add_test(df11_pi_icao_bypass_regression_test tests/Df11PiIcaoBypassRegressionTest.cpp)
     target_compile_definitions(noise_false_positive_test PRIVATE
         ${PREAMBLE_GATE_DEF}
         ${PREAMBLE_THRESHOLD_DEF}

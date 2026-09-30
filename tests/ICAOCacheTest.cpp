@@ -98,8 +98,10 @@ bool emptySlotsRejectUnknownAddresses() {
     ICAOTable table;
     constexpr uint32_t unknownWithCA = 0x5abcde1;
 
-    return !table.findWithCA(unknownWithCA).isValid() && !table.find(unknownWithCA & 0xffffffu).isValid() &&
-           table.findWithCA(0).isValid() && table.find(0).isValid();
+    return !table.findWithCA(unknownWithCA).isValid()
+        && !table.find(unknownWithCA & 0xffffffu).isValid()
+        && !table.findWithCA(0).isValid()
+        && !table.find(0).isValid();
 }
 
 bool insertedAndReplacementEntriesAreFound() {

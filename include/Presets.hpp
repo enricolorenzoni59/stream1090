@@ -30,12 +30,11 @@ template <typename RawFormat, typename Sampler, IQPipelineOptions Opt> struct Pr
     static constexpr IQPipelineOptions pipelineOption = Opt;
 };
 
+
+
 #if defined(STREAM1090_CUSTOM_INPUT) && STREAM1090_CUSTOM_INPUT
-constexpr auto presets = std::make_tuple(
-    // Custom Input
-    Preset<IQ_INT16_ANTSDR, Sampler_4_0_to_4_0_Mhz, IQPipelineOptions::NONE>{},
-    Preset<IQ_INT16_ANTSDR, Sampler_8_0_to_8_0_Mhz, IQPipelineOptions::NONE>{},
-    Preset<IQ_INT16_ANTSDR, Sampler_20_0_to_20_0_Mhz, IQPipelineOptions::NONE>{});
+#include "PresetsLoader.hpp"
+constexpr auto presets = custom_presets;
 #else
 // One tuple per device backend. They are combined into `presets` below for
 // rate-pair scanning, but dispatched from separate translation units (see

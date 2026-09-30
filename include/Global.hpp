@@ -11,7 +11,7 @@
 
 // visible to every translation unit that instantiates a sampler
 #ifndef STREAM1090_VERSION
-#define STREAM1090_VERSION "260905"
+#define STREAM1090_VERSION "260930_happy_birthday"
 #endif
 
 #ifndef STREAM1090_GIT_COMMIT
