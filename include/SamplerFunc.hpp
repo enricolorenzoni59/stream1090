@@ -18,6 +18,19 @@
 #error "STREAM1090_INTERP must be 1 (linear) or 6 (sharpening cubic)"
 #endif
 
+// Sharpening parameter c of the cubic kernel (Mitchell-Netravali, b = 0).
+// 1.4 was selected on replay corpora; receivers with a different front end
+// may prefer another value, so it is a build option rather than a literal.
+#ifndef STREAM1090_SHARPENING
+#define STREAM1090_SHARPENING 1.4
+#endif
+
+// Opt-in: route 2.4 -> 8 MHz through the shared sampler so the cubic kernel
+// applies there too. Off by default, the path keeps its dedicated linear sampler.
+#ifndef STREAM1090_CUBIC_2_4_TO_8
+#define STREAM1090_CUBIC_2_4_TO_8 0
+#endif
+
 namespace SamplerFunc_details {
 
     // interpolation weight in Q16, so the generic path stays integer
@@ -65,7 +78,8 @@ namespace SamplerFunc_details {
     template<size_t RatioInput, size_t RatioOutput>
     constexpr auto makeSharpeningCubicTable() {
         constexpr double b = 0.0;
-        constexpr double c = 1.4;
+        constexpr double c = STREAM1090_SHARPENING;
+        static_assert(c >= 0.0 && c <= 3.0, "STREAM1090_SHARPENING must be within 0.0 .. 3.0");
         std::array<std::array<int32_t, 4>, RatioOutput> weights{};
         for (size_t j = 0; j < RatioOutput; ++j) {
             const double t = double(j) * double(RatioInput) / double(RatioOutput);
@@ -87,7 +101,8 @@ struct SamplerFunc {
         STREAM1090_INTERP == 6
         && ((RatioInput == 1 && RatioOutput == 5)
             || (RatioInput == 8 && RatioOutput == 25)
-            || (RatioInput == 16 && RatioOutput == 75));
+            || (RatioInput == 16 && RatioOutput == 75)
+            || (STREAM1090_CUBIC_2_4_TO_8 && RatioInput == 3 && RatioOutput == 10));
 
     static constexpr auto tbl = SamplerFunc_details::makeLinearInterpTable<RatioInput, RatioOutput>();
     static constexpr auto& k = tbl.first;
