@@ -187,6 +187,13 @@ The 2.4 → 12, 2.56 → 8 and 2.56 → 12 MHz RTL-SDR paths use a sharpening cu
 interpolation kernel by default. Configure with `-DINTERPOLATION_KERNEL=1` to
 restore linear interpolation. Other rate combinations are unaffected.
 
+Two related build options:
+
+- `-DINTERPOLATION_SHARPENING=<c>` sets the kernel's sharpening (default `1.4`,
+  valid 0.0 to 3.0), for tuning to a particular receiver.
+- `-DINTERPOLATION_CUBIC_2_4_TO_8=ON` also uses the cubic kernel on the
+  2.4 → 8 MHz path, which otherwise keeps its dedicated linear sampler.
+
 The rule of thumb here is simple: The higher the upsample rate, the more messages will be found, but at the cost of higher CPU usage.
 If you do not care about CPU usage, then use the highest upsample rate. For RTL-SDR this would be something like
 ```

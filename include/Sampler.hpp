@@ -207,7 +207,9 @@ inline void SamplerBase<Rate_2_4_Mhz, Rate_6_0_Mhz>::sample(const int32_t* __res
     }
 }
 
-// 2.4 Mhz to 8.0 Mhz (8 streams) upsampling function
+// 2.4 Mhz to 8.0 Mhz (8 streams) upsampling function. Replaced by the shared
+// sampler (and its cubic kernel) when STREAM1090_CUBIC_2_4_TO_8 is enabled.
+#if !(STREAM1090_INTERP == 6 && STREAM1090_CUBIC_2_4_TO_8)
 template<>
 inline void SamplerBase<Rate_2_4_Mhz, Rate_8_0_Mhz>::sample(const int32_t* __restrict in, int32_t* __restrict out) noexcept {
     for (size_t i = 0; i < NumBlocks; i++) {
@@ -231,6 +233,7 @@ inline void SamplerBase<Rate_2_4_Mhz, Rate_8_0_Mhz>::sample(const int32_t* __res
         out += 10;
     } 
 }
+#endif
 
 // 6.0 Mhz to 16.0 Mhz (16 streams) upsampling function
 template<>
